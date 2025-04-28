@@ -1,0 +1,5 @@
+slack_sdk
+python-dotenv
+matplotlib
+requests
+pytz
