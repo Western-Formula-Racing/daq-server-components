@@ -18,6 +18,7 @@ RUN apt-get update \
 RUN pip install --no-cache-dir \
       flask \
       influxdb-client \
+      requests \
       cantools
 
 # 5. Copy application code
