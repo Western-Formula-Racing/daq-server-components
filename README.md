@@ -26,6 +26,25 @@ Slackbot
 
 # car-to-influx (CAN Frame Listener) 8085
 
+To start the docker:
+
+``` 
+docker run --name car-to-influx \
+  --network datalink \
+  -v /home/ubuntu/car-to-influx:/app \
+  -p 8085:8085 \
+  car-to-influx:latest
+```
+
+If modification is made to the code, simply restart the container. If new package is needed, modify Dockerfile and rebuild the container
+
+```
+cd /home/ubuntu/car-to-influx
+docker build --no-cache -t car-to-influx:latest .
+```
+
+
+
 This listener accepts CAN frame(s) from the car, and write them into InfluxDB
 
 The server exposes a single HTTP endpoint for ingesting CAN messages:
@@ -288,4 +307,6 @@ Expect:
 ```
 {"status":"ok","written":30}
 ```
+
+
 
