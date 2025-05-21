@@ -6,8 +6,6 @@ from io import StringIO
 import matplotlib.pyplot as plt
 import datetime
 import pytz
-import io
-import zipfile
 
 load_dotenv()
 from slack_sdk.web import WebClient
@@ -153,53 +151,31 @@ def download_raw_sensor_data(user, web_client, sensor_name, flux_query_raw, file
         # A typical InfluxDB CSV response with no data rows will still have several lines starting with '#'
         # and a header row. So, > 4 lines usually means at least one data row or just headers.
         # A more robust check might parse the CSV, but this is a quick check.
-        try:
-            if not csv_content.strip() or len(
-                    csv_content.splitlines()) < 5:  # Assuming at least 3 metadata, 1 header, 1 data row
-                web_client.chat_postMessage(
-                    channel="C08NTG6CXL5",
-                    text=f"⚠️ <@{user}> No raw data found for `{sensor_name}` for the specified criteria to generate an archive."
-                )
-                return
-
-            # Define the name for the CSV file as it will appear inside the ZIP archive
-            csv_filename_in_zip = f"raw_data_{sensor_name}_{filename_suffix_tag}.csv"
-            # Define the name for the ZIP archive itself
-            zip_filename = f"raw_data_archive_{sensor_name}_{filename_suffix_tag}.zip"
-
-            # Create an in-memory bytes buffer to hold the ZIP file data
-            zip_buffer = io.BytesIO()
-
-            # Create a new ZIP file in the buffer
-            # zipfile.ZIP_DEFLATED enables compression
-            with zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-                # Add the CSV content to the ZIP file.
-                # csv_content should be a string; .encode('utf-8') converts it to bytes.
-                zf.writestr(csv_filename_in_zip, csv_content.encode('utf-8'))
-
-            # The zip_buffer now contains the complete ZIP file.
-            # We need to get its byte content for uploading.
-            zip_bytes = zip_buffer.getvalue()
-
-            # Upload the ZIP file
-            web_client.files_upload_v2(
-                channel="C08NTG6CXL5",
-                content=zip_bytes,  # The byte content of the ZIP file
-                filename=zip_filename,  # The filename for the uploaded ZIP archive
-                title=f"Raw data archive for {sensor_name} ({filename_suffix_tag})",
-                initial_comment=f"📄 <@{user}> Here's the raw data archive (ZIP) for `{sensor_name}`. It contains `{csv_filename_in_zip}`."
-            )
-
-        except Exception as e:
-            # It's good practice to log the actual exception for debugging
-            # import logging
-            # logging.error(f"Error processing or uploading zipped raw sensor data for {sensor_name}: {e}", exc_info=True)
-
-            print(f"Error processing or uploading zipped raw sensor data for {sensor_name}:", e)
+        if not csv_content.strip() or len(
+                csv_content.splitlines()) < 5:  # Assuming at least 3 metadata, 1 header, 1 data row
             web_client.chat_postMessage(
                 channel="C08NTG6CXL5",
-                text=f"❌ <@{user}> Failed to process or upload the zipped raw data for `{sensor_name}`. Error: {e}"
+                text=f"⚠️ <@{user}> No raw data found for `{sensor_name}` for the specified criteria to download."
             )
+            return
+
+        csv_filename = f"raw_data_{sensor_name}_{filename_suffix_tag}.csv"
+        web_client.files_upload_v2(
+            channel="C08NTG6CXL5",
+            content=csv_content.encode('utf-8'),  # Ensure content is bytes
+            filename=csv_filename,
+            title=f"Raw data for {sensor_name} ({filename_suffix_tag})",
+            initial_comment=f"📄 <@{user}> Here's the raw CSV data for `{sensor_name}`:"
+        )
+
+    except Exception as e:
+        print(f"Error downloading raw sensor data for {sensor_name}:", e)
+        web_client.chat_postMessage(
+            channel="C08NTG6CXL5",
+            text=f"❌ <@{user}> Failed to download raw CSV data for `{sensor_name}`. Error: {e}"
+        )
+
+
 def handle_sensor_plot(user, text):
     original_text = text  # Keep original text for flag checking
     download_requested = "--d" in original_text
