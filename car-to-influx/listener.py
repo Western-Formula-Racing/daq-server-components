@@ -14,7 +14,7 @@ INFLUX_TOKEN = os.getenv("INFLUX_TOKEN",
                          "s9XkBC7pKOlb92-N9M40qilmxxoBe4wrnki4zpS_o0QSVTuMSQRQBerQB9Zv0YV40tmYayuX3w4G2MNizdy3qw==")
 INFLUX_ORG = os.getenv("INFLUX_ORG", "WFR")
 INFLUX_BUCKET = os.getenv("INFLUX_BUCKET", "ourCar")
-DBC_FILE = os.getenv("DBC_FILE", "testing_data/20240129 Gen5 CAN DB.dbc")
+DBC_FILE = os.getenv("DBC_FILE", "WFR25-3.dbc")
 PORT = int(os.getenv("PORT", "8085"))
 WEBHOOK_URL = "https://hooks.slack.com/services/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"  # Hardcoded Webhook URL
 WEBHOOK_MESSAGE_INTERVAL = timedelta(minutes=1)
