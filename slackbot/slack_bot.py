@@ -18,6 +18,7 @@ from slack_sdk.socket_mode.request import SocketModeRequest
 from slack_sdk.socket_mode.response import SocketModeResponse
 from threading import Event
 
+
 processed_messages = set()
 
 # --- Slack App Configuration ---
@@ -26,6 +27,8 @@ bot_token = os.environ["SLACK_BOT_TOKEN"]
 
 web_client = WebClient(token=bot_token)
 socket_client = SocketModeClient(app_token=app_token, web_client=web_client)
+
+WEBHOOK_URL = "https://hooks.slack.com/services/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"
 
 # --- InfluxDB Configuration ---
 INFLUX_URL = "http://influxwfr:8086"
@@ -606,6 +609,8 @@ if __name__ == "__main__":
     socket_client.socket_mode_request_listeners.append(process_events)
     try:
         socket_client.connect()
+        requests.post("https://hooks.slack.com/services/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",
+                      json={"text": "Lappy on duty! :lappy:"})
         print("🟢 Bot connected and listening for messages.")
         Event().wait()
     except Exception as e:
