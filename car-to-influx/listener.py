@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, Response
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import WriteOptions
 from datetime import datetime, timezone, timedelta
-import cantools, os, logging
+import cantools
+import os
+import logging
 import requests
 from collections import deque
 import threading
+import queue  # For log streaming
+import time  # For log streaming
+import json  # For manual JSON parsing if needed
 
 # ─── CONFIG ────────────────────────────────────────────────────────────────
 INFLUX_URL = "http://3.98.181.12:8086"
@@ -35,37 +40,54 @@ packet_history = deque()
 history_lock = threading.Lock()
 MAX_HISTORY_SECONDS = 75
 
-# ─── SIGNAL DEFINITION CACHE (Inspired by CSV script) ────────────────────
-# Cache for cantools signal definition objects to reduce DBC lookups
-# Key: (message_name_str, signal_name_str), Value: signal_definition_object
+# ─── SIGNAL DEFINITION CACHE ───────────────────────────────────────────────
 signal_definition_cache = {}
-# Lock for thread-safe access to the signal_definition_cache
 signal_cache_lock = threading.Lock()
 
-# ─── LOGGER SETUP ──────────────────────────────────────────────────────────
+# ─── LOG STREAMING SETUP ───────────────────────────────────────────────────
+log_queue = queue.Queue()  # Thread-safe queue to hold log messages
+
+
+class QueueLogHandler(logging.Handler):
+    def __init__(self, log_queue_instance):
+        super().__init__()
+        self.log_queue = log_queue_instance
+        self.setFormatter(logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S"
+        ))
+
+    def emit(self, record):
+        log_entry = self.format(record)
+        self.log_queue.put(log_entry)
+
+
+# ─── FLASK APP & LOGGER SETUP ──────────────────────────────────────────────
 app = Flask(__name__)
-# Configure logging
+
 file_handler = logging.FileHandler("listener.log")
 file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(logging.Formatter(
     "%(asctime)s %(levelname)s: %(message)s [%(module)s:%(lineno)d in %(funcName)s]", datefmt="%Y-%m-%d %H:%M:%S"))
-
-# Add handler to Flask's app.logger
 app.logger.addHandler(file_handler)
-app.logger.setLevel(logging.INFO)  # Set Flask's logger to INFO
 
-# Also configure the root logger if you want general Flask/Werkzeug logs to go to the file too
-# logging.basicConfig(handlers=[file_handler], level=logging.INFO,
-#                     format='%(asctime)s %(levelname)s: %(message)s [%(name)s:%(lineno)d in %(funcName)s]',
-#                     datefmt='%Y-%m-%d %H:%M:%S')
+queue_log_handler = QueueLogHandler(log_queue)
+app.logger.addHandler(queue_log_handler)
+app.logger.setLevel(logging.INFO)
 
+werkzeug_logger = logging.getLogger('werkzeug')
+werkzeug_logger.addHandler(queue_log_handler)
+werkzeug_logger.setLevel(logging.INFO)
 
-# ─── LOAD DBC & INFLUX CLIENT ─────────────────────────────────────
+# ─── LOAD DBC & INFLUX CLIENT ─────────────────────────────────────────────
 try:
     db = cantools.database.load_file(DBC_FILE)
     app.logger.info(f"Successfully loaded DBC: {DBC_FILE}")
 except Exception as e:
     app.logger.critical(f"Failed to load DBC file: {DBC_FILE} - {e}")
+    if 'queue_log_handler' in globals():
+        log_queue.put(
+            f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} [CRITICAL] root: Failed to load DBC file: {DBC_FILE} - {e}")
     raise SystemExit(f"Failed to load DBC file: {e}")
 
 client = InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG)
@@ -73,33 +95,21 @@ write_api = client.write_api(write_options=WriteOptions(batch_size=500, flush_in
 
 
 def _bytes_from_field(data_field):
-    """
-    Converts various data field formats into a bytes object.
-    Handles lists of integers, or a space-separated string of hex/decimal numbers.
-    """
     if isinstance(data_field, list):
-        # Ensure all elements are integers before conversion
         return bytes(int(b) & 0xFF for b in data_field)
     if isinstance(data_field, str):
-        # Split string and convert each part, handling potential "0x" prefix
         return bytes(int(b, 16 if b.lower().startswith("0x") else 10) & 0xFF
                      for b in data_field.split())
     if data_field is None:
-        return b''  # Return empty bytes if data is None
+        return b''
     raise ValueError(f"Unrecognized data format for _bytes_from_field: {type(data_field)} {data_field!r}")
 
 
 def _ts_to_datetime(ts: float) -> datetime:
-    """
-    Converts a timestamp (potentially relative) to a UTC datetime object.
-    Anchors relative timestamps to the current server time on first receipt or reset.
-    """
     global _first_relative, _relative_anchor_ts, _relative_anchor_real, _last_raw_ts
-    # If timestamp is likely a full Unix timestamp (seconds since epoch)
-    if ts > 946_684_800:  # Approx 2000-01-01 in seconds
+    if ts > 946_684_800:
         return datetime.fromtimestamp(ts, timezone.utc)
 
-    # Handle relative timestamps
     current_time = datetime.now(timezone.utc)
     if _first_relative:
         _relative_anchor_real = current_time
@@ -110,7 +120,6 @@ def _ts_to_datetime(ts: float) -> datetime:
             f"Anchoring relative timestamp: real={_relative_anchor_real.isoformat()}, device_ts={_relative_anchor_ts}")
         return _relative_anchor_real
 
-    # Detect reset: if current relative ts is much smaller than last, and difference is beyond threshold
     if ts < _last_raw_ts and (_last_raw_ts - ts) > _reset_threshold.total_seconds():
         app.logger.info(f"Relative timestamp reset detected: old_ts={_last_raw_ts}, new_ts={ts}. Re-anchoring.")
         _relative_anchor_real = current_time
@@ -118,29 +127,26 @@ def _ts_to_datetime(ts: float) -> datetime:
 
     _last_raw_ts = ts
     elapsed_seconds = ts - _relative_anchor_ts
-    # Prevent negative timedelta if ts is slightly less than anchor due to clock drift or reordering
     if elapsed_seconds < 0:
         app.logger.warning(
-            f"Negative elapsed time ({elapsed_seconds}s) for relative ts {ts} against anchor {_relative_anchor_ts}. Using current time.")
-        # If the device clock seems to have jumped back significantly beyond anchor, re-anchor
-        if abs(elapsed_seconds) > _reset_threshold.total_seconds() / 2:  # Heuristic for re-anchor
+            f"Negative elapsed time ({elapsed_seconds}s) for relative ts {ts} vs anchor {_relative_anchor_ts}. Using current.")
+        if abs(elapsed_seconds) > _reset_threshold.total_seconds() / 2:
             _relative_anchor_real = current_time
             _relative_anchor_ts = ts
             app.logger.info(
                 f"Re-anchoring due to significant negative jump: real={_relative_anchor_real.isoformat()}, device_ts={_relative_anchor_ts}")
             return _relative_anchor_real
-        return _relative_anchor_real  # Default to anchor time if small negative delta
+        return _relative_anchor_real
 
     elapsed = timedelta(seconds=elapsed_seconds)
     return _relative_anchor_real + elapsed
 
 
 def send_webhook_notification():
-    """Sends a notification to the configured webhook URL."""
     try:
         payload = {"text": "CAN data listener: No data received for a while. Please check the source."}
-        response = requests.post(WEBHOOK_URL, json=payload, timeout=10)  # 10 second timeout
-        response.raise_for_status()  # Raises an HTTPError for bad responses (4XX or 5XX)
+        response = requests.post(WEBHOOK_URL, json=payload, timeout=10)
+        response.raise_for_status()
         app.logger.info("Webhook notification sent successfully.")
     except requests.exceptions.RequestException as e:
         app.logger.error(f"Webhook notification failed: {e}")
@@ -149,237 +155,211 @@ def send_webhook_notification():
 @app.route("/can", methods=["POST"])
 def ingest_can():
     global _last_successful_receipt_time, packet_history, history_lock, signal_definition_cache, signal_cache_lock
-
     current_server_time = datetime.now(timezone.utc)
+    http_payload_size_for_batch = 0
 
     try:
-        # force=True will attempt to parse JSON even if mimetype isn't application/json
+        actual_request_body_bytes = request.get_data(cache=True, as_text=False)
+        http_payload_size_for_batch = len(actual_request_body_bytes)
+    except Exception as e:
+        app.logger.error(f"Could not read request data for HTTP payload size: {e}")
+        # http_payload_size_for_batch remains 0
+
+    try:
         payload = request.get_json(force=True)
-    except Exception as e:  # Catches Werkzeug's BadRequest if JSON is malformed
-        app.logger.warning(f"Invalid JSON payload received from {request.remote_addr}: {e}")
+        if payload is None and http_payload_size_for_batch > 0:
+            app.logger.warning(
+                f"get_json returned None for a request with HTTP payload size {http_payload_size_for_batch}B from {request.remote_addr}. Raw data: {actual_request_body_bytes[:200]!r}")
+    except Exception as e:
+        app.logger.warning(
+            f"Invalid JSON payload from {request.remote_addr} (HTTP size: {http_payload_size_for_batch}B): {e}")
         return jsonify(error=f"Invalid JSON: {str(e)}"), 400
 
-    # Expecting a list of frames, or a dict with a "messages" key containing the list
     frames = payload.get("messages") if isinstance(payload, dict) else payload
-    if not isinstance(frames, list) or not frames:  # Ensure frames is a non-empty list
+    if not isinstance(frames, list):
         app.logger.warning(
-            f"Expected non-empty JSON array or 'messages' list from {request.remote_addr}. Payload: {payload}")
-        return jsonify(error="Expected non-empty JSON array or object with 'messages' list"), 400
+            f"Expected JSON array or 'messages' list from {request.remote_addr}. Payload type: {type(payload)}, HTTP size: {http_payload_size_for_batch}B.")
+        return jsonify(error="Expected JSON array or object with 'messages' list"), 400
 
-    # Webhook logic: if it's been too long since last successful receipt, send notification
     if _last_successful_receipt_time:
         if (current_server_time - _last_successful_receipt_time) > WEBHOOK_MESSAGE_INTERVAL:
             app.logger.info(
-                f"Data receipt gap detected ({(current_server_time - _last_successful_receipt_time).total_seconds()}s). Sending webhook notification.")
+                f"Data receipt gap ({(current_server_time - _last_successful_receipt_time).total_seconds()}s). Sending webhook.")
             send_webhook_notification()
-    elif not frames:  # No initial data yet, but received a (possibly empty) request
-        app.logger.info("Initial request received, but no frames to process. Webhook timer not started.")
 
-    if frames:  # Only update if we actually have frames to process
+    # Update last receipt time if we got any valid POST, even with empty frames list
+    # This helps webhook know the source is alive but just not sending data frames.
+    if http_payload_size_for_batch > 0 or frames:  # If payload was received OR frames were parsed (even if empty list now)
         _last_successful_receipt_time = current_server_time
 
-    # Update packet history for GUI status
-    num_received_frames_in_batch = len(frames)
-    total_data_size_in_batch = 0
-    for frame_content_for_stats in frames:
-        data_raw_for_stats = frame_content_for_stats.get("data")
-        try:
-            total_data_size_in_batch += len(_bytes_from_field(data_raw_for_stats))
-        except ValueError as e:
-            app.logger.warning(f"Malformed 'data' field for stats calculation: {data_raw_for_stats}, error: {e}")
-            # Continue, but this frame's data size won't be counted
+    num_received_frames_in_batch = len(frames) if frames else 0
+    total_can_data_size_in_batch = 0
+    if frames:  # Only process if frames is not None and potentially has items
+        for frame_content_for_stats in frames:
+            data_raw_for_stats = frame_content_for_stats.get("data")
+            try:
+                total_can_data_size_in_batch += len(_bytes_from_field(data_raw_for_stats))
+            except ValueError as e:
+                app.logger.warning(f"Malformed 'data' field for CAN data stats: {data_raw_for_stats}, error: {e}")
+    else:  # No frames to process (e.g. empty list received)
+        app.logger.info(
+            f"Received 0 frames to process from {request.remote_addr} (HTTP size: {http_payload_size_for_batch}B).")
 
     with history_lock:
-        packet_history.append((current_server_time, num_received_frames_in_batch, total_data_size_in_batch))
-        # Prune old entries from the deque
+        packet_history.append((current_server_time, num_received_frames_in_batch, total_can_data_size_in_batch,
+                               http_payload_size_for_batch))
         cutoff_for_deque = current_server_time - timedelta(seconds=MAX_HISTORY_SECONDS)
         while packet_history and packet_history[0][0] < cutoff_for_deque:
             packet_history.popleft()
 
-    app.logger.info(f"Received {len(frames)} frames for processing from {request.remote_addr}.")
-    points = []  # List to hold InfluxDB Point objects
+    if num_received_frames_in_batch > 0:  # Log only if frames were actually processed
+        app.logger.info(
+            f"Received {num_received_frames_in_batch} frames (CAN data: {total_can_data_size_in_batch}B, HTTP: {http_payload_size_for_batch}B) for processing from {request.remote_addr}.")
 
-    for idx, frame in enumerate(frames):
-        try:
-            # --- Process CAN ID ---
-            can_id_raw = frame.get("id")
-            if can_id_raw is None:
-                app.logger.warning(f"Frame #{idx + 1}: 'id' field missing. Skipping frame. Frame content: {frame}")
-                continue
-
-            if isinstance(can_id_raw, str):
-                can_id = int(can_id_raw, 0)  # Auto-detect base (0x for hex, etc.)
-            elif isinstance(can_id_raw, int):
-                can_id = can_id_raw  # Already an int
-            else:
-                app.logger.warning(
-                    f"Frame #{idx + 1}: 'id' field has unexpected type {type(can_id_raw)}. Value: {can_id_raw}. Skipping frame.")
-                continue
-
-            # --- Process Data ---
-            data_raw = frame.get("data")  # data_raw can be list, string, or None
-            data = _bytes_from_field(data_raw)  # Handles None to b'', list of ints, or string of bytes
-
-            # --- Process Timestamp ---
-            ts_raw_val = frame.get("timestamp")
-            if ts_raw_val is None:
-                app.logger.warning(
-                    f"Frame #{idx + 1} (ID: {can_id:#x}): 'timestamp' field missing. Skipping frame. Frame content: {frame}")
-                continue
+    points = []
+    if frames:  # Iterate only if frames exist
+        for idx, frame in enumerate(frames):
             try:
+                can_id_raw = frame.get("id")
+                if can_id_raw is None:
+                    app.logger.warning(f"Frame #{idx + 1}: 'id' missing. Skipping. Content: {frame}")
+                    continue
+                can_id = int(can_id_raw, 0) if isinstance(can_id_raw, str) else int(can_id_raw)
+
+                data_raw = frame.get("data")
+                data = _bytes_from_field(data_raw)
+
+                ts_raw_val = frame.get("timestamp")
+                if ts_raw_val is None:
+                    app.logger.warning(
+                        f"Frame #{idx + 1} (ID: {can_id:#x}): 'timestamp' missing. Skipping. Content: {frame}")
+                    continue
                 ts_raw = float(ts_raw_val)
+                ts_dt = _ts_to_datetime(ts_raw)
+
             except (ValueError, TypeError) as e:
                 app.logger.warning(
-                    f"Frame #{idx + 1} (ID: {can_id:#x}): 'timestamp' field '{ts_raw_val}' is not a valid float. Error: {e}. Skipping frame.")
+                    f"Frame #{idx + 1}: Malformed basic field. Error: {e}. Frame: {frame}. Skipping.")
                 continue
-            ts_dt = _ts_to_datetime(ts_raw)
-
-        except (ValueError, TypeError) as e:  # Catch errors from int(), float(), _bytes_from_field()
-            app.logger.warning(
-                f"Frame #{idx + 1}: Malformed basic field (id, data, or timestamp). Error: {e}. Frame: {frame}. Skipping frame.")
-            continue
-        except Exception as e:  # Catch any other unexpected errors during basic field processing
-            app.logger.error(
-                f"Frame #{idx + 1}: Unexpected error processing basic fields. Error: {e}. Frame: {frame}. Skipping frame.")
-            continue
-
-        # --- DBC Lookup and Decode ---
-        try:
-            msg = db.get_message_by_frame_id(can_id)
-        except KeyError:  # Specific error if CAN ID not in DBC
-            # Log less verbosely for unknown IDs if they are frequent, or add a counter
-            app.logger.debug(
-                f"Frame #{idx + 1}: Unknown CAN ID {can_id:#x} (decimal: {can_id}) in DBC {DBC_FILE}. Skipping frame.")
-            continue
-        except Exception as e:  # Other unexpected errors from cantools
-            app.logger.warning(
-                f"Frame #{idx + 1}: Error retrieving message for CAN ID {can_id:#x} from DBC. Error: {e}. Skipping frame.")
-            continue
-
-        try:
-            # allow_truncated=True: useful if data length is less than defined in DBC
-            # decode_choices=True: decodes enum values to their string representations
-            decoded_signals = msg.decode(data, allow_truncated=True, decode_choices=True)
-        except Exception as e:  # Catch errors from msg.decode()
-            app.logger.warning(
-                f"Frame #{idx + 1} (ID: {can_id:#x}, Name: {msg.name}): Decode error with data '{data.hex()}'. Error: {e}. Skipping frame.")
-            continue
-
-        # --- Process Decoded Signals ---
-        for signal_name_from_decode, signal_value_obj in decoded_signals.items():
-            signal_def = None
-            cache_key = (msg.name, signal_name_from_decode)
-
-            # Retrieve signal definition, using cache for performance
-            with signal_cache_lock:
-                if cache_key in signal_definition_cache:
-                    signal_def = signal_definition_cache[cache_key]
-                else:
-                    try:
-                        current_signal_def = msg.get_signal_by_name(signal_name_from_decode)
-                        signal_definition_cache[cache_key] = current_signal_def
-                        signal_def = current_signal_def
-                    except Exception as e:  # e.g., if signal_name_from_decode is somehow not in msg
-                        app.logger.warning(
-                            f"Frame #{idx + 1} (Msg: {msg.name}, Signal: {signal_name_from_decode}): Could not get signal definition from DBC. Error: {e}. Skipping signal.")
-                        # Do not add to cache if lookup failed.
-
-            if not signal_def:  # If signal_def could not be retrieved
+            except Exception as e:
+                app.logger.error(
+                    f"Frame #{idx + 1}: Unexpected error basic fields. Error: {e}. Frame: {frame}. Skipping.")
                 continue
 
-            # Extract signal properties
-            description = signal_def.comment if signal_def.comment is not None else "No description"
-            unit = signal_def.unit if signal_def.unit is not None else "N/A"
-            actual_signal_name = signal_def.name  # Use name from signal_def for consistency
-
-            sensor_val = None  # Numeric value of the signal
-            signal_label = ""  # String representation (enum name or numeric value as string)
-
-            # Handle different types of signal_value_obj from cantools
-            # cantools can return NamedSignalValue (for enums) or raw numeric types
-            if hasattr(signal_value_obj, 'value') and hasattr(signal_value_obj, 'name'):  # NamedSignalValue (enum)
-                try:
-                    sensor_val = float(signal_value_obj.value)  # The underlying numeric value of the enum
-                    signal_label = str(signal_value_obj.name)  # The string name of the enum
-                except (ValueError, TypeError) as e:
-                    app.logger.warning(
-                        f"Frame #{idx + 1} (Msg: {msg.name}, Signal: {actual_signal_name}): Error converting NamedSignalValue.value to float. Value: {signal_value_obj.value}. Error: {e}. Skipping signal.")
-                    continue
-            elif isinstance(signal_value_obj, (int, float)):  # Raw numeric value
-                sensor_val = float(signal_value_obj)
-                signal_label = str(signal_value_obj)  # For non-enum, label can be its string value
-            else:  # Should not happen with decode_choices=True, but good to have a fallback
+            try:
+                msg = db.get_message_by_frame_id(can_id)
+            except KeyError:
+                app.logger.debug(
+                    f"Frame #{idx + 1}: Unknown CAN ID {can_id:#x} in DBC. Skipping.")
+                continue
+            except Exception as e:
                 app.logger.warning(
-                    f"Frame #{idx + 1} (Msg: {msg.name}, Signal: {actual_signal_name}): Unhandled signal value type {type(signal_value_obj)}: {signal_value_obj!r}. Skipping signal.")
+                    f"Frame #{idx + 1}: Error getting msg for CAN ID {can_id:#x}. Error: {e}. Skipping.")
                 continue
 
-            # Create InfluxDB Point
-            pt = (
-                Point("canBus")  # Measurement name
-                .tag("messageName", msg.name)
-                .tag("signalName", actual_signal_name)
-                .tag("canID", format(can_id, "#04x"))  # Format as hex e.g., 0xac
-                .field("sensorReading", sensor_val)  # The numeric value
-                .field("unit", unit)
-                # .field("description", description) # Uncomment if description is needed in Influx
-                .field("signalLabel", signal_label)  # Enum name or string of numeric value
-                .time(ts_dt)  # Timestamp for the point
-            )
-            points.append(pt)
+            try:
+                decoded_signals = msg.decode(data, allow_truncated=True, decode_choices=True)
+            except Exception as e:
+                app.logger.warning(
+                    f"Frame #{idx + 1} (ID: {can_id:#x}, Name: {msg.name}): Decode error data '{data.hex()}'. Error: {e}. Skipping.")
+                continue
 
-    # --- Write to InfluxDB ---
+            for signal_name_from_decode, signal_value_obj in decoded_signals.items():
+                signal_def = None
+                cache_key = (msg.name, signal_name_from_decode)
+                with signal_cache_lock:
+                    if cache_key in signal_definition_cache:
+                        signal_def = signal_definition_cache[cache_key]
+                    else:
+                        try:
+                            current_signal_def = msg.get_signal_by_name(signal_name_from_decode)
+                            signal_definition_cache[cache_key] = current_signal_def
+                            signal_def = current_signal_def
+                        except Exception as e:
+                            app.logger.warning(
+                                f"Frame #{idx + 1} (Msg: {msg.name}, Sig: {signal_name_from_decode}): No signal definition. Error: {e}. Skip signal.")
+                if not signal_def:
+                    continue
+
+                unit = signal_def.unit if signal_def.unit is not None else "N/A"
+                actual_signal_name = signal_def.name
+                sensor_val, signal_label = None, ""
+
+                if hasattr(signal_value_obj, 'value') and hasattr(signal_value_obj, 'name'):
+                    try:
+                        sensor_val = float(signal_value_obj.value)
+                        signal_label = str(signal_value_obj.name)
+                    except (ValueError, TypeError) as e:
+                        app.logger.warning(
+                            f"Frame #{idx + 1} (Msg: {msg.name}, Sig: {actual_signal_name}): Error converting enum. Val: {signal_value_obj.value}. Error: {e}. Skip.")
+                        continue
+                elif isinstance(signal_value_obj, (int, float)):
+                    sensor_val = float(signal_value_obj)
+                    signal_label = str(signal_value_obj)
+                else:
+                    app.logger.warning(
+                        f"Frame #{idx + 1} (Msg: {msg.name}, Sig: {actual_signal_name}): Unhandled type {type(signal_value_obj)}: {signal_value_obj!r}. Skip.")
+                    continue
+
+                pt = (Point("canBus").tag("messageName", msg.name).tag("signalName", actual_signal_name)
+                      .tag("canID", format(can_id, "#04x")).field("sensorReading", sensor_val)
+                      .field("unit", unit).field("signalLabel", signal_label).time(ts_dt))
+                points.append(pt)
+
     if not points:
-        app.logger.info(f"No points decoded from {len(frames)} received frames – nothing to write to InfluxDB.")
-        # Return 200 OK even if no points, as the request itself was processed.
-        return jsonify(status="no_points_decoded", received_frames=len(frames), written_points=0), 200
+        app.logger.info(f"No points decoded from {num_received_frames_in_batch} frames – nothing to write to InfluxDB.")
+        return jsonify(status="no_points_decoded", received_frames=num_received_frames_in_batch, written_points=0), 200
 
     try:
         write_api.write(bucket=INFLUX_BUCKET, record=points)
-        app.logger.info(f"Successfully wrote {len(points)} points to InfluxDB bucket '{INFLUX_BUCKET}'.")
+        app.logger.info(
+            f"Successfully wrote {len(points)} points to InfluxDB from {num_received_frames_in_batch} frames.")
     except Exception as e:
         app.logger.error(f"InfluxDB write failed for {len(points)} points. Error: {e}")
-        # Consider how to handle partial writes or retry mechanisms if necessary
-        return jsonify(error=f"InfluxDB write failed: {str(e)}", written_points=0, received_frames=len(frames)), 500
+        return jsonify(error=f"InfluxDB write failed: {str(e)}", written_points=0,
+                       received_frames=num_received_frames_in_batch), 500
 
-    return jsonify(status="ok", written_points=len(points), received_frames=len(frames)), 201
+    return jsonify(status="ok", written_points=len(points), received_frames=num_received_frames_in_batch), 201
 
 
 @app.route("/")
 def index():
-    # This route serves the main HTML page for the GUI.
-    # Ensure 'index.html' is in a 'templates' folder in the same directory as this script.
     return render_template("index.html")
 
 
 @app.route("/status")
 def status():
-    """Provides a JSON status of the CAN listener for the GUI."""
     global _last_successful_receipt_time, packet_history, history_lock, signal_definition_cache
     now = datetime.now(timezone.utc)
-
-    # Calculate stats for the last 60 seconds
     cutoff_time_60s = now - timedelta(seconds=60)
-    packets_in_last_60s = 0
-    size_in_last_60s_bytes = 0
 
-    with history_lock:  # Access shared deque safely
-        # Iterate over a copy of the deque for thread safety during iteration
+    packets_in_last_60s = 0
+    total_can_data_in_last_60s_bytes = 0
+    total_http_payload_in_last_60s_bytes = 0
+    last_batch_can_data_size_bytes = 0
+    last_batch_http_payload_size_bytes = 0
+
+    with history_lock:
         current_history_snapshot = list(packet_history)
 
-    for ts_hist, num_frames_hist, total_size_hist in current_history_snapshot:
+    if current_history_snapshot:
+        last_batch_can_data_size_bytes = current_history_snapshot[-1][2]
+        last_batch_http_payload_size_bytes = current_history_snapshot[-1][3]
+
+    for ts_hist, num_frames_hist, can_size_hist, http_size_hist in current_history_snapshot:
         if ts_hist > cutoff_time_60s:
             packets_in_last_60s += num_frames_hist
-            size_in_last_60s_bytes += total_size_hist
+            total_can_data_in_last_60s_bytes += can_size_hist
+            total_http_payload_in_last_60s_bytes += http_size_hist
 
-    # Determine receiver status message
     receiver_status_message = "Initializing..."
     if _last_successful_receipt_time:
         time_since_last_receipt_seconds = (now - _last_successful_receipt_time).total_seconds()
-        if time_since_last_receipt_seconds <= 10:  # Active if data received in the last 10 seconds
+        if time_since_last_receipt_seconds <= 10:
             receiver_status_message = f"Active (last data {time_since_last_receipt_seconds:.1f}s ago)"
-        elif time_since_last_receipt_seconds <= MAX_HISTORY_SECONDS + 10:  # Tolerable delay
+        elif time_since_last_receipt_seconds <= MAX_HISTORY_SECONDS + 10:  # Allow some buffer
             receiver_status_message = f"Monitoring (last data {time_since_last_receipt_seconds:.0f}s ago)"
-        else:  # Inactive for a while
+        else:
             receiver_status_message = f"Inactive (last data {time_since_last_receipt_seconds:.0f}s ago)"
     else:
         receiver_status_message = "Awaiting Data (no messages received yet)"
@@ -387,23 +367,44 @@ def status():
     return jsonify({
         "receiver_status": receiver_status_message,
         "packets_last_60s": packets_in_last_60s,
-        "data_rate_last_60s_bytes_sec": size_in_last_60s_bytes / 60 if packets_in_last_60s > 0 else 0,
-        "size_last_60s_bytes": size_in_last_60s_bytes,
+        "total_can_data_last_60s_bytes": total_can_data_in_last_60s_bytes,
+        "can_data_rate_last_60s_bytes_sec": total_can_data_in_last_60s_bytes / 60.0 if packets_in_last_60s > 0 else 0,
+        "total_http_payload_last_60s_bytes": total_http_payload_in_last_60s_bytes,
+        "http_payload_rate_last_60s_bytes_sec": total_http_payload_in_last_60s_bytes / 60.0 if packets_in_last_60s > 0 else 0,
+        # Or based on number of POSTs if that makes more sense
+        "last_batch_can_data_size_bytes": last_batch_can_data_size_bytes,
+        "last_batch_http_payload_size_bytes": last_batch_http_payload_size_bytes,
         "last_successful_receipt_time_iso": _last_successful_receipt_time.isoformat() if _last_successful_receipt_time else None,
         "current_server_time_iso": now.isoformat(),
-        "signal_cache_size": len(signal_definition_cache),  # Diagnostic info
-        "packet_history_size": len(packet_history)  # Diagnostic info
+        "signal_cache_size": len(signal_definition_cache),
+        "packet_history_size": len(packet_history)
     })
+
+
+@app.route('/log-stream')
+def log_stream():
+    def generate_logs():
+        initial_message = f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} [INFO] LogStream: Client connected to log stream.\n"
+        yield f"data: {initial_message}\n\n"
+        while True:
+            try:
+                log_entry = log_queue.get(timeout=5)
+                yield f"data: {log_entry}\n\n"
+            except queue.Empty:
+                yield ": heartbeat\n\n"
+
+    headers = {'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive',
+               'X-Accel-Buffering': 'no'}
+    return Response(generate_logs(), headers=headers)
 
 
 if __name__ == "__main__":
     app.logger.info(f"Starting CAN ingest server on port {PORT}")
-    app.logger.info(f"DBC File: {DBC_FILE} (Ensure this file contains definitions for expected CAN IDs)")
+    app.logger.info(f"DBC File: {DBC_FILE}")
     app.logger.info(f"InfluxDB URL: {INFLUX_URL}, Org: {INFLUX_ORG}, Bucket: {INFLUX_BUCKET}")
     app.logger.info(f"Webhook notifications to Slack enabled. Interval: {WEBHOOK_MESSAGE_INTERVAL.total_seconds()}s")
     app.logger.info(f"Log file: listener.log")
+    app.logger.info(f"Log streaming available at /log-stream")
     app.logger.info(f"GUI (if index.html is present) available at http://0.0.0.0:{PORT}/")
 
-    # For production, use a proper WSGI server like Gunicorn or uWSGI
-    # Example: gunicorn --workers 4 --bind 0.0.0.0:8085 listener:app
-    app.run(host="0.0.0.0", port=PORT, debug=False)
+    app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)
