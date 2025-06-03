@@ -175,3 +175,4 @@ cython_debug/
 .DS_Store
 
 .idea
+car-to-influx/testing_data/cleaned_can.csv
