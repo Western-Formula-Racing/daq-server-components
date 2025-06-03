@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CAN Receiver Status</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f2f5;
+            color: #1c1e21;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+        }
+        .container {
+            background-color: #ffffff;
+            padding: 25px 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 500px;
+        }
+        h1 {
+            color: #0056b3; /* A slightly deeper blue */
+            text-align: center;
+            margin-bottom: 25px;
+            font-size: 1.8em;
+        }
+        .status-grid {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 12px 10px; /* row-gap column-gap */
+            align-items: center;
+        }
+        .status-grid dt { /* Description Term (Label) */
+            font-weight: 600;
+            color: #4b5563; /* Tailwind gray-600 */
+            font-size: 0.95em;
+        }
+        .status-grid dd { /* Description Details (Value) */
+            font-weight: 500;
+            color: #1f2937; /* Tailwind gray-800 */
+            background-color: #f3f4f6; /* Tailwind gray-100 */
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 1em;
+            min-height: 1.2em; /* Ensure space even when N/A */
+        }
+        #error-message {
+            color: #d93025; /* Google error red */
+            margin-top: 20px;
+            text-align: center;
+            font-size: 0.9em;
+            min-height: 1.1em;
+        }
+        .timestamp {
+            font-size: 0.8em;
+            color: #606770;
+            text-align: center;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>CAN Bus Receiver Monitor</h1>
+        <dl class="status-grid">
+            <dt>Receiver Status:</dt>
+            <dd id="receiver-status">N/A</dd>
+
+            <dt>Packets (last 60s):</dt>
+            <dd id="packets-last-60s">N/A</dd>
+
+            <dt>Data Size (last 60s):</dt>
+            <dd><span id="size-last-60s">N/A</span> bytes</dd>
+        </dl>
+        <div id="error-message"></div>
+        <div class="timestamp">Last updated: <span id="last-updated">Never</span></div>
+    </div>
+
+    <script>
+        async function fetchStatus() {
+            const errorMessageDiv = document.getElementById('error-message');
+            const lastUpdatedSpan = document.getElementById('last-updated');
+            try {
+                const response = await fetch('/status');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                const data = await response.json();
+
+                document.getElementById('receiver-status').textContent = data.receiver_status;
+                document.getElementById('packets-last-60s').textContent = data.packets_last_60s.toLocaleString();
+                document.getElementById('size-last-60s').textContent = data.size_last_60s_bytes.toLocaleString();
+
+                errorMessageDiv.textContent = ''; // Clear previous errors
+
+                const now = new Date();
+                lastUpdatedSpan.textContent = now.toLocaleTimeString();
+
+            } catch (error) {
+                console.error('Error fetching status:', error);
+                document.getElementById('receiver-status').textContent = 'Error';
+                document.getElementById('packets-last-60s').textContent = 'Error';
+                document.getElementById('size-last-60s').textContent = 'Error';
+                errorMessageDiv.textContent = `Failed to load status: ${error.message}. Is the server running?`;
+                lastUpdatedSpan.textContent = 'Error';
+            }
+        }
+
+        // Fetch status every 2 seconds
+        setInterval(fetchStatus, 2000);
+        // Initial fetch on page load
+        document.addEventListener('DOMContentLoaded', fetchStatus);
+    </script>
+</body>
+</html>
