@@ -37,6 +37,7 @@ _last_raw_ts = 0.0
 # ─── WEBHOOK STATE ─────────────────────────────────────────────────────────
 _last_successful_receipt_time = None
 _last_whisper = None
+_fallen_once = False
 
 # ─── PACKET STATISTICS FOR GUI ─────────────────────────────────────────────
 packet_history = deque()
@@ -157,7 +158,7 @@ def send_webhook_notification(payload_text=None):
 
 @app.route("/can", methods=["POST"])
 def ingest_can():
-    global _last_successful_receipt_time, packet_history, history_lock, signal_definition_cache, signal_cache_lock
+    global _last_successful_receipt_time, packet_history, history_lock, signal_definition_cache, signal_cache_lock, _fallen_once
     current_server_time = datetime.now(timezone.utc)
     http_payload_size_for_batch = 0
 
@@ -313,6 +314,7 @@ def ingest_can():
         write_api.write(bucket=INFLUX_BUCKET, record=points)
         app.logger.info(
             f"Successfully wrote {len(points)} points to InfluxDB from {num_received_frames_in_batch} frames.")
+        _fallen_once = False  # Reset fallen state on successful write
         if _last_whisper == None or (current_server_time - _last_whisper) > WEBHOOK_MESSAGE_INTERVAL:
             send_webhook_notification(
                 payload_text="I hear the car whispering.")
@@ -403,12 +405,12 @@ def log_stream():
 
 
 def watchdog_thread():
-    global _last_successful_receipt_time
+    global _last_successful_receipt_time, _fallen_once
     while True:
         now = datetime.now(timezone.utc)
-        if _last_successful_receipt_time and (now - _last_successful_receipt_time) > WEBHOOK_MESSAGE_INTERVAL:
+        if _last_successful_receipt_time and (now - _last_successful_receipt_time) > WEBHOOK_MESSAGE_INTERVAL and not _fallen_once:
             send_webhook_notification(payload_text="The whisper has faded into silence... Has the vessel fallen still?")
-            time.sleep(WEBHOOK_MESSAGE_INTERVAL.total_seconds())  # avoid spamming
+            _fallen_once = True
         time.sleep(10)  # check every 10 seconds
 
 threading.Thread(target=watchdog_thread, daemon=True).start()
