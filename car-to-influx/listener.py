@@ -314,11 +314,11 @@ def ingest_can():
         write_api.write(bucket=INFLUX_BUCKET, record=points)
         app.logger.info(
             f"Successfully wrote {len(points)} points to InfluxDB from {num_received_frames_in_batch} frames.")
-        _fallen_once = False  # Reset fallen state on successful write
-        if _last_whisper == None or (current_server_time - _last_whisper) > WEBHOOK_MESSAGE_INTERVAL:
+        if _last_whisper is None or (current_server_time - _last_whisper) > WEBHOOK_MESSAGE_INTERVAL and not _fallen_once:
             send_webhook_notification(
                 payload_text="I hear the car whispering.")
             _last_whisper = current_server_time
+            _fallen_once = True  # Reset fallen state on successful write
 
     except Exception as e:
         app.logger.error(f"InfluxDB write failed for {len(points)} points. Error: {e}")
@@ -408,9 +408,9 @@ def watchdog_thread():
     global _last_successful_receipt_time, _fallen_once
     while True:
         now = datetime.now(timezone.utc)
-        if _last_successful_receipt_time and (now - _last_successful_receipt_time) > WEBHOOK_MESSAGE_INTERVAL and not _fallen_once:
+        if _last_successful_receipt_time and (now - _last_successful_receipt_time) > WEBHOOK_MESSAGE_INTERVAL and _fallen_once:
             send_webhook_notification(payload_text="The whisper has faded into silence... Has the vessel fallen still?")
-            _fallen_once = True
+            _fallen_once = False
         time.sleep(10)  # check every 10 seconds
 
 threading.Thread(target=watchdog_thread, daemon=True).start()
