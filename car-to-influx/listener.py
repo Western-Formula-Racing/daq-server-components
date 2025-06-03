@@ -16,13 +16,15 @@ import time  # For log streaming
 import json  # For manual JSON parsing if needed
 
 # ─── CONFIG ────────────────────────────────────────────────────────────────
-INFLUX_URL = "http://3.98.181.12:8086"
+# http://3.98.181.12:8086 InfluxDB
+INFLUX_URL = "http://influxwfr:8086"
 INFLUX_TOKEN = "s9XkBC7pKOlb92-N9M40qilmxxoBe4wrnki4zpS_o0QSVTuMSQRQBerQB9Zv0YV40tmYayuX3w4G2MNizdy3qw=="
 INFLUX_ORG = "WFR"
 INFLUX_BUCKET = "LTEtest"  # Ensure this is the target bucket
 DBC_FILE = "WFR25-f772b40.dbc"  # Ensure this DBC matches incoming CAN IDs
 PORT = int(os.getenv("PORT", "8085"))
 WEBHOOK_URL = "https://hooks.slack.com/services/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"
+# This is the no data for a while message
 WEBHOOK_MESSAGE_INTERVAL = timedelta(minutes=1)
 
 # ─── RELATIVE‐TIMESTAMP ANCHORING ─────────────────────────────────────────
@@ -34,6 +36,7 @@ _last_raw_ts = 0.0
 
 # ─── WEBHOOK STATE ─────────────────────────────────────────────────────────
 _last_successful_receipt_time = None
+_last_whisper = None
 
 # ─── PACKET STATISTICS FOR GUI ─────────────────────────────────────────────
 packet_history = deque()
@@ -142,9 +145,9 @@ def _ts_to_datetime(ts: float) -> datetime:
     return _relative_anchor_real + elapsed
 
 
-def send_webhook_notification():
+def send_webhook_notification(payload_text=None):
     try:
-        payload = {"text": "CAN data listener: No data received for a while. Please check the source."}
+        payload = {"text": payload_text}
         response = requests.post(WEBHOOK_URL, json=payload, timeout=10)
         response.raise_for_status()
         app.logger.info("Webhook notification sent successfully.")
@@ -181,11 +184,6 @@ def ingest_can():
             f"Expected JSON array or 'messages' list from {request.remote_addr}. Payload type: {type(payload)}, HTTP size: {http_payload_size_for_batch}B.")
         return jsonify(error="Expected JSON array or object with 'messages' list"), 400
 
-    if _last_successful_receipt_time:
-        if (current_server_time - _last_successful_receipt_time) > WEBHOOK_MESSAGE_INTERVAL:
-            app.logger.info(
-                f"Data receipt gap ({(current_server_time - _last_successful_receipt_time).total_seconds()}s). Sending webhook.")
-            send_webhook_notification()
 
     # Update last receipt time if we got any valid POST, even with empty frames list
     # This helps webhook know the source is alive but just not sending data frames.
@@ -310,10 +308,16 @@ def ingest_can():
         app.logger.info(f"No points decoded from {num_received_frames_in_batch} frames – nothing to write to InfluxDB.")
         return jsonify(status="no_points_decoded", received_frames=num_received_frames_in_batch, written_points=0), 200
 
+    global _last_whisper
     try:
         write_api.write(bucket=INFLUX_BUCKET, record=points)
         app.logger.info(
             f"Successfully wrote {len(points)} points to InfluxDB from {num_received_frames_in_batch} frames.")
+        if _last_whisper == None or (current_server_time - _last_whisper) > WEBHOOK_MESSAGE_INTERVAL:
+            send_webhook_notification(
+                payload_text="I hear the car whispering.")
+            _last_whisper = current_server_time
+
     except Exception as e:
         app.logger.error(f"InfluxDB write failed for {len(points)} points. Error: {e}")
         return jsonify(error=f"InfluxDB write failed: {str(e)}", written_points=0,
@@ -397,6 +401,17 @@ def log_stream():
                'X-Accel-Buffering': 'no'}
     return Response(generate_logs(), headers=headers)
 
+
+def watchdog_thread():
+    global _last_successful_receipt_time
+    while True:
+        now = datetime.now(timezone.utc)
+        if _last_successful_receipt_time and (now - _last_successful_receipt_time) > WEBHOOK_MESSAGE_INTERVAL:
+            send_webhook_notification(payload_text="The whisper has faded into silence... Has the vessel fallen still?")
+            time.sleep(WEBHOOK_MESSAGE_INTERVAL.total_seconds())  # avoid spamming
+        time.sleep(10)  # check every 10 seconds
+
+threading.Thread(target=watchdog_thread, daemon=True).start()
 
 if __name__ == "__main__":
     app.logger.info(f"Starting CAN ingest server on port {PORT}")
