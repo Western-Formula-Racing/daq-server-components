@@ -6,8 +6,8 @@ import requests # For making HTTP requests
 # Configuration
 FILE_PATH = "testing_data/cleaned_can.csv"
 URL = "http://3.98.181.12:8085/can"
-BATCH_SIZE = 500   # frames per POST
-RATE = 1.0         # batches per second (e.g., 1.0 means 1 batch per second)
+BATCH_SIZE = 1000   # frames per POST
+RATE = 10        # batches per second (e.g., 1.0 means 1 batch per second)
 REQUEST_TIMEOUT = 10 # seconds for request timeout
 
 def parse_csv_line(line_parts):
