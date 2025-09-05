@@ -1,0 +1,149 @@
+networks:
+  datalink:
+    driver: bridge
+
+volumes:
+  grafana-storage:
+  influxdb2-data:
+  influxdb2-config:
+  influxdb3-data:
+
+services:
+  influxdb2:
+    image: influxdb:2
+    container_name: influxwfr
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: turbo-charged-falcon-machine
+      DOCKER_INFLUXDB_INIT_ORG: WFR
+      DOCKER_INFLUXDB_INIT_BUCKET: ourCar
+    volumes:
+      - influxdb2-data:/var/lib/influxdb2
+      - influxdb2-config:/etc/influxdb2
+    networks:
+      - datalink
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: "1.0"
+
+  influxdb3:
+    image: influxdb:3-core
+    container_name: influxdb3
+    command: >
+      influxdb3 serve
+      --node-id influxdb3-node
+      --object-store file
+      --data-dir /var/lib/influxdb3
+    restart: unless-stopped
+    ports:
+      - "9000:8181"
+    volumes:
+      - influxdb3-data:/var/lib/influxdb3
+    networks:
+      - datalink
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: "1.0"
+
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "8087:3000"
+    volumes:
+      - grafana-storage:/var/lib/grafana
+    networks:
+      - datalink
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: "1.0"
+
+  frontend:
+    image: nginx:alpine
+    container_name: frontend
+    restart: unless-stopped
+    ports:
+      - "8060:80"
+    volumes:
+      - /home/ubuntu/frontend-build:/usr/share/nginx/html:ro
+    networks:
+      - datalink
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "0.5"
+
+  car-to-influx:
+    build: ./car-to-influx   # put Dockerfile + listener.py here
+    container_name: car-to-influx
+    restart: unless-stopped
+    ports:
+      - "8085:8085"
+    working_dir: /app
+    volumes:
+      - ./car-to-influx:/app
+    command: python listener.py
+    networks:
+      - datalink
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "0.5"
+
+  slackbot:
+    build: ./slackbot   # put Dockerfile + slack_bot.py here
+    container_name: slackbot
+    restart: always
+    environment:
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
+      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN}
+    volumes:
+      - ./slackbot:/app
+    working_dir: /app
+    command: python slack_bot.py
+    networks:
+      - datalink
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+
+  lappy:
+    build: ./lappy  # folder with lap.py and requirements.txt
+    container_name: lappy
+    restart: unless-stopped
+    ports:
+      - "8050:8050"
+    working_dir: /app
+    volumes:
+      - ./lappy:/app
+    command: python lap.py
+    networks:
+      - datalink
+
+  artifact-viewer:
+    image: artifact-viewer-dev
+    container_name: artifact-viewer
+    restart: unless-stopped
+    ports:
+      - "2990:2990"
+    networks:
+      - datalink
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "0.5"
