@@ -1,4 +1,4 @@
-This repo is for the helper functions on the AWS server
+This repo is for the helper functions on the AWS server, as well as an installer script for local server replica
 
 ## Port
 
