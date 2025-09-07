@@ -1,0 +1,101 @@
+networks:
+  datalink:
+    driver: bridge
+
+volumes:
+  grafana-storage:
+  influxdb2-data:
+  influxdb2-config:
+
+services:
+  influxdb2:
+    image: influxdb:2
+    container_name: influxdb2
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: YOUR_INFLUXDB_PASSWORD
+      DOCKER_INFLUXDB_INIT_ORG: WFR
+      DOCKER_INFLUXDB_INIT_BUCKET: ourCar
+    volumes:
+      - influxdb2-data:/var/lib/influxdb2
+      - influxdb2-config:/etc/influxdb2
+    networks:
+      - datalink
+
+  grafana:
+    image: grafana/grafana
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "8087:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: YOUR_GRAFANA_PASSWORD
+      GF_SECURITY_ADMIN_EMAIL: daq@westernformularacing.com
+      GF_AUTH_ANONYMOUS_ENABLED: false
+      GF_AUTH_BASIC_ENABLED: true
+      GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+      INFLUXDB_TOKEN: "${INFLUXDB_TOKEN}"
+    volumes:
+      - grafana-storage:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - datalink
+    depends_on:
+      - influxdb2
+
+  frontend:
+    image: nginx:alpine
+    container_name: frontend
+    restart: unless-stopped
+    ports:
+      - "8060:80"
+    volumes:
+      - ./frontend-build:/usr/share/nginx/html:ro
+    networks:
+      - datalink
+
+  car-to-influx:
+    build: ./car-to-influx
+    container_name: car-to-influx
+    restart: unless-stopped
+    ports:
+      - "8085:8085"
+    working_dir: /app
+    volumes:
+      - ./car-to-influx:/app
+    command: python listener.py
+    networks:
+      - datalink
+
+  lappy:
+    build: ./lappy
+    container_name: lappy
+    restart: unless-stopped
+    ports:
+      - "8050:8050"
+    working_dir: /app
+    volumes:
+      - ./lappy:/app
+    command: python lap.py
+    networks:
+      - datalink
+
+  startup-data-loader:
+    build: ./startup-data-loader
+    container_name: startup-data-loader
+    restart: "no"
+    environment:
+      INFLUXDB_TOKEN: "${INFLUXDB_TOKEN}"
+    volumes:
+      - ./startup-data:/data:ro
+    networks:
+      - datalink
+    depends_on:
+      - influxdb2
