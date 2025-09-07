@@ -24,7 +24,7 @@
     {
       "datasource": {
         "type": "influxdb",
-        "uid": "aemm3po5m8we8f"
+        "uid": "influxdb-wfr-v2"
       },
       "fieldConfig": {
         "defaults": {
@@ -101,7 +101,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.0.0+security-01",
+      "pluginVersion": "12.0.1",
       "targets": [
         {
           "query": "from(bucket: \"${data_source}\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"canBus\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"sensorReading\")\r\n  |> filter(fn: (r) => r[\"signalName\"] == \"INV_Diag_Ia\" or r[\"signalName\"] == \"INV_Diag_Ib\" or r[\"signalName\"] == \"INV_Diag_Ic\" or r[\"signalName\"] == \"INV_Diag_Id_cmd\" or r[\"signalName\"] == \"INV_Diag_Iq_cmd\" or r[\"signalName\"] == \"INV_Phase_A_Current\" or r[\"signalName\"] == \"INV_Phase_B_Current\" or r[\"signalName\"] == \"INV_Phase_C_Current\")\r\n  |> keep(columns: [\"_time\", \"_value\", \"signalName\"])\r\n  |> aggregateWindow(every: 100ms, fn: mean, createEmpty: false)\r\n  |> yield(name: \"mean\")\r\n  ",
@@ -114,7 +114,7 @@
     {
       "datasource": {
         "type": "influxdb",
-        "uid": "aemm3po5m8we8f"
+        "uid": "influxdb-wfr-v2"
       },
       "description": "",
       "fieldConfig": {
@@ -217,7 +217,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.0.0+security-01",
+      "pluginVersion": "12.0.1",
       "targets": [
         {
           "query": "from(bucket: \"${data_source}\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => \r\n    r[\"_measurement\"] == \"canBus\" and\r\n    r[\"_field\"] == \"sensorReading\" and\r\n    (\r\n      r[\"signalName\"] == \"VCU_INV_Torque_Command\" or\r\n      r[\"signalName\"] == \"INV_Torque_Feedback\" or\r\n      r[\"signalName\"] == \"INV_Torque_Capability\"\r\n    )\r\n  )\r\n  |> aggregateWindow(every: 100ms, fn: mean, createEmpty: false)\r\n  |> keep(columns: [\"_time\", \"_value\", \"signalName\"])\r\n",
@@ -226,7 +226,7 @@
         {
           "datasource": {
             "type": "influxdb",
-            "uid": "aemm3po5m8we8f"
+            "uid": "influxdb-wfr-v2"
           },
           "hide": false,
           "query": "from(bucket: \"${data_source}\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => \r\n    r[\"_measurement\"] == \"canBus\" and\r\n    r[\"_field\"] == \"sensorReading\" and\r\n    (\r\n      r[\"signalName\"] == \"INV_Motor_Speed\"\r\n    )\r\n  )\r\n  |> aggregateWindow(every: 100ms, fn: mean, createEmpty: false)\r\n  |> keep(columns: [\"_time\", \"_value\", \"signalName\"])\r\n",
@@ -239,7 +239,7 @@
     {
       "datasource": {
         "type": "influxdb",
-        "uid": "aemm3po5m8we8f"
+        "uid": "influxdb-wfr-v2"
       },
       "fieldConfig": {
         "defaults": {
@@ -346,12 +346,12 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.0.0+security-01",
+      "pluginVersion": "12.0.1",
       "targets": [
         {
           "datasource": {
             "type": "influxdb",
-            "uid": "aemm3po5m8we8f"
+            "uid": "influxdb-wfr-v2"
           },
           "query": "from(bucket: \"${data_source}\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"canBus\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"sensorReading\")\r\n  |> filter(fn: (r) => r[\"signalName\"] == \"INV_DC_Bus_Voltage\")\r\n  |> aggregateWindow(every: 100ms, fn: mean, createEmpty: false)\r\n  |> keep(columns: [\"_time\", \"_value\", \"signalName\"])\r\n",
           "refId": "A"
@@ -359,7 +359,7 @@
         {
           "datasource": {
             "type": "influxdb",
-            "uid": "aemm3po5m8we8f"
+            "uid": "influxdb-wfr-v2"
           },
           "hide": false,
           "query": "from(bucket: \"${data_source}\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"canBus\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"sensorReading\")\r\n  |> filter(fn: (r) => r[\"messageName\"] == \"M167_Voltage_Info\" or r[\"messageName\"] == \"M176_Fast_Info\" or r[\"messageName\"] == \"M166_Current_Info\")\r\n  |> filter(fn: (r) => r[\"signalName\"] == \"INV_DC_Bus_Current\")\r\n  |> aggregateWindow(every: 100ms, fn: mean, createEmpty: false)\r\n  |> keep(columns: [\"_time\", \"_value\", \"signalName\"])",
@@ -372,7 +372,7 @@
     {
       "datasource": {
         "type": "influxdb",
-        "uid": "aemm3po5m8we8f"
+        "uid": "influxdb-wfr-v2"
       },
       "fieldConfig": {
         "defaults": {
@@ -560,7 +560,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.0.0+security-01",
+      "pluginVersion": "12.0.1",
       "targets": [
         {
           "query": "from(bucket: \"${data_source}\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"canBus\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"sensorReading\")\r\n  |> filter(fn: (r) => r[\"messageName\"] == \"VCU_Front_Sensors_1\" or r[\"messageName\"] == \"VCU_Front_Sensors_2\" or r[\"messageName\"] == \"VCU_Front_Sensors_3\" or r[\"messageName\"] == \"VCU_Front_Sensors_4\" or r[\"messageName\"] == \"VCU_State_Info\")\r\n  |> filter(fn: (r) => r[\"signalName\"] == \"A3\" or r[\"signalName\"] == \"A4\" or r[\"signalName\"] == \"Throttle\" or r[\"signalName\"] == \"A2\" or r[\"signalName\"] == \"A12\" or r[\"signalName\"]==\"A9\" or r[\"signalName\"]==\"A14\")\r\n  |> aggregateWindow(every: 100ms, fn: mean, createEmpty: false)\r\n  |> keep(columns: [\"_time\", \"_value\", \"signalName\"])",
@@ -573,7 +573,7 @@
     {
       "datasource": {
         "type": "influxdb",
-        "uid": "aemm3po5m8we8f"
+        "uid": "influxdb-wfr-v2"
       },
       "fieldConfig": {
         "defaults": {
@@ -649,7 +649,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.0.0+security-01",
+      "pluginVersion": "12.0.1",
       "targets": [
         {
           "query": "from(bucket: \"${data_source}\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"canBus\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"sensorReading\")\r\n  |> filter(fn: (r) => r[\"messageName\"] == \"TORCH_M1_T1\" or r[\"messageName\"] == \"TORCH_M1_T2\" or r[\"messageName\"] == \"TORCH_M1_T3\" or r[\"messageName\"] == \"TORCH_M1_T4\" or r[\"messageName\"] == \"TORCH_M1_T5\" or r[\"messageName\"] == \"TORCH_M2_T1\" or r[\"messageName\"] == \"TORCH_M2_T2\" or r[\"messageName\"] == \"TORCH_M2_T3\" or r[\"messageName\"] == \"TORCH_M2_T4\" or r[\"messageName\"] == \"TORCH_M2_T5\" or r[\"messageName\"] == \"TORCH_M3_T1\" or r[\"messageName\"] == \"TORCH_M3_T2\" or r[\"messageName\"] == \"TORCH_M3_T3\" or r[\"messageName\"] == \"TORCH_M3_T4\" or r[\"messageName\"] == \"TORCH_M3_T5\" or r[\"messageName\"] == \"TORCH_M4_T1\" or r[\"messageName\"] == \"TORCH_M4_T2\" or r[\"messageName\"] == \"TORCH_M4_T3\" or r[\"messageName\"] == \"TORCH_M4_T4\" or r[\"messageName\"] == \"TORCH_M4_T5\" or r[\"messageName\"] == \"TORCH_M5_T1\" or r[\"messageName\"] == \"TORCH_M5_T2\" or r[\"messageName\"] == \"TORCH_M5_T3\" or r[\"messageName\"] == \"TORCH_M5_T4\" or r[\"messageName\"] == \"TORCH_M5_T5\")\r\n  |> aggregateWindow(every: 100ms, fn: mean, createEmpty: false)\r\n  |> keep(columns: [\"_time\", \"_value\", \"signalName\"])",
@@ -662,7 +662,7 @@
     {
       "datasource": {
         "type": "influxdb",
-        "uid": "aemm3po5m8we8f"
+        "uid": "influxdb-wfr-v2"
       },
       "fieldConfig": {
         "defaults": {
@@ -1006,7 +1006,7 @@
         {
           "datasource": {
             "type": "influxdb",
-            "uid": "aemm3po5m8we8f"
+            "uid": "influxdb-wfr-v2"
           },
           "hide": false,
           "query": "import \"internal/debug\"\r\nfrom(bucket: \"${data_source}\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"canBus\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"sensorReading\")\r\n  |> filter(fn: (r) => r[\"messageName\"] == \"PackStatus\")\r\n  |> filter(fn: (r) => r[\"signalName\"] == \"Fault\")\r\n  |> map(fn: (r) => ({\r\n      r with\r\n      _value: if r._value <= 1.0 then r._value\r\n              else if r._value <= 68.0 then 0.0\r\n              else if r._value >= 69.0 then (r._value - 68.0)\r\n              else debug.null(type: \"int\") // Sentinel value\r\n  }))\r\n  |> keep(columns: [\"_time\", \"_value\", \"signalName\"])\r\n  |> pivot(rowKey:[\"_time\"], columnKey: [\"signalName\"], valueColumn: \"_value\")\r\n  ",
@@ -1019,7 +1019,7 @@
     {
       "datasource": {
         "type": "influxdb",
-        "uid": "aemm3po5m8we8f"
+        "uid": "influxdb-wfr-v2"
       },
       "fieldConfig": {
         "defaults": {
@@ -1144,7 +1144,7 @@
     {
       "datasource": {
         "type": "influxdb",
-        "uid": "aemm3po5m8we8f"
+        "uid": "influxdb-wfr-v2"
       },
       "fieldConfig": {
         "defaults": {
@@ -1256,7 +1256,7 @@
         {
           "datasource": {
             "type": "influxdb",
-            "uid": "aemm3po5m8we8f"
+            "uid": "influxdb-wfr-v2"
           },
           "hide": false,
           "query": "from(bucket: \"${data_source}\")\r\n|> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"canBus\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"sensorReading\")\r\n  |> filter(fn: (r) => r[\"signalName\"] == \"VCU_INV_Inverter_Enable\")\r\n  |> aggregateWindow(every: 100ms, fn: max)\r\n  |> keep(columns: [\"_time\", \"_value\", \"signalName\"])",
@@ -1269,7 +1269,7 @@
     {
       "datasource": {
         "type": "influxdb",
-        "uid": "aemm3po5m8we8f"
+        "uid": "influxdb-wfr-v2"
       },
       "fieldConfig": {
         "defaults": {
@@ -1486,19 +1486,19 @@
       {
         "allowCustomValue": false,
         "current": {
-          "text": "WFR2025",
-          "value": "WFR2025"
+          "text": "ourCar",
+          "value": "ourCar"
         },
         "description": "",
         "name": "data_source",
         "options": [
           {
-            "selected": true,
+            "selected": false,
             "text": "WFR2025",
             "value": "WFR2025"
           },
           {
-            "selected": false,
+            "selected": true,
             "text": "ourCar",
             "value": "ourCar"
           }
@@ -1509,12 +1509,12 @@
     ]
   },
   "time": {
-    "from": "2025-06-17T06:00:00.000Z",
-    "to": "2025-06-17T07:00:00.000Z"
+    "from": "2025-06-06T00:16:40.039Z",
+    "to": "2025-06-06T00:33:35.466Z"
   },
   "timepicker": {},
   "timezone": "America/Toronto",
   "title": "Vehicle Overview",
   "uid": "8b451d09-318f-460e-a8b8-206eed9c19ec",
-  "version": 80
+  "version": 2
 }

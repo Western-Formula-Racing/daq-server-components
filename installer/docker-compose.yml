@@ -69,7 +69,7 @@ services:
       GF_AUTH_BASIC_ENABLED: true
       GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
       GF_PATHS_PROVISIONING: /etc/grafana/provisioning
-      INFLUXDB_TOKEN: "${INFLUXDB_TOKEN:-s9XkBC7pKOlb92-N9M40qilmxxoBe4wrnki4zpS_o0QSVTuMSQRQBerQB9Zv0YV40tmYayuX3w4G2MNizdy3qw==}"
+      INFLUXDB_TOKEN: "${INFLUXDB_TOKEN}"
     volumes:
       - grafana-storage:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
