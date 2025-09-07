@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<link
+			rel="stylesheet"
+			href="{{ url_for('static', filename='style.css') }}"
+		/>
+		<script src="{{ url_for('static', filename='index.js') }}"></script>
+		<title>InfluxDB Uploader</title>
+	</head>
+	<body>
+		<div class="background">
+			<div class="parent">
+				<div class="info">
+					<img src="{{ url_for('static', filename='logo-32_375x.webp' )}}" />
+					<h1>Upload Files to InfluxDB</h1>
+					<h2>(csv or zip with csv files)</h2>
+					<span id="bucket-select_span">
+						<label for="bucket-select">Bucket:</label>
+						<select name="bucket" id="bucket-select">
+							<option value="">Select A Bucket</option>
+							{% for name in bucket_names %} {% if current_bucket == name %}
+							<option value="{{name}}" selected>{{name}}</option>
+							{% else %}
+							<option value="{{name}}">{{name}}</option>
+							{% endif %} {% endfor %}
+						</select>
+					</span>
+					<h2 style="margin-top: 15px">
+						File: <span id="file-name-label">{{ file_name }}</span>
+					</h2>
+					<h2>Task: <span id="task-id-label">{{ task_id }}</span></h2>
+				</div>
+				<div>
+					<label for="drop_zone-input" class="drop-area" id="drop_zone">
+						<svg
+							id="file-upload-img"
+							aria-hidden="true"
+							xmlns="http://www.w3.org/2000/svg"
+							fill="none"
+							viewBox="0 0 20 16"
+						>
+							<path
+								stroke="currentColor"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								stroke-width="2"
+								d="M13 13h3a3 3 0 0 0 0-6h-.025A5.56 5.56 0 0 0 16 6.5 5.5 5.5 0 0 0 5.207 5.021C5.137 5.017 5.071 5 5 5a4 4 0 0 0 0 8h2.167M10 15V6m0 0L8 8m2-2 2 2"
+							/>
+						</svg>
+						<h3>Click to upload or drag and drop</h3>
+					</label>
+					<input
+						type="file"
+						accept="application/zip, text/csv"
+						id="drop_zone-input"
+						style="display: none"
+					/>
+				</div>
+			</div>
+			<div class="progress-bar_parent">
+				<div class="progress-bar" id="progress-bar">
+					<span id="progress-bar_pct"></span>
+				</div>
+			</div>
+			<div id="progress-bar_count">- / - rows</div>
+		</div>
+	</body>
+</html>

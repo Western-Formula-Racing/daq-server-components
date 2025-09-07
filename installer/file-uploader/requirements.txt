@@ -1,0 +1,4 @@
+cantools
+influxdb-client
+Flask
+requests
