@@ -68,46 +68,6 @@ When importing external dashboards, you need to update datasource references:
 ### **Datasource UID Reference**
 Your current InfluxDB datasource UID: `influxdb-wfr-v2`
 
-### **Template for WFR DAQ Dashboard**
-
-Here's a comprehensive template for your racing telemetry:
-
-```json
-{
-  "dashboard": {
-    "title": "WFR Racing Telemetry",
-    "tags": ["WFR", "Racing", "Telemetry"],
-    "panels": [
-      {
-        "title": "Engine RPM",
-        "type": "timeseries",
-        "datasource": {
-          "type": "influxdb", 
-          "uid": "influxdb-wfr-v2"
-        },
-        "targets": [
-          {
-            "query": "from(bucket: \"ourCar\")\\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\\n  |> filter(fn: (r) => r[\"_measurement\"] == \"engine\")\\n  |> filter(fn: (r) => r[\"_field\"] == \"rpm\")"
-          }
-        ]
-      },
-      {
-        "title": "Vehicle Speed",
-        "type": "timeseries",
-        "datasource": {
-          "type": "influxdb",
-          "uid": "influxdb-wfr-v2" 
-        },
-        "targets": [
-          {
-            "query": "from(bucket: \"ourCar\")\\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\\n  |> filter(fn: (r) => r[\"_measurement\"] == \"vehicle\")\\n  |> filter(fn: (r) => r[\"_field\"] == \"speed\")"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
 
 ## 🚀 **Quick Setup Steps**
 
@@ -162,7 +122,7 @@ After restart, check that dashboards are provisioned:
 ## 🎯 **Data Source Configuration**
 
 All dashboard queries should reference your InfluxDB setup:
-- **Bucket**: `ourCar`
+- **Bucket**: `ourCar` or `WFR2025` ...
 - **Organization**: `WFR`
 - **Datasource UID**: `influxdb-wfr-v2`
 
