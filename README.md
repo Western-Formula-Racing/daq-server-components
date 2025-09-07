@@ -39,7 +39,7 @@ docker run --name car-to-influx \
 If modification is made to the code, simply restart the container. If new package is needed, modify Dockerfile and rebuild the container
 
 ```
-cd /home/ubuntu/car-to-influx
+cd car-to-influx
 docker build --no-cache -t car-to-influx:latest .
 ```
 
