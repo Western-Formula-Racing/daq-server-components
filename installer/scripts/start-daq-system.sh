@@ -31,7 +31,7 @@ echo "Starting InfluxDB container first to generate tokens..."
 docker-compose up -d influxdb2
 
 echo "⏳ Waiting for InfluxDB to fully initialize..."
-sleep 15
+sleep 10
 
 # Method 1: Docker-based extraction (Most Reliable)
 echo "🐳 Using Docker-based token extraction..."

@@ -3,7 +3,12 @@
 ## 🚀 Quick Start
 
 **With Slack Integration:**
-``### Step 2: Manual Installation Steps
+```bash
+cd installer
+./scripts/start-daq-system-no-slack.sh
+```
+
+### Step 2: Manual Installation Steps
 
 If you prefer manual control or troubleshooting:
 
@@ -17,7 +22,14 @@ docker-compose up -d
 
 **Minimal Installation (no Slack):**
 ```bash
-docker-compose -f docker-compose.no-slack.yml up -d influxdb2
+docker-compose -f docker-compose.no-slack.yml up -d
+```
+
+**Without Slack (Minimal Setup):**
+```bash
+cd installer
+./scripts/start-daq-system-no-slack.sh
+```
 sleep 15
 ./scripts/extract-token-docker.sh
 docker-compose -f docker-compose.no-slack.yml up -d
@@ -27,7 +39,7 @@ docker-compose -f docker-compose.no-slack.yml up -d
 
 **Without Slack (Minimal Setup):**
 ```bash
-cd /Users/hz/GitHub/DAQServerHelpers/installer
+cd installer
 ./scripts/start-daq-system-no-slack.sh
 ```
 

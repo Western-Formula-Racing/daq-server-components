@@ -9,7 +9,7 @@ This document covers the automated token extraction system that eliminates manua
 ## 🚀 Quick Start - Fully Automated
 
 ```bash
-cd /Users/hz/GitHub/DAQServerHelpers/installer
+cd installer
 ./scripts/start-daq-system.sh
 ```
 
