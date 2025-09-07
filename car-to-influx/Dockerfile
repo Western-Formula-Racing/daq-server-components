@@ -1,7 +1,7 @@
 # Dockerfile for car-to-influx
 
 # 1. Base image
-FROM python:3.9-slim
+FROM python:3.12-slim
 
 # 2. Set working directory
 WORKDIR /app
