@@ -1,0 +1,18 @@
+services:
+  drag-n-drop:
+    build: .
+    ports:
+      - "8084:8084"
+    volumes:
+      - .:/app
+    restart: unless-stopped
+    environment:
+      - TOKEN=s9XkBC7pKOlb92-N9M40qilmxxoBe4wrnki4zpS_o0QSVTuMSQRQBerQB9Zv0YV40tmYayuX3w4G2MNizdy3qw==
+      - WEBHOOK_URL=https://hooks.slack.com/services/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
+      - DEBUG=0
+
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
