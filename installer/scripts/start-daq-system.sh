@@ -88,7 +88,7 @@ echo "🚀 Step 2: Starting all services..."
 echo "Starting the complete DAQ stack..."
 
 # Start all services except data loader first
-docker-compose up -d influxdb2 grafana frontend car-to-influx slackbot lappy
+docker-compose up -d influxdb2 grafana frontend car-to-influx slackbot lappy file-uploader
 
 echo ""
 echo "⏳ Step 3: Waiting for services to stabilize..."
@@ -123,7 +123,7 @@ echo "�🔍 Step 5: Service Status Check..."
 echo "Service Status:"
 echo "---------------"
 
-services=("influxdb2" "grafana" "frontend" "car-to-influx" "slackbot" "lappy" "startup-data-loader")
+services=("influxdb2" "grafana" "frontend" "car-to-influx" "slackbot" "lappy" "startup-data-loader", "file-uploader")
 
 for service in "${services[@]}"; do
     if [ "$service" = "startup-data-loader" ]; then
@@ -161,6 +161,7 @@ echo ""
 echo "🖥️  Frontend Application: http://3.98.181.12:8060"
 echo "📡 CAN Data Receiver: http://3.98.181.12:8085"
 echo "📈 Lap Timing System: http://3.98.181.12:8050"
+echo "📂 File Uploader System: http://3.98.181.12:8084"
 
 echo ""
 echo "✅ DAQ System startup complete!"

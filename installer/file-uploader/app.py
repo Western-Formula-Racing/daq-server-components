@@ -38,7 +38,7 @@ def getBuckets() -> list[str]:
         ).json()
     else:
         res = requests.get(
-            "http://influxwfr:8086/api/v2/buckets",
+            "http://influxdb2:8086/api/v2/buckets",
             headers={"Authorization": f"Token {INFLUX_TOKEN}"},
         ).json()
     names: list[str] = [bucket["name"] for bucket in res["buckets"]]
