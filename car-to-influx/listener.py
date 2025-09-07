@@ -16,7 +16,7 @@ import time  # For log streaming
 import json  # For manual JSON parsing if needed
 
 # ─── CONFIG ────────────────────────────────────────────────────────────────
-# http://3.98.181.12:8086 InfluxDB
+# http://3.98.181.12:8086 InfluxDB2
 INFLUX_URL = "http://influxwfr:8086"
 INFLUX_TOKEN = "s9XkBC7pKOlb92-N9M40qilmxxoBe4wrnki4zpS_o0QSVTuMSQRQBerQB9Zv0YV40tmYayuX3w4G2MNizdy3qw=="
 INFLUX_ORG = "WFR"
