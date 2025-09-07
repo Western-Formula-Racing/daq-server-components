@@ -5,6 +5,12 @@
 **With Slack Integration:**
 ```bash
 cd installer
+./scripts/start-daq-system.sh
+```
+
+**Without Slack Integration:**
+```bash
+cd installer
 ./scripts/start-daq-system-no-slack.sh
 ```
 
@@ -23,24 +29,6 @@ docker-compose up -d
 **Minimal Installation (no Slack):**
 ```bash
 docker-compose -f docker-compose.no-slack.yml up -d
-```
-
-**Without Slack (Minimal Setup):**
-```bash
-cd installer
-./scripts/start-daq-system-no-slack.sh
-```
-sleep 15
-./scripts/extract-token-docker.sh
-docker-compose -f docker-compose.no-slack.yml up -d
-```GitHub/DAQServerHelpers/installer
-./scripts/start-daq-system.sh
-```
-
-**Without Slack (Minimal Setup):**
-```bash
-cd installer
-./scripts/start-daq-system-no-slack.sh
 ```
 
 ## 📋 System Overview
@@ -89,7 +77,7 @@ Both options provide the same core functionality, but the minimal installation e
    - Applies resource limits and restart policies
 
 4. **Startup Data Loading** (Automatic)
-   - Loads any CSV files from `startup-data/` directory
+   - Loads any CSV files from `startup-data-loader/data/` directory
    - Uses DBC file to decode CAN messages
    - Streams historical telemetry data to InfluxDB
    - Provides real-time progress feedback
@@ -157,15 +145,13 @@ installer/
 │   ├── extract-influx-token.py # Python API extraction
 │   └── extract-influx-token.sh # Bash API extraction
 │
-├── startup-data/              # Historical telemetry data
-│   ├── *.csv                  # CAN data files (auto-loaded)
-│   ├── WFR25.dbc              # CAN database file
-│   └── helper.py              # Data processing utilities
-│
 ├── startup-data-loader/       # Data ingestion container
 │   ├── Dockerfile
 │   ├── load_data.py           # CSV to InfluxDB streamer
 │   ├── requirements.txt
+│   ├── WFR25.dbc              # CAN database file
+│   ├── data/                  # CSV data files directory
+│   │   └── *.csv              # CAN data files (auto-loaded)
 │   └── README.md
 │
 ├── grafana/                    # Grafana configuration
@@ -269,7 +255,7 @@ lsof -i :8087  # Check what's using Grafana port
 
 ## 📈 Data Flow
 
-1. **Historical Data Loading** → CSV files in `startup-data/` automatically loaded on first start
+1. **Historical Data Loading** → CSV files in `startup-data-loader/data/` automatically loaded on first start
 2. **Race Car** → CAN Bus frames
 3. **CAN Receiver** (port 8085) → Processes frames using DBC file
 4. **InfluxDB** (port 8086) → Stores time-series data
