@@ -3,6 +3,8 @@ import json
 import time
 import requests # For making HTTP requests
 
+# THIS IS FOR TESTING PURPOSES ONLY
+
 # Configuration
 FILE_PATH = "testing_data/cleaned_can.csv"
 URL = "http://3.98.181.12:8085/can"

@@ -1,0 +1,1520 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": 2,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "aemm3po5m8we8f"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": 100,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 12,
+      "maxDataPoints": 10000,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.0.0+security-01",
+      "targets": [
+        {
+          "query": "from(bucket: \"${data_source}\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"canBus\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"sensorReading\")\r\n  |> filter(fn: (r) => r[\"signalName\"] == \"INV_Diag_Ia\" or r[\"signalName\"] == \"INV_Diag_Ib\" or r[\"signalName\"] == \"INV_Diag_Ic\" or r[\"signalName\"] == \"INV_Diag_Id_cmd\" or r[\"signalName\"] == \"INV_Diag_Iq_cmd\" or r[\"signalName\"] == \"INV_Phase_A_Current\" or r[\"signalName\"] == \"INV_Phase_B_Current\" or r[\"signalName\"] == \"INV_Phase_C_Current\")\r\n  |> keep(columns: [\"_time\", \"_value\", \"signalName\"])\r\n  |> aggregateWindow(every: 100ms, fn: mean, createEmpty: false)\r\n  |> yield(name: \"mean\")\r\n  ",
+          "refId": "A"
+        }
+      ],
+      "title": "Inverter Phase Currents",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "aemm3po5m8we8f"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 9,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": 1000,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*INV_Torque_Feedback.*"
+            },
+            "properties": [
+              {
+                "id": "custom.transform"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*INV_Motor_Speed.*"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 7
+      },
+      "id": 2,
+      "interval": "100ms",
+      "maxDataPoints": 200000,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.0.0+security-01",
+      "targets": [
+        {
+          "query": "from(bucket: \"${data_source}\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => \r\n    r[\"_measurement\"] == \"canBus\" and\r\n    r[\"_field\"] == \"sensorReading\" and\r\n    (\r\n      r[\"signalName\"] == \"VCU_INV_Torque_Command\" or\r\n      r[\"signalName\"] == \"INV_Torque_Feedback\" or\r\n      r[\"signalName\"] == \"INV_Torque_Capability\"\r\n    )\r\n  )\r\n  |> aggregateWindow(every: 100ms, fn: mean, createEmpty: false)\r\n  |> keep(columns: [\"_time\", \"_value\", \"signalName\"])\r\n",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "aemm3po5m8we8f"
+          },
+          "hide": false,
+          "query": "from(bucket: \"${data_source}\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => \r\n    r[\"_measurement\"] == \"canBus\" and\r\n    r[\"_field\"] == \"sensorReading\" and\r\n    (\r\n      r[\"signalName\"] == \"INV_Motor_Speed\"\r\n    )\r\n  )\r\n  |> aggregateWindow(every: 100ms, fn: mean, createEmpty: false)\r\n  |> keep(columns: [\"_time\", \"_value\", \"signalName\"])\r\n",
+          "refId": "B"
+        }
+      ],
+      "title": "Torque & Motor Speed",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "aemm3po5m8we8f"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 22,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": 100,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 3,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "always",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "Volts"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*Current.*"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "unit",
+                "value": "Amps"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*Voltage.*"
+            },
+            "properties": [
+              {
+                "id": "min",
+                "value": 200
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 15
+      },
+      "id": 1,
+      "maxDataPoints": 100000000000000,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.0.0+security-01",
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "aemm3po5m8we8f"
+          },
+          "query": "from(bucket: \"${data_source}\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"canBus\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"sensorReading\")\r\n  |> filter(fn: (r) => r[\"signalName\"] == \"INV_DC_Bus_Voltage\")\r\n  |> aggregateWindow(every: 100ms, fn: mean, createEmpty: false)\r\n  |> keep(columns: [\"_time\", \"_value\", \"signalName\"])\r\n",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "aemm3po5m8we8f"
+          },
+          "hide": false,
+          "query": "from(bucket: \"${data_source}\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"canBus\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"sensorReading\")\r\n  |> filter(fn: (r) => r[\"messageName\"] == \"M167_Voltage_Info\" or r[\"messageName\"] == \"M176_Fast_Info\" or r[\"messageName\"] == \"M166_Current_Info\")\r\n  |> filter(fn: (r) => r[\"signalName\"] == \"INV_DC_Bus_Current\")\r\n  |> aggregateWindow(every: 100ms, fn: mean, createEmpty: false)\r\n  |> keep(columns: [\"_time\", \"_value\", \"signalName\"])",
+          "refId": "B"
+        }
+      ],
+      "title": "Inverter Voltage and Current",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "aemm3po5m8we8f"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": 1000,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*Throttle.*"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*A3.*"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Front Brake"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*A4.*"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Rear Brake"
+              }
+            ]
+          },
+          {
+            "__systemRef": "hideSeriesFrom",
+            "matcher": {
+              "id": "byNames",
+              "options": {
+                "mode": "exclude",
+                "names": [
+                  "Front Brake",
+                  "A2",
+                  "A12"
+                ],
+                "prefix": "All except:",
+                "readOnly": true
+              }
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": true
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*A2.*"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Front Left Brake Temp"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*A12.*"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Front Right Brake Temp"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*A9.*"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "APPS1"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*A14.*"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "APPS2"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 21
+      },
+      "id": 6,
+      "maxDataPoints": 100000,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.0.0+security-01",
+      "targets": [
+        {
+          "query": "from(bucket: \"${data_source}\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"canBus\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"sensorReading\")\r\n  |> filter(fn: (r) => r[\"messageName\"] == \"VCU_Front_Sensors_1\" or r[\"messageName\"] == \"VCU_Front_Sensors_2\" or r[\"messageName\"] == \"VCU_Front_Sensors_3\" or r[\"messageName\"] == \"VCU_Front_Sensors_4\" or r[\"messageName\"] == \"VCU_State_Info\")\r\n  |> filter(fn: (r) => r[\"signalName\"] == \"A3\" or r[\"signalName\"] == \"A4\" or r[\"signalName\"] == \"Throttle\" or r[\"signalName\"] == \"A2\" or r[\"signalName\"] == \"A12\" or r[\"signalName\"]==\"A9\" or r[\"signalName\"]==\"A14\")\r\n  |> aggregateWindow(every: 100ms, fn: mean, createEmpty: false)\r\n  |> keep(columns: [\"_time\", \"_value\", \"signalName\"])",
+          "refId": "A"
+        }
+      ],
+      "title": "Brake Pressure",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "aemm3po5m8we8f"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": 30000,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 29
+      },
+      "id": 4,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.0.0+security-01",
+      "targets": [
+        {
+          "query": "from(bucket: \"${data_source}\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"canBus\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"sensorReading\")\r\n  |> filter(fn: (r) => r[\"messageName\"] == \"TORCH_M1_T1\" or r[\"messageName\"] == \"TORCH_M1_T2\" or r[\"messageName\"] == \"TORCH_M1_T3\" or r[\"messageName\"] == \"TORCH_M1_T4\" or r[\"messageName\"] == \"TORCH_M1_T5\" or r[\"messageName\"] == \"TORCH_M2_T1\" or r[\"messageName\"] == \"TORCH_M2_T2\" or r[\"messageName\"] == \"TORCH_M2_T3\" or r[\"messageName\"] == \"TORCH_M2_T4\" or r[\"messageName\"] == \"TORCH_M2_T5\" or r[\"messageName\"] == \"TORCH_M3_T1\" or r[\"messageName\"] == \"TORCH_M3_T2\" or r[\"messageName\"] == \"TORCH_M3_T3\" or r[\"messageName\"] == \"TORCH_M3_T4\" or r[\"messageName\"] == \"TORCH_M3_T5\" or r[\"messageName\"] == \"TORCH_M4_T1\" or r[\"messageName\"] == \"TORCH_M4_T2\" or r[\"messageName\"] == \"TORCH_M4_T3\" or r[\"messageName\"] == \"TORCH_M4_T4\" or r[\"messageName\"] == \"TORCH_M4_T5\" or r[\"messageName\"] == \"TORCH_M5_T1\" or r[\"messageName\"] == \"TORCH_M5_T2\" or r[\"messageName\"] == \"TORCH_M5_T3\" or r[\"messageName\"] == \"TORCH_M5_T4\" or r[\"messageName\"] == \"TORCH_M5_T5\")\r\n  |> aggregateWindow(every: 100ms, fn: mean, createEmpty: false)\r\n  |> keep(columns: [\"_time\", \"_value\", \"signalName\"])",
+          "refId": "A"
+        }
+      ],
+      "title": "Cell Temps",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "aemm3po5m8we8f"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": 30000,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 36
+      },
+      "id": 13,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.0.0+security-01",
+      "targets": [
+        {
+          "query": "from(bucket: \"${data_source}\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"canBus\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"sensorReading\")\r\n  |> filter(fn: (r) => \r\n    r[\"messageName\"] == \"TORCH_M1_V1\" or r[\"messageName\"] == \"TORCH_M1_V2\" or r[\"messageName\"] == \"TORCH_M1_V3\" or r[\"messageName\"] == \"TORCH_M1_V4\" or r[\"messageName\"] == \"TORCH_M1_V5\" or\r\n    r[\"messageName\"] == \"TORCH_M2_V1\" or r[\"messageName\"] == \"TORCH_M2_V2\" or r[\"messageName\"] == \"TORCH_M2_V3\" or r[\"messageName\"] == \"TORCH_M2_V4\" or r[\"messageName\"] == \"TORCH_M2_V5\" or\r\n    r[\"messageName\"] == \"TORCH_M3_V1\" or r[\"messageName\"] == \"TORCH_M3_V2\" or r[\"messageName\"] == \"TORCH_M3_V3\" or r[\"messageName\"] == \"TORCH_M3_V4\" or r[\"messageName\"] == \"TORCH_M3_V5\" or\r\n    r[\"messageName\"] == \"TORCH_M4_V1\" or r[\"messageName\"] == \"TORCH_M4_V2\" or r[\"messageName\"] == \"TORCH_M4_V3\" or r[\"messageName\"] == \"TORCH_M4_V4\" or r[\"messageName\"] == \"TORCH_M4_V5\" or\r\n    r[\"messageName\"] == \"TORCH_M5_V1\" or r[\"messageName\"] == \"TORCH_M5_V2\" or r[\"messageName\"] == \"TORCH_M5_V3\" or r[\"messageName\"] == \"TORCH_M5_V4\" or r[\"messageName\"] == \"TORCH_M5_V5\"\r\n  )\r\n  |> aggregateWindow(every: 100ms, fn: mean, createEmpty: false)\r\n  |> keep(columns: [\"_time\", \"_value\", \"signalName\"])\r\n",
+          "refId": "A"
+        }
+      ],
+      "title": "Cell Voltages",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "aemm3po5m8we8f"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": 100,
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 4,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 0,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*Fault.*"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": {
+                        "index": 0,
+                        "text": "None"
+                      },
+                      "1": {
+                        "index": 1,
+                        "text": "Thermistor >60C"
+                      },
+                      "2": {
+                        "index": 2,
+                        "text": "Cell Under-Voltage"
+                      },
+                      "3": {
+                        "index": 3,
+                        "text": "Cell Over-Voltage"
+                      },
+                      "4": {
+                        "index": 4,
+                        "text": "Cell Delta >0.2V"
+                      },
+                      "5": {
+                        "index": 5,
+                        "text": "Open Cell"
+                      },
+                      "6": {
+                        "index": 6,
+                        "text": "Open Thermistor"
+                      },
+                      "7": {
+                        "index": 7,
+                        "text": "LTC DIAGN fail"
+                      },
+                      "8": {
+                        "index": 8,
+                        "text": "LTC AXST fail"
+                      },
+                      "9": {
+                        "index": 9,
+                        "text": "LTC CVST fail"
+                      },
+                      "10": {
+                        "index": 10,
+                        "text": "LTC STATST fail"
+                      },
+                      "11": {
+                        "index": 11,
+                        "text": " LTC ADOW fail"
+                      },
+                      "12": {
+                        "index": 12,
+                        "text": "LTC AXOW fail"
+                      },
+                      "13": {
+                        "index": 13,
+                        "text": "LTC ADOL fail"
+                      },
+                      "14": {
+                        "index": 14,
+                        "text": "LTC CRC fail"
+                      },
+                      "15": {
+                        "index": 15,
+                        "text": "current >100A"
+                      },
+                      "16": {
+                        "index": 16,
+                        "text": "CAN Timeout >2s"
+                      },
+                      "17": {
+                        "index": 17,
+                        "text": ">96 CAN Errors"
+                      }
+                    },
+                    "type": "value"
+                  },
+                  {
+                    "options": {
+                      "from": 18,
+                      "result": {
+                        "index": 18,
+                        "text": "Unknown Error"
+                      },
+                      "to": 10000
+                    },
+                    "type": "range"
+                  }
+                ]
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              },
+              {
+                "id": "custom.axisSoftMax",
+                "value": 18
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*PackStatus.*"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": {
+                        "index": 0,
+                        "text": "Idle"
+                      },
+                      "1": {
+                        "index": 1,
+                        "text": "Precharge Start"
+                      },
+                      "2": {
+                        "index": 2,
+                        "text": "Precharging"
+                      },
+                      "3": {
+                        "index": 3,
+                        "text": "Active"
+                      },
+                      "4": {
+                        "index": 4,
+                        "text": "Charging"
+                      },
+                      "5": {
+                        "index": 5,
+                        "text": "Charge Complete"
+                      },
+                      "6": {
+                        "index": 6,
+                        "text": "Fault"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "left"
+              },
+              {
+                "id": "custom.axisSoftMax",
+                "value": 6
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 43
+      },
+      "id": 3,
+      "maxDataPoints": 100000,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.0.0+security-01",
+      "targets": [
+        {
+          "query": "from(bucket: \"${data_source}\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"canBus\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"sensorReading\")\r\n  |> filter(fn: (r) => r[\"messageName\"] == \"PackStatus\")\r\n  |> filter(fn: (r) => r[\"signalName\"] == \"PackStatus\")\r\n  |> keep(columns: [\"_time\", \"_value\", \"signalName\"])\r\n",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "aemm3po5m8we8f"
+          },
+          "hide": false,
+          "query": "import \"internal/debug\"\r\nfrom(bucket: \"${data_source}\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"canBus\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"sensorReading\")\r\n  |> filter(fn: (r) => r[\"messageName\"] == \"PackStatus\")\r\n  |> filter(fn: (r) => r[\"signalName\"] == \"Fault\")\r\n  |> map(fn: (r) => ({\r\n      r with\r\n      _value: if r._value <= 1.0 then r._value\r\n              else if r._value <= 68.0 then 0.0\r\n              else if r._value >= 69.0 then (r._value - 68.0)\r\n              else debug.null(type: \"int\") // Sentinel value\r\n  }))\r\n  |> keep(columns: [\"_time\", \"_value\", \"signalName\"])\r\n  |> pivot(rowKey:[\"_time\"], columnKey: [\"signalName\"], valueColumn: \"_value\")\r\n  ",
+          "refId": "B"
+        }
+      ],
+      "title": "Pack Status",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "aemm3po5m8we8f"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": 100,
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 0,
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "index": 0,
+                  "text": "Start"
+                },
+                "1": {
+                  "index": 1,
+                  "text": "Precharge Enable"
+                },
+                "2": {
+                  "index": 2,
+                  "text": "Precharge OK"
+                },
+                "3": {
+                  "index": 3,
+                  "text": "Start Up Delay"
+                },
+                "4": {
+                  "index": 4,
+                  "text": "Drive"
+                },
+                "5": {
+                  "index": 5,
+                  "text": "Precharge Error"
+                },
+                "6": {
+                  "index": 6,
+                  "text": "Device Fault"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 50
+      },
+      "id": 8,
+      "maxDataPoints": 10000,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.0.0+security-01",
+      "targets": [
+        {
+          "query": "from(bucket: \"${data_source}\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"canBus\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"sensorReading\")\r\n  |> filter(fn: (r) => r[\"messageName\"] == \"VCU_State_Info\")\r\n  |> filter(fn: (r) => r[\"signalName\"] == \"State\")\r\n  |> aggregateWindow(every: 10ms, fn: mean, createEmpty: false)\r\n  |> keep(columns: [\"_time\", \"_value\", \"signalName\"])\r\n",
+          "refId": "A"
+        }
+      ],
+      "title": "VCU State",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "aemm3po5m8we8f"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": 100,
+            "lineInterpolation": "stepBefore",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "__systemRef": "hideSeriesFrom",
+            "matcher": {
+              "id": "byNames",
+              "options": {
+                "mode": "exclude",
+                "names": [
+                  "INV_Inverter_State",
+                  "VCU_INV_Inverter_Enable"
+                ],
+                "prefix": "All except:",
+                "readOnly": true
+              }
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": true
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 56
+      },
+      "id": 7,
+      "maxDataPoints": 100000,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.0.0+security-01",
+      "targets": [
+        {
+          "query": "from(bucket: \"${data_source}\")\r\n|> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"canBus\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"sensorReading\")\r\n  |> filter(fn: (r) => r[\"messageName\"] == \"M170_Internal_States\")\r\n  |> filter(fn: (r) => r[\"signalName\"] == \"INV_BMS_Torque_Limiting\" or r[\"signalName\"] == \"INV_Inverter_Enable_State\" or r[\"signalName\"] == \"INV_Inverter_Run_Mode\" or r[\"signalName\"] == \"INV_Inverter_State\" or r[\"signalName\"] == \"INV_Limit_Coolant_Derating\" or r[\"signalName\"] == \"INV_Limit_Hot_Spot\" or r[\"signalName\"] == \"INV_Limit_Max_Speed\" or r[\"signalName\"] == \"INV_Limit_Stall_Burst_Model\" or r[\"signalName\"] == \"INV_Low_Speed_Limiting\" or r[\"signalName\"] == \"INV_VSM_State\")\r\n  |> aggregateWindow(every: 100ms, fn: max)\r\n  |> keep(columns: [\"_time\", \"_value\", \"signalName\"])",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "aemm3po5m8we8f"
+          },
+          "hide": false,
+          "query": "from(bucket: \"${data_source}\")\r\n|> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"canBus\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"sensorReading\")\r\n  |> filter(fn: (r) => r[\"signalName\"] == \"VCU_INV_Inverter_Enable\")\r\n  |> aggregateWindow(every: 100ms, fn: max)\r\n  |> keep(columns: [\"_time\", \"_value\", \"signalName\"])",
+          "refId": "B"
+        }
+      ],
+      "title": "Inverter States",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "aemm3po5m8we8f"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": 1000,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "__systemRef": "hideSeriesFrom",
+            "matcher": {
+              "id": "byNames",
+              "options": {
+                "mode": "exclude",
+                "names": [
+                  "INV_Control_Board_Temp",
+                  "INV_Coolant_Temp",
+                  "INV_Hot_Spot_Temp",
+                  "INV_Module_A_Temp",
+                  "INV_Module_B_Temp",
+                  "INV_Module_C_Temp",
+                  "INV_Gate_Driver_Board_Temp"
+                ],
+                "prefix": "All except:",
+                "readOnly": true
+              }
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": true
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 68
+      },
+      "id": 10,
+      "maxDataPoints": 10000,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.0.0+security-01",
+      "targets": [
+        {
+          "query": "from(bucket: \"${data_source}\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"canBus\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"sensorReading\")\r\n  |> filter(fn: (r) => r[\"messageName\"] == \"M160_Temperature_Set_1\" or r[\"messageName\"] == \"M161_Temperature_Set_2\" or r[\"messageName\"] == \"M162_Temperature_Set_3\")\r\n  |> filter(fn: (r) => r[\"signalName\"] == \"INV_Control_Board_Temp\" or r[\"signalName\"] == \"INV_Coolant_Temp\" or r[\"signalName\"] == \"INV_Gate_Driver_Board_Temp\" or r[\"signalName\"] == \"INV_Hot_Spot_Temp\" or r[\"signalName\"] == \"INV_Module_A_Temp\" or r[\"signalName\"] == \"INV_Module_B_Temp\" or r[\"signalName\"] == \"INV_Module_C_Temp\")\r\n  |> aggregateWindow(every: 100ms, fn: mean, createEmpty: false)\r\n  |> keep(columns: [\"_time\", \"_value\", \"signalName\"])",
+          "refId": "A"
+        }
+      ],
+      "title": "Inverter Temps",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "aemm3po5m8we8f"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 75
+      },
+      "id": 9,
+      "maxDataPoints": 100000,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.0.0+security-01",
+      "targets": [
+        {
+          "query": "from(bucket: \"${data_source}\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"canBus\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"sensorReading\")\r\n  |> filter(fn: (r) => r[\"messageName\"] == \"M171_Fault_Codes\")\r\n  |> aggregateWindow(every: 1s, fn: max)\r\n  |> keep(columns: [\"_time\", \"_value\", \"signalName\"])\r\n  |> pivot(rowKey:[\"_time\"], columnKey: [\"signalName\"], valueColumn: \"_value\")\r\n  \r\n",
+          "refId": "A"
+        }
+      ],
+      "title": "Inverter Faults",
+      "type": "timeseries"
+    }
+  ],
+  "preload": false,
+  "schemaVersion": 41,
+  "tags": [],
+  "templating": {
+    "list": [
+      {
+        "allowCustomValue": false,
+        "current": {
+          "text": "WFR2025",
+          "value": "WFR2025"
+        },
+        "description": "",
+        "name": "data_source",
+        "options": [
+          {
+            "selected": true,
+            "text": "WFR2025",
+            "value": "WFR2025"
+          },
+          {
+            "selected": false,
+            "text": "ourCar",
+            "value": "ourCar"
+          }
+        ],
+        "query": "WFR2025,ourCar",
+        "type": "custom"
+      }
+    ]
+  },
+  "time": {
+    "from": "2025-06-17T06:00:00.000Z",
+    "to": "2025-06-17T07:00:00.000Z"
+  },
+  "timepicker": {},
+  "timezone": "America/Toronto",
+  "title": "Vehicle Overview",
+  "uid": "8b451d09-318f-460e-a8b8-206eed9c19ec",
+  "version": 80
+}
