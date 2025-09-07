@@ -2,9 +2,33 @@
 
 ## 🚀 Quick Start
 
+**With Slack Integration:**
+``### Step 2: Manual Installation Steps
+
+If you prefer manual control or troubleshooting:
+
+**Full Installation:**
+```bash
+docker-compose up -d influxdb2
+sleep 15
+./scripts/extract-token-docker.sh
+docker-compose up -d
+```
+
+**Minimal Installation (no Slack):**
+```bash
+docker-compose -f docker-compose.no-slack.yml up -d influxdb2
+sleep 15
+./scripts/extract-token-docker.sh
+docker-compose -f docker-compose.no-slack.yml up -d
+```GitHub/DAQServerHelpers/installer
+./scripts/start-daq-system.sh
+```
+
+**Without Slack (Minimal Setup):**
 ```bash
 cd /Users/hz/GitHub/DAQServerHelpers/installer
-./scripts/start-daq-system.sh
+./scripts/start-daq-system-no-slack.sh
 ```
 
 ## 📋 System Overview
@@ -20,10 +44,20 @@ The WFR DAQ (Data Acquisition) system is a containerized solution for collecting
 
 ## 🏗️ Installation Process
 
-### Step 1: Automated Startup
+### Option A: Full Installation (with Slack)
 ```bash
 ./scripts/start-daq-system.sh
 ```
+
+### Option B: Minimal Installation (no Slack)
+```bash
+./scripts/start-daq-system-no-slack.sh
+```
+
+Both options provide the same core functionality, but the minimal installation excludes:
+- Slack bot container
+- Slack startup notifications
+- Slack-related dependencies
 
 **What happens during startup:**
 
@@ -53,10 +87,11 @@ The WFR DAQ (Data Acquisition) system is a containerized solution for collecting
    - Loads default dashboards from `grafana/dashboards/`
    - Sets up admin user: `admin` / `turbo-charged-plotting-machine`
 
-6. **Health Verification** (15 seconds)
+6. **Health Verification & Notifications** (15 seconds)
    - Tests all service endpoints
    - Verifies Grafana ↔ InfluxDB connectivity
    - Reports system status and access URLs
+   - Sends comprehensive status to Slack (if configured)
 
 ### Step 2: Access Services
 
@@ -161,8 +196,35 @@ installer/
 - InfluxDB tokens are automatically extracted and rotated
 - Slack tokens are configured in `docker-compose.yml`
 - All secrets stored in `.env` file (git-ignored)
+- Slack webhook URL can be set via `SLACK_WEBHOOK_URL` environment variable
 
-## 🐛 Troubleshooting
+## � Slack Integration
+
+### Automatic Startup Notifications
+The system automatically sends a comprehensive status report to Slack after startup, including:
+- Service status for all containers
+- Connectivity test results  
+- Service URLs and access information
+- Data loading completion status
+
+### Configuration
+```bash
+# Add to .env file:
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
+```
+
+### Manual Slack Bot Setup
+```bash
+# Edit docker-compose.yml:
+environment:
+  SLACK_BOT_TOKEN: "xoxb-your-bot-token-here"
+  SLACK_APP_TOKEN: "xapp-your-app-token-here"
+
+# Restart slackbot service:
+docker-compose restart slackbot
+```
+
+## �🐛 Troubleshooting
 
 ### Common Issues
 

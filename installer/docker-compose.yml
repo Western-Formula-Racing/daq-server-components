@@ -161,7 +161,7 @@ services:
     environment:
       INFLUXDB_TOKEN: "${INFLUXDB_TOKEN}"
     volumes:
-      - ./startup-data:/data:ro  # Mount startup-data as read-only
+      - ./startup-data-loader/data:/data:ro  # Mount startup-data-loader/data as read-only
     networks:
       - datalink
     depends_on:

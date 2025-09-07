@@ -98,9 +98,10 @@ echo ""
 echo "� Step 4: Loading startup data..."
 echo "Starting data loader to populate InfluxDB with initial data..."
 
-# Check if startup data exists
-if [ -d "startup-data" ] && [ -n "$(ls -A startup-data/*.csv 2>/dev/null)" ]; then
-    echo "📂 Found CSV files in startup-data/, starting data loader..."
+
+# Check if startup data exists in startup-data-loader/data
+if [ -d "startup-data-loader/data" ] && [ -n "$(ls -A startup-data-loader/data/*.csv 2>/dev/null)" ]; then
+    echo "📂 Found CSV files in startup-data-loader/data/, starting data loader..."
     docker-compose up startup-data-loader
     
     # Check if data loader completed successfully
@@ -112,7 +113,7 @@ if [ -d "startup-data" ] && [ -n "$(ls -A startup-data/*.csv 2>/dev/null)" ]; th
         echo "📋 Check logs: docker logs startup-data-loader"
     fi
 else
-    echo "📂 No CSV files found in startup-data/, skipping data loading"
+    echo "📂 No CSV files found in startup-data-loader/data/, skipping data loading"
 fi
 
 echo ""
@@ -130,12 +131,12 @@ for service in "${services[@]}"; do
         if container_exists "$service"; then
             exit_code=$(docker inspect startup-data-loader --format='{{.State.ExitCode}}' 2>/dev/null || echo "unknown")
             if [ "$exit_code" = "0" ]; then
-                echo "✅ $service: COMPLETED SUCCESSFULLY"
+                echo "✅ $service: SERVICE COMPLETE - STOPPED"
             else
                 echo "⚠️  $service: COMPLETED WITH EXIT CODE $exit_code"
             fi
         else
-            echo "❓ $service: NOT RUN"
+            echo "❓ $service: NOT NEEDED (NO DATA FILES)"
         fi
     elif container_running "$service"; then
         echo "✅ $service: RUNNING"
@@ -198,3 +199,111 @@ fi
 
 echo ""
 echo "🎯 System Ready for Data Acquisition!"
+
+# Function to send Slack notification
+send_slack_notification() {
+    local message="$1"
+    
+    # Check for Slack webhook URL (priority: env var, then default)
+    local webhook_url="${SLACK_WEBHOOK_URL:-https://hooks.slack.com/services/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}"
+    
+    if [ -n "$webhook_url" ] && [ "$webhook_url" != "unset" ]; then
+        echo "📱 Sending system status to Slack..."
+        
+        # Send to Slack using webhook
+        curl -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\"$message\"}" \
+            "$webhook_url" \
+            --silent --output /dev/null --max-time 10
+        
+        if [ $? -eq 0 ]; then
+            echo "✅ Slack notification sent successfully!"
+        else
+            echo "⚠️  Failed to send Slack notification (check webhook URL or network)"
+        fi
+    else
+        echo "⚠️  No Slack webhook URL configured, skipping notification"
+        echo "💡 Set SLACK_WEBHOOK_URL environment variable to enable Slack notifications"
+    fi
+}
+
+# Prepare comprehensive system status message for Slack
+echo ""
+echo "📱 Preparing Slack notification..."
+
+# Build status message
+slack_message="🏁 *WFR DAQ System Startup Complete!*
+
+📊 *System Status:*"
+
+# Add service status to Slack message
+for service in "${services[@]}"; do
+    if [ "$service" = "startup-data-loader" ]; then
+        if container_exists "$service"; then
+            exit_code=$(docker inspect startup-data-loader --format='{{.State.ExitCode}}' 2>/dev/null || echo "unknown")
+            if [ "$exit_code" = "0" ]; then
+                slack_message="$slack_message
+:white_check_mark: $service: SERVICE COMPLETE - STOPPED"
+            else
+                slack_message="$slack_message
+:warning: $service: COMPLETED WITH EXIT CODE $exit_code"
+            fi
+        else
+            slack_message="$slack_message
+:information_source: $service: NOT NEEDED (NO DATA FILES)"
+        fi
+    elif container_running "$service"; then
+        slack_message="$slack_message
+:white_check_mark: $service: RUNNING"
+    elif container_exists "$service"; then
+        slack_message="$slack_message
+:warning: $service: EXISTS BUT NOT RUNNING"
+    else
+        slack_message="$slack_message
+:x: $service: NOT FOUND"
+    fi
+done
+
+# Add connectivity test results
+slack_message="$slack_message
+
+:microscope: *Connectivity Tests:*"
+
+if curl -s "http://localhost:8086/health" >/dev/null 2>&1; then
+    slack_message="$slack_message
+:white_check_mark: InfluxDB: Accessible"
+else
+    slack_message="$slack_message
+:x: InfluxDB: Not accessible"
+fi
+
+if curl -s "http://localhost:8087/api/health" >/dev/null 2>&1; then
+    slack_message="$slack_message
+:white_check_mark: Grafana: Accessible"
+else
+    slack_message="$slack_message
+:x: Grafana: Not accessible"
+fi
+
+if curl -s "http://localhost:8060" >/dev/null 2>&1; then
+    slack_message="$slack_message
+:white_check_mark: Frontend: Accessible"
+else
+    slack_message="$slack_message
+:x: Frontend: Not accessible"
+fi
+
+# Add service URLs
+slack_message="$slack_message
+
+:globe_with_meridians: *Service URLs:*
+:bar_chart: Grafana: http://127.0.0.1:8087
+:file_cabinet: InfluxDB: http://127.0.0.1:8086
+:desktop_computer: Frontend: http://127.0.0.1:8060
+:satellite: CAN Receiver: http://127.0.0.1:8085
+:chart_with_upwards_trend: Lap Timer: http://127.0.0.1:8050
+
+:racing_car: *Ready for data acquisition!*"
+
+# Send the comprehensive message to Slack
+send_slack_notification "$slack_message"
