@@ -172,25 +172,25 @@ services:
           memory: 512m
           cpus: "1.0"
 
-    drag-n-drop:
-      build: ./file-uploader
-      container_name: file-uploader
-      ports:
-        - "8084:8084"
-      volumes:
-        - ./file-uploader:/app
-      restart: unless-stopped
-      networks:
-        - datalink
-      environment:
-        - TOKEN=${INFLUXDB_TOKEN}
-        - WEBHOOK_URL=https://hooks.slack.com/services/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
-        - DEBUG=0
-      deploy:
-        resources:
-          limits:
-            cpus: "1"
-            memory: 512M
+  drag-n-drop:
+    build: ./file-uploader
+    container_name: file-uploader
+    ports:
+      - "8084:8084"
+    volumes:
+      - ./file-uploader:/app
+    restart: unless-stopped
+    networks:
+      - datalink
+    environment:
+      - TOKEN=${INFLUXDB_TOKEN}
+      - WEBHOOK_URL=https://hooks.slack.com/services/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
+      - DEBUG=0
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
 
 #  artifact-viewer:
 #    image: artifact-viewer-dev
