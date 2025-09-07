@@ -6,10 +6,7 @@ volumes:
   grafana-storage:
   influxdb2-data:
   influxdb2-config:
-  influxdb3-data:
 
-# in previous testings, we used influxdb2 as the container name for influxdb2
-# changing it to influxdb2 now to be more standard
 services:
   influxdb2:
     image: influxdb:2
@@ -28,32 +25,6 @@ services:
       - influxdb2-config:/etc/influxdb2
     networks:
       - datalink
-    deploy:
-      resources:
-        limits:
-          memory: 1g
-          cpus: "1.0"
-
-#  influxdb3:
-#    image: influxdb:3-core
-#    container_name: influxdb3
-#    command: >
-#      influxdb3 serve
-#      --node-id influxdb3-node
-#      --object-store file
-#      --data-dir /var/lib/influxdb3
-#    restart: unless-stopped
-#    ports:
-#      - "9000:8181"
-#    volumes:
-#      - influxdb3-data:/var/lib/influxdb3
-#    networks:
-#      - datalink
-#    deploy:
-#      resources:
-#        limits:
-#          memory: 1g
-#          cpus: "1.0"
 
   grafana:
     image: grafana/grafana
@@ -69,7 +40,7 @@ services:
       GF_AUTH_BASIC_ENABLED: true
       GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
       GF_PATHS_PROVISIONING: /etc/grafana/provisioning
-      INFLUXDB_TOKEN: "${INFLUXDB_TOKEN:-s9XkBC7pKOlb92-N9M40qilmxxoBe4wrnki4zpS_o0QSVTuMSQRQBerQB9Zv0YV40tmYayuX3w4G2MNizdy3qw==}"
+      INFLUXDB_TOKEN: "${INFLUXDB_TOKEN}"
     volumes:
       - grafana-storage:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
@@ -78,11 +49,6 @@ services:
       - datalink
     depends_on:
       - influxdb2
-    deploy:
-      resources:
-        limits:
-          memory: 1g
-          cpus: "1.0"
 
   frontend:
     image: nginx:alpine
@@ -94,14 +60,9 @@ services:
       - ./frontend-build:/usr/share/nginx/html:ro
     networks:
       - datalink
-    deploy:
-      resources:
-        limits:
-          memory: 512m
-          cpus: "0.5"
 
   car-to-influx:
-    build: ./car-to-influx   # put Dockerfile + listener.py here
+    build: ./car-to-influx
     container_name: car-to-influx
     restart: unless-stopped
     ports:
@@ -112,32 +73,9 @@ services:
     command: python listener.py
     networks:
       - datalink
-    deploy:
-      resources:
-        limits:
-          memory: 512m
-          cpus: "0.5"
-
-  slackbot:
-    build: ./slackbot   # put Dockerfile + slack_bot.py here
-    container_name: slackbot
-    restart: always
-    environment:
-      SLACK_BOT_TOKEN: "YOUR_SLACK_BOT_TOKEN"
-      SLACK_APP_TOKEN: "YOUR_SLACK_APP_TOKEN"
-    volumes:
-      - ./slackbot:/app
-    working_dir: /app
-    command: python slack_bot.py
-    networks:
-      - datalink
-    deploy:
-      resources:
-        limits:
-          cpus: "0.25"
 
   lappy:
-    build: ./lappy  # folder with lap.py and requirements.txt
+    build: ./lappy
     container_name: lappy
     restart: unless-stopped
     ports:
@@ -148,40 +86,16 @@ services:
     command: python lap.py
     networks:
       - datalink
-    deploy:
-      resources:
-        limits:
-          memory: 256m
-          cpus: "0.5"
 
   startup-data-loader:
     build: ./startup-data-loader
     container_name: startup-data-loader
-    restart: "no"  # Run once only
+    restart: "no"
     environment:
       INFLUXDB_TOKEN: "${INFLUXDB_TOKEN}"
     volumes:
-      - ./startup-data-loader/data:/data:ro  # Mount startup-data-loader/data as read-only
+      - ./startup-data:/data:ro
     networks:
       - datalink
     depends_on:
       - influxdb2
-    deploy:
-      resources:
-        limits:
-          memory: 512m
-          cpus: "1.0"
-
-#  artifact-viewer:
-#    image: artifact-viewer-dev
-#    container_name: artifact-viewer
-#    restart: unless-stopped
-#    ports:
-#      - "2990:2990"
-#    networks:
-#      - datalink
-#    deploy:
-#      resources:
-#        limits:
-#          memory: 512m
-#          cpus: "0.5"
