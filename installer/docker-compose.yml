@@ -8,10 +8,12 @@ volumes:
   influxdb2-config:
   influxdb3-data:
 
+# in previous testings, we used influxdb2 as the container name for influxdb2
+# changing it to influxdb2 now to be more standard
 services:
   influxdb2:
     image: influxdb:2
-    container_name: influxwfr
+    container_name: influxdb2
     restart: unless-stopped
     ports:
       - "8086:8086"
@@ -32,26 +34,26 @@ services:
           memory: 1g
           cpus: "1.0"
 
-  influxdb3:
-    image: influxdb:3-core
-    container_name: influxdb3
-    command: >
-      influxdb3 serve
-      --node-id influxdb3-node
-      --object-store file
-      --data-dir /var/lib/influxdb3
-    restart: unless-stopped
-    ports:
-      - "9000:8181"
-    volumes:
-      - influxdb3-data:/var/lib/influxdb3
-    networks:
-      - datalink
-    deploy:
-      resources:
-        limits:
-          memory: 1g
-          cpus: "1.0"
+#  influxdb3:
+#    image: influxdb:3-core
+#    container_name: influxdb3
+#    command: >
+#      influxdb3 serve
+#      --node-id influxdb3-node
+#      --object-store file
+#      --data-dir /var/lib/influxdb3
+#    restart: unless-stopped
+#    ports:
+#      - "9000:8181"
+#    volumes:
+#      - influxdb3-data:/var/lib/influxdb3
+#    networks:
+#      - datalink
+#    deploy:
+#      resources:
+#        limits:
+#          memory: 1g
+#          cpus: "1.0"
 
   grafana:
     image: grafana/grafana
@@ -59,10 +61,23 @@ services:
     restart: unless-stopped
     ports:
       - "8087:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: YOUR_GRAFANA_PASSWORD
+      GF_SECURITY_ADMIN_EMAIL: daq@westernformularacing.com
+      GF_AUTH_ANONYMOUS_ENABLED: false
+      GF_AUTH_BASIC_ENABLED: true
+      GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+      INFLUXDB_TOKEN: "${INFLUXDB_TOKEN:-s9XkBC7pKOlb92-N9M40qilmxxoBe4wrnki4zpS_o0QSVTuMSQRQBerQB9Zv0YV40tmYayuX3w4G2MNizdy3qw==}"
     volumes:
       - grafana-storage:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     networks:
       - datalink
+    depends_on:
+      - influxdb2
     deploy:
       resources:
         limits:
@@ -76,7 +91,7 @@ services:
     ports:
       - "8060:80"
     volumes:
-      - /home/ubuntu/frontend-build:/usr/share/nginx/html:ro
+      - ./frontend-build:/usr/share/nginx/html:ro
     networks:
       - datalink
     deploy:
@@ -108,8 +123,8 @@ services:
     container_name: slackbot
     restart: always
     environment:
-      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
-      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN}
+      SLACK_BOT_TOKEN: "YOUR_SLACK_BOT_TOKEN"
+      SLACK_APP_TOKEN: "YOUR_SLACK_APP_TOKEN"
     volumes:
       - ./slackbot:/app
     working_dir: /app
@@ -133,17 +148,40 @@ services:
     command: python lap.py
     networks:
       - datalink
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: "0.5"
 
-  artifact-viewer:
-    image: artifact-viewer-dev
-    container_name: artifact-viewer
-    restart: unless-stopped
-    ports:
-      - "2990:2990"
+  startup-data-loader:
+    build: ./startup-data-loader
+    container_name: startup-data-loader
+    restart: "no"  # Run once only
+    environment:
+      INFLUXDB_TOKEN: "${INFLUXDB_TOKEN}"
+    volumes:
+      - ./startup-data:/data:ro  # Mount startup-data as read-only
     networks:
       - datalink
+    depends_on:
+      - influxdb2
     deploy:
       resources:
         limits:
           memory: 512m
-          cpus: "0.5"
+          cpus: "1.0"
+
+#  artifact-viewer:
+#    image: artifact-viewer-dev
+#    container_name: artifact-viewer
+#    restart: unless-stopped
+#    ports:
+#      - "2990:2990"
+#    networks:
+#      - datalink
+#    deploy:
+#      resources:
+#        limits:
+#          memory: 512m
+#          cpus: "0.5"
