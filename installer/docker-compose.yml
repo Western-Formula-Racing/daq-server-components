@@ -172,7 +172,7 @@ services:
           memory: 512m
           cpus: "1.0"
 
-  drag-n-drop:
+  file-uploader:
     build: ./file-uploader
     container_name: file-uploader
     ports:
