@@ -120,7 +120,7 @@ const QRHChecklist = () => {
               <div>PORT: 8086</div>
               <div>URL: http://3.98.181.12:8086</div>
               <div>USERNAME: admin</div>
-              <div>PASSWORD: YOUR_INFLUXDB_PASSWORD</div>
+              <div>PASSWORD: ${INFLUXDB_PASSWORD:-your-influxdb-password-here}</div>
               <div>ORG: WFR</div>
               <div>BUCKET: ourCar</div>
             </div>
@@ -140,7 +140,7 @@ const QRHChecklist = () => {
               <div>PORT: 8087</div>
               <div>URL: http://3.98.181.12:8087</div>
               <div>USERNAME: admin</div>
-              <div>PASSWORD: YOUR_GRAFANA_PASSWORD</div>
+              <div>PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-your-grafana-password-here}</div>
             </div>
           </div>
         )}
