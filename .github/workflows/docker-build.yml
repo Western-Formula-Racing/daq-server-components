@@ -20,8 +20,8 @@ jobs:
     - name: Validate docker-compose files
       run: |
         cd installer
-        docker-compose config
-        docker-compose -f docker-compose.no-slack.yml config
+        docker compose config
+        docker compose -f docker-compose.no-slack.yml config
 
   build-and-push:
     runs-on: ubuntu-latest
@@ -90,20 +90,20 @@ jobs:
     - name: Build test images
       run: |
         cd installer
-        docker-compose build --parallel
+        docker compose build --parallel
 
     - name: Validate compose configuration
       run: |
         cd installer
-        docker-compose config --quiet
+        docker compose config --quiet
 
     - name: Test container startup (quick smoke test)
       run: |
         cd installer
         # Start only the core services for a quick test
-        timeout 30s docker-compose up influxdb2 grafana frontend || true
+        timeout 30s docker compose up influxdb2 grafana frontend || true
         # Check if containers started (even if they exit quickly)
-        docker-compose ps
+        docker compose ps
 
   cleanup:
     runs-on: ubuntu-latest

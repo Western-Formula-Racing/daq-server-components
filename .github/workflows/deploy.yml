@@ -31,5 +31,5 @@ jobs:
         # For example:
         # - SSH to your server
         # - Pull latest images
-        # - Run docker-compose up
+        # - Run docker compose up
         # - Run health checks
