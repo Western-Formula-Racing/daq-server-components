@@ -15,7 +15,7 @@ class InfluxTokenExtractor:
     def __init__(self):
         self.influxdb_url = "http://localhost:8086"
         self.username = "admin"
-        self.password = "YOUR_INFLUXDB_PASSWORD"
+        self.password = os.getenv("INFLUXDB_PASSWORD", "YOUR_INFLUXDB_PASSWORD")
         self.org = "WFR"
         self.session = requests.Session()
     

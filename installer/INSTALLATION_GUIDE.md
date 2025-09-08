@@ -139,11 +139,11 @@ Open these URLs in your browser:
 
 1. **📊 Grafana Dashboard**: http://localhost:8087
    - Username: `admin`
-   - Password: `YOUR_GRAFANA_PASSWORD`
+   - Password: `${GRAFANA_ADMIN_PASSWORD:-your-grafana-password-here}`
 
 2. **🗄️ InfluxDB Interface**: http://localhost:8086
    - Username: `admin`
-   - Password: `YOUR_INFLUXDB_PASSWORD`
+   - Password: `${INFLUXDB_PASSWORD:-your-influxdb-password-here}`
 
 3. **🖥️ Frontend Application**: http://localhost:8060
    - System management and overview

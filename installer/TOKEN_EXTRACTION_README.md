@@ -169,7 +169,7 @@ curl http://localhost:8086/ping
 
 # Manual token extraction
 open http://localhost:8086
-# Login: admin / YOUR_INFLUXDB_PASSWORD
+# Login: admin / ${INFLUXDB_PASSWORD:-your-influxdb-password-here}
 # Data → API Tokens → Generate API Token (All Access)
 ```
 
@@ -369,7 +369,7 @@ The auto-generated tokens include:
 docker logs influxdb2
 
 # Verify authentication
-docker exec influxdb2 influx auth list --username admin --password YOUR_INFLUXDB_PASSWORD --org WFR
+docker exec influxdb2 influx auth list --username admin --password ${INFLUXDB_PASSWORD:-YOUR_INFLUXDB_PASSWORD} --org WFR
 ```
 
 **Grafana can't connect:**
