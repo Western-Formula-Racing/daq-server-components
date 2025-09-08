@@ -14,6 +14,46 @@ cd installer
 ./scripts/start-daq-system-no-slack.sh
 ```
 
+## 🔧 Environment Setup
+
+### Required Environment Variables
+
+Before running the system, you need to set up your environment variables. The system uses a `.env` file for configuration.
+
+1. **Copy the example file:**
+   ```bash
+   cp .env.example .env
+   ```
+
+2. **Edit `.env` with your actual values:**
+   ```bash
+   # Required variables
+   INFLUXDB_TOKEN=your_actual_token_here
+   INFLUXDB_INIT_PASSWORD=your_secure_password
+   GRAFANA_ADMIN_PASSWORD=your_secure_password
+   SLACK_BOT_TOKEN=xoxb-your-bot-token
+   SLACK_APP_TOKEN=xapp-your-app-token
+   ```
+
+3. **Get your InfluxDB token:**
+   ```bash
+   ./scripts/extract-token-docker.sh
+   ```
+   This will automatically update your `.env` file with the extracted token.
+
+### Sharing Environment Variables with Team
+
+Since `.env` files contain sensitive information, they are **not committed** to the repository. To share configuration with your team:
+
+1. **Use the `.env.example` template** - this shows the required structure without actual values
+2. **Share actual values securely** through:
+   - Team password manager (LastPass, Bitwarden, etc.)
+   - Encrypted team chat
+   - Secure note sharing
+   - Environment variables in your deployment platform
+
+**⚠️ Never commit actual `.env` files to the repository!**
+
 ### Step 2: Manual Installation Steps
 
 If you prefer manual control or troubleshooting:

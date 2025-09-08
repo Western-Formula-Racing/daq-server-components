@@ -176,3 +176,4 @@ cython_debug/
 
 .idea
 car-to-influx/testing_data/cleaned_can.csv
+installer/.env.backup
