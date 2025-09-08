@@ -2,9 +2,9 @@ name: Build and Test DAQ System
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, develop, deploy ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, develop, deploy ]
 
 env:
   REGISTRY: ghcr.io
