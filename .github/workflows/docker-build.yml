@@ -38,6 +38,10 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Convert repository name to lowercase
+      run: |
+        echo "IMAGE_NAME_LOWER=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
     - name: Log in to Container Registry
       uses: docker/login-action@v3
       with:
@@ -48,8 +52,8 @@ jobs:
     - name: Extract metadata
       id: meta
       run: |
-        echo "tags=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.service }}:latest" >> $GITHUB_OUTPUT
-        echo "tags=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.service }}:${{ github.sha }}" >> $GITHUB_OUTPUT
+        echo "tags=${{ env.REGISTRY }}/${IMAGE_NAME_LOWER}/${{ matrix.service }}:latest" >> $GITHUB_OUTPUT
+        echo "tags=${{ env.REGISTRY }}/${IMAGE_NAME_LOWER}/${{ matrix.service }}:${{ github.sha }}" >> $GITHUB_OUTPUT
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
