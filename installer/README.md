@@ -42,6 +42,76 @@ The WFR DAQ (Data Acquisition) system is a containerized solution for collecting
 - **Lap Timing System**: Tracks and analyzes lap performance
 - **Frontend Application**: Web interface for system management
 
+## 🔄 **CI/CD Pipeline - Automated Building**
+
+This project includes automated CI/CD pipelines using GitHub Actions that build and test your Docker stack on every commit.
+
+### **Automated Workflows**
+
+#### **🚀 Build & Test Pipeline** (`.github/workflows/docker-build.yml`)
+- **Triggers**: Push to `main`/`develop` branches, Pull Requests
+- **What it does**:
+  - ✅ Validates `docker-compose.yml` files
+  - 🐳 Builds custom Docker images (`car-to-influx`, `slackbot`, `lappy`, `startup-data-loader`, `file-uploader`)
+  - 📦 Pushes images to GitHub Container Registry (`ghcr.io`)
+  - 🧪 Runs basic smoke tests
+  - 🧹 Cleans up Docker resources
+
+#### **🔍 Code Quality Pipeline** (`.github/workflows/code-quality.yml`)
+- **Triggers**: Push to `main`/`develop` branches, Pull Requests
+- **What it does**:
+  - 🐳 Lints Dockerfiles with Hadolint
+  - 🔒 Checks Python dependencies for security vulnerabilities
+  - 📜 Validates shell scripts with ShellCheck
+
+#### **🚢 Deployment Pipeline** (`.github/workflows/deploy.yml`)
+- **Triggers**: Manual trigger only
+- **What it does**:
+  - 📋 Supports deployment to staging/production environments
+  - 🔧 Configurable via GitHub Actions UI
+
+### **Container Registry**
+
+Built images are automatically pushed to:
+```
+ghcr.io/western-formula-racing/daq-server-components/car-to-influx:latest
+ghcr.io/western-formula-racing/daq-server-components/slackbot:latest
+ghcr.io/western-formula-racing/daq-server-components/lappy:latest
+ghcr.io/western-formula-racing/daq-server-components/startup-data-loader:latest
+ghcr.io/western-formula-racing/daq-server-components/file-uploader:latest
+```
+
+### **Using Pre-built Images**
+
+Instead of building locally, you can use the pre-built images:
+
+```bash
+# Pull all images from GitHub Container Registry
+docker pull ghcr.io/western-formula-racing/daq-server-components/car-to-influx:latest
+docker pull ghcr.io/western-formula-racing/daq-server-components/slackbot:latest
+docker pull ghcr.io/western-formula-racing/daq-server-components/lappy:latest
+docker pull ghcr.io/western-formula-racing/daq-server-components/startup-data-loader:latest
+docker pull ghcr.io/western-formula-racing/daq-server-components/file-uploader:latest
+
+# Option 1: Pull all images using the helper script
+./scripts/pull-latest-images.sh
+
+# Option 2: Pull manually (same commands as above)
+# ... existing manual commands ...
+
+# Update your docker-compose.yml to use registry images
+services:
+  car-to-influx:
+    image: ghcr.io/western-formula-racing/daq-server-components/car-to-influx:latest
+    # ... rest of config
+```
+
+### **Pipeline Status**
+
+Check the status of your pipelines:
+- **GitHub Actions**: https://github.com/Western-Formula-Racing/daq-server-components/actions
+- **Container Registry**: https://github.com/Western-Formula-Racing/daq-server-components/packages
+
 ## 🏗️ Installation Process
 
 ### Option A: Full Installation (with Slack)
@@ -141,9 +211,16 @@ installer/
 │
 ├── scripts/                    # Automation scripts
 │   ├── start-daq-system.sh    # Main installer
-│   ├── extract-token-docker.sh # Docker-based token extraction  
+│   ├── extract-token-docker.sh # Docker-based token extraction
 │   ├── extract-influx-token.py # Python API extraction
-│   └── extract-influx-token.sh # Bash API extraction
+│   ├── extract-influx-token.sh # Bash API extraction
+│   └── pull-latest-images.sh   # Pull pre-built images from registry
+│
+├── .github/                    # GitHub Actions CI/CD
+│   └── workflows/
+│       ├── docker-build.yml    # Build & test pipeline
+│       ├── code-quality.yml    # Linting & security checks
+│       └── deploy.yml          # Deployment pipeline
 │
 ├── startup-data-loader/       # Data ingestion container
 │   ├── Dockerfile
