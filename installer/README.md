@@ -182,6 +182,82 @@ installer/
     └── assets/
 ```
 
+## **Automation Scripts - Status Check System**
+
+The `start-daq-system.sh` script includes an intelligent service status checking system that provides detailed health information for all Docker containers.
+
+### **How the Status Check Works**
+
+The status check uses a **hierarchical decision tree** to determine the state of each service:
+
+#### **Helper Functions**
+```bash
+# Check if container is currently running
+container_running() {
+    docker ps --format "table {{.Names}}" | grep -q "^$1$"
+}
+
+# Check if container exists (even if stopped)
+container_exists() {
+    docker ps -a --format "table {{.Names}}" | grep -q "^$1$"
+}
+```
+
+#### **Status Check Logic Flow**
+```
+┌─────────────────┐
+│   START CHECK   │
+└─────────────────┘
+         │
+         ▼
+┌─────────────────┐     YES
+│ Is service =    │────────────► [SPECIAL CASE: startup-data-loader]
+│ startup-data-   │
+│ loader?         │     NO
+└─────────────────┘         │
+         │                  ▼
+         ▼         ┌─────────────────┐
+┌─────────────────┐│ Is container    │     YES
+│ Is container    ││ running?        │────────────► ✅ RUNNING
+│ running?        │└─────────────────┘
+└─────────────────┘         │
+         │                  NO
+         ▼                  ▼
+┌─────────────────┐┌─────────────────┐
+│ Is container    ││ Is container    │     YES
+│ exists?         ││ exists?         │────────────► ⚠️ EXISTS BUT NOT RUNNING
+└─────────────────┘└─────────────────┘
+         │                  │
+         YES                NO
+         │                  │
+         ▼                  ▼
+    ✅ RUNNING         ❌ NOT FOUND
+```
+
+#### **Special Case: startup-data-loader**
+The data loader gets special treatment because it's designed to **run once and exit**:
+- **Normal services**: Run continuously (like web servers)
+- **startup-data-loader**: Runs once to load CSV data, then exits
+- **Exit code 0** = success, **non-zero** = error
+- **No CSV files** = container never starts
+
+#### **Status Messages**
+| Status | Meaning | Icon |
+|--------|---------|------|
+| ✅ RUNNING | Container is actively running | 🟢 |
+| ✅ SERVICE COMPLETE - STOPPED | startup-data-loader finished successfully | 🟢 |
+| ⚠️ EXISTS BUT NOT RUNNING | Container exists but stopped (may be restartable) | 🟡 |
+| ⚠️ COMPLETED WITH EXIT CODE X | startup-data-loader finished with errors | 🟡 |
+| ❓ NOT NEEDED (NO DATA FILES) | startup-data-loader skipped (no CSV files) | 🔵 |
+| ❌ NOT FOUND | Container doesn't exist at all | 🔴 |
+
+#### **Docker Commands Used**
+- `docker ps`: Lists running containers
+- `docker ps -a`: Lists all containers (including stopped)
+- `docker inspect <container> --format='{{.State.ExitCode}}'`: Gets exit code of stopped container
+
+This system ensures accurate status reporting for both long-running services and one-time data loading tasks!
+
 ## 🔒 Security & Credentials
 
 ### Default Accounts
@@ -196,7 +272,7 @@ installer/
 - All secrets stored in `.env` file (git-ignored)
 - Slack webhook URL can be set via `SLACK_WEBHOOK_URL` environment variable
 
-## � Slack Integration
+## 💬 Slack Integration
 
 ### Automatic Startup Notifications
 The system automatically sends a comprehensive status report to Slack after startup, including:
@@ -222,7 +298,7 @@ environment:
 docker-compose restart slackbot
 ```
 
-## �🐛 Troubleshooting
+## 🐛 Troubleshooting
 
 ### Common Issues
 
