@@ -123,7 +123,7 @@ echo "�🔍 Step 5: Service Status Check..."
 echo "Service Status:"
 echo "---------------"
 
-services=("influxdb2" "grafana" "frontend" "car-to-influx" "slackbot" "lappy" "startup-data-loader", "file-uploader")
+services=("influxdb2" "grafana" "frontend" "car-to-influx" "slackbot" "lappy" "startup-data-loader" "file-uploader")
 
 for service in "${services[@]}"; do
     if [ "$service" = "startup-data-loader" ]; then
