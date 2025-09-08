@@ -1,26 +1,10 @@
 name: Build and Test DAQ System
 
 on:
-  workflow_dispatch:
-    inputs:
-      build_type:
-        description: 'What to build'
-        required: true
-        default: 'all'
-        type: choice
-        options:
-        - all
-        - quick-test
-        - specific-service
-      specific_service:
-        description: 'Specific service to build (if build_type is specific-service)'
-        required: false
-        type: string
-      skip_tests:
-        description: 'Skip the test phase to save time'
-        required: false
-        type: boolean
-        default: false
+  push:
+    branches: [ main, develop, deploy ]
+  pull_request:
+    branches: [ main, develop, deploy ]
 
 env:
   REGISTRY: ghcr.io
@@ -48,21 +32,11 @@ jobs:
 
     strategy:
       matrix:
-        service: ${{ fromJSON(
-          github.event.inputs.build_type == 'specific-service' && github.event.inputs.specific_service != '' ?
-            format('["{0}"]', github.event.inputs.specific_service) :
-            '["car-to-influx", "slackbot", "lappy", "startup-data-loader", "file-uploader"]'
-        ) }}
+        service: [car-to-influx, slackbot, lappy, startup-data-loader, file-uploader]
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-
-    - name: Skip if quick-test only
-      if: github.event.inputs.build_type == 'quick-test'
-      run: |
-        echo "Quick test only - skipping individual service builds"
-        exit 0
 
     - name: Convert repository name to lowercase
       run: |
@@ -99,7 +73,6 @@ jobs:
   test-compose:
     runs-on: ubuntu-latest
     needs: build-and-push
-    if: github.event.inputs.skip_tests != 'true'
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
