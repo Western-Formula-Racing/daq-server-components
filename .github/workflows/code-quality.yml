@@ -1,23 +1,14 @@
 name: Code Quality Checks
 
 on:
-  workflow_dispatch:
-    inputs:
-      check_type:
-        description: 'Type of quality check to run'
-        required: false
-        default: 'all'
-        type: choice
-        options:
-        - all
-        - docker-only
-        - security-only
-        - shell-only
+  push:
+    branches: [ main, deploy ]
+  pull_request:
+    branches: [ main, deploy ]
 
 jobs:
   lint-docker:
     runs-on: ubuntu-latest
-    if: ${{ inputs.check_type == 'all' || inputs.check_type == 'docker-only' }}
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -33,7 +24,6 @@ jobs:
 
   check-dependencies:
     runs-on: ubuntu-latest
-    if: ${{ inputs.check_type == 'all' || inputs.check_type == 'security-only' }}
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
