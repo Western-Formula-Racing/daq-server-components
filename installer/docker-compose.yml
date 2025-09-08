@@ -20,7 +20,7 @@ services:
     environment:
       DOCKER_INFLUXDB_INIT_MODE: setup
       DOCKER_INFLUXDB_INIT_USERNAME: admin
-      DOCKER_INFLUXDB_INIT_PASSWORD: YOUR_INFLUXDB_PASSWORD
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_INIT_PASSWORD:-your-influxdb-password-here}
       DOCKER_INFLUXDB_INIT_ORG: WFR
       DOCKER_INFLUXDB_INIT_BUCKET: ourCar
     volumes:
@@ -63,7 +63,7 @@ services:
       - "8087:3000"
     environment:
       GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: YOUR_GRAFANA_PASSWORD
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-your-grafana-password-here}
       GF_SECURITY_ADMIN_EMAIL: daq@westernformularacing.com
       GF_AUTH_ANONYMOUS_ENABLED: false
       GF_AUTH_BASIC_ENABLED: true
@@ -123,8 +123,8 @@ services:
     container_name: slackbot
     restart: always
     environment:
-      SLACK_BOT_TOKEN: "YOUR_SLACK_BOT_TOKEN"
-      SLACK_APP_TOKEN: "YOUR_SLACK_APP_TOKEN"
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-your-slack-bot-token-here}
+      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-your-slack-app-token-here}
     volumes:
       - ./slackbot:/app
     working_dir: /app
