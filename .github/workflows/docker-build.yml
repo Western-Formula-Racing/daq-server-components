@@ -4,7 +4,7 @@ on:
   push:
     branches: [ deploy ]
   pull_request:
-    branches: [ deploy ]
+    branches: [ main, deploy ]
 
 env:
   REGISTRY: ghcr.io
@@ -52,8 +52,7 @@ jobs:
     - name: Extract metadata
       id: meta
       run: |
-        echo "tags=${{ env.REGISTRY }}/${IMAGE_NAME_LOWER}/${{ matrix.service }}:latest" >> $GITHUB_OUTPUT
-        echo "tags=${{ env.REGISTRY }}/${IMAGE_NAME_LOWER}/${{ matrix.service }}:${{ github.sha }}" >> $GITHUB_OUTPUT
+        echo -e "tags=${{ env.REGISTRY }}/${IMAGE_NAME_LOWER}/${{ matrix.service }}:latest\n${{ env.REGISTRY }}/${IMAGE_NAME_LOWER}/${{ matrix.service }}:${{ github.sha }}" >> $GITHUB_OUTPUT
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
