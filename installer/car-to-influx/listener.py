@@ -75,17 +75,18 @@ file_handler.setFormatter(logging.Formatter(
 app.logger.addHandler(file_handler)
 
 queue_log_handler = QueueLogHandler(log_queue)
+queue_log_handler.setLevel(logging.ERROR)  # Only show errors in the Server Logs window
 app.logger.addHandler(queue_log_handler)
 app.logger.setLevel(logging.INFO)
 
 werkzeug_logger = logging.getLogger('werkzeug')
 werkzeug_logger.addHandler(queue_log_handler)
-werkzeug_logger.setLevel(logging.INFO)
+werkzeug_logger.setLevel(logging.ERROR)  # Suppress HTTP access logs, only show errors
 
 # ─── LOAD DBC & INFLUX CLIENT ─────────────────────────────────────────────
 try:
     db = cantools.database.load_file(DBC_FILE)
-    app.logger.info(f"Successfully loaded DBC: {DBC_FILE}")
+    app.logger.debug(f"Successfully loaded DBC: {DBC_FILE}")
 except Exception as e:
     app.logger.critical(f"Failed to load DBC file: {DBC_FILE} - {e}")
     if 'queue_log_handler' in globals():
@@ -127,12 +128,12 @@ def _ts_to_datetime(ts: float) -> datetime:
         _relative_anchor_ts = ts
         _last_raw_ts = ts
         _first_relative = False
-        app.logger.info(
+        app.logger.debug(
             f"Anchoring relative timestamp: real={_relative_anchor_real.isoformat()}, device_ts={_relative_anchor_ts}")
         return _relative_anchor_real
 
     if ts < _last_raw_ts and (_last_raw_ts - ts) > _reset_threshold.total_seconds():
-        app.logger.info(f"Relative timestamp reset detected: old_ts={_last_raw_ts}, new_ts={ts}. Re-anchoring.")
+        app.logger.debug(f"Relative timestamp reset detected: old_ts={_last_raw_ts}, new_ts={ts}. Re-anchoring.")
         _relative_anchor_real = current_time
         _relative_anchor_ts = ts
 
@@ -144,7 +145,7 @@ def _ts_to_datetime(ts: float) -> datetime:
         if abs(elapsed_seconds) > _reset_threshold.total_seconds() / 2:
             _relative_anchor_real = current_time
             _relative_anchor_ts = ts
-            app.logger.info(
+            app.logger.debug(
                 f"Re-anchoring due to significant negative jump: real={_relative_anchor_real.isoformat()}, device_ts={_relative_anchor_ts}")
             return _relative_anchor_real
         return _relative_anchor_real
@@ -208,7 +209,7 @@ def ingest_can():
             except ValueError as e:
                 app.logger.warning(f"Malformed 'data' field for CAN data stats: {data_raw_for_stats}, error: {e}")
     else:  # No frames to process (e.g. empty list received)
-        app.logger.info(
+        app.logger.debug(
             f"Received 0 frames to process from {request.remote_addr} (HTTP size: {http_payload_size_for_batch}B).")
 
     with history_lock:
@@ -219,7 +220,7 @@ def ingest_can():
             packet_history.popleft()
 
     if num_received_frames_in_batch > 0:  # Log only if frames were actually processed
-        app.logger.info(
+        app.logger.debug(
             f"Received {num_received_frames_in_batch} frames (CAN data: {total_can_data_size_in_batch}B, HTTP: {http_payload_size_for_batch}B) for processing from {request.remote_addr}.")
 
     points = []
@@ -313,13 +314,13 @@ def ingest_can():
                 points.append(pt)
 
     if not points:
-        app.logger.info(f"No points decoded from {num_received_frames_in_batch} frames – nothing to write to InfluxDB.")
+        app.logger.debug(f"No points decoded from {num_received_frames_in_batch} frames – nothing to write to InfluxDB.")
         return jsonify(status="no_points_decoded", received_frames=num_received_frames_in_batch, written_points=0), 200
 
     global _last_whisper
     try:
         write_api.write(bucket=INFLUX_BUCKET, record=points)
-        app.logger.info(
+        app.logger.debug(
             f"Successfully wrote {len(points)} points to InfluxDB from {num_received_frames_in_batch} frames.")
         if _last_whisper is None or (current_server_time - _last_whisper) > WEBHOOK_MESSAGE_INTERVAL and not _fallen_once:
             send_webhook_notification(
@@ -424,12 +425,12 @@ threading.Thread(target=watchdog_thread, daemon=True).start()
 
 if __name__ == "__main__":
     app.logger.info(f"Starting CAN ingest server on port {PORT}")
-    app.logger.info(f"DBC File: {DBC_FILE}")
-    app.logger.info(f"InfluxDB URL: {INFLUX_URL}, Org: {INFLUX_ORG}, Bucket: {INFLUX_BUCKET}")
-    app.logger.info(f"InfluxDB Token: {'✅ Configured' if INFLUX_TOKEN else '❌ Missing'}")
+    app.logger.debug(f"DBC File: {DBC_FILE}")
+    app.logger.debug(f"InfluxDB URL: {INFLUX_URL}, Org: {INFLUX_ORG}, Bucket: {INFLUX_BUCKET}")
+    app.logger.debug(f"InfluxDB Token: {'✅ Configured' if INFLUX_TOKEN else '❌ Missing'}")
     app.logger.info(f"Webhook notifications to Slack enabled. Interval: {WEBHOOK_MESSAGE_INTERVAL.total_seconds()}s")
-    app.logger.info(f"Log file: listener.log")
-    app.logger.info(f"Log streaming available at /log-stream")
-    app.logger.info(f"GUI (if index.html is present) available at http://0.0.0.0:{PORT}/")
+    app.logger.debug(f"Log file: listener.log")
+    app.logger.debug(f"Log streaming available at /log-stream")
+    app.logger.debug(f"GUI (if index.html is present) available at http://0.0.0.0:{PORT}/")
 
     app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)
