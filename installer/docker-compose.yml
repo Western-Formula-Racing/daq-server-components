@@ -110,6 +110,13 @@ services:
     volumes:
       - ./car-to-influx:/app
     command: python listener.py
+    environment:
+      INFLUXDB_TOKEN: "${INFLUXDB_TOKEN}"
+      INFLUXDB_URL: "http://influxdb2:8086"
+      INFLUXDB_ORG: "WFR"
+      INFLUXDB_BUCKET: "ourCar"
+      WEBHOOK_URL: "${WEBHOOK_URL:-}"
+      DBC_FILE: "WFR25-6389976.dbc"
     networks:
       - datalink
     deploy:
