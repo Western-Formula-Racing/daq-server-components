@@ -16,14 +16,13 @@ import time  # For log streaming
 import json  # For manual JSON parsing if needed
 
 # ─── CONFIG ────────────────────────────────────────────────────────────────
-# http://3.98.181.12:8086 InfluxDB2
-INFLUX_URL = "http://influxwfr:8086"
-INFLUX_TOKEN = "s9XkBC7pKOlb92-N9M40qilmxxoBe4wrnki4zpS_o0QSVTuMSQRQBerQB9Zv0YV40tmYayuX3w4G2MNizdy3qw=="
-INFLUX_ORG = "WFR"
-INFLUX_BUCKET = "LTEtest"  # Ensure this is the target bucket
-DBC_FILE = "WFR25-f772b40.dbc"  # Ensure this DBC matches incoming CAN IDs
+INFLUX_URL = os.getenv("INFLUXDB_URL", "http://influxdb2:8086")
+INFLUX_TOKEN = os.getenv("INFLUXDB_TOKEN")
+INFLUX_ORG = os.getenv("INFLUXDB_ORG", "WFR")
+INFLUX_BUCKET = os.getenv("INFLUXDB_BUCKET")
+DBC_FILE = os.getenv("DBC_FILE")
 PORT = int(os.getenv("PORT", "8085"))
-WEBHOOK_URL = "https://hooks.slack.com/services/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"
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://hooks.slack.com/services/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")
 # This is the no data for a while message
 WEBHOOK_MESSAGE_INTERVAL = timedelta(minutes=1)
 
@@ -93,6 +92,14 @@ except Exception as e:
         log_queue.put(
             f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} [CRITICAL] root: Failed to load DBC file: {DBC_FILE} - {e}")
     raise SystemExit(f"Failed to load DBC file: {e}")
+
+# Validate InfluxDB token
+if not INFLUX_TOKEN:
+    error_msg = "❌ No InfluxDB token found in environment. Make sure INFLUXDB_TOKEN is set."
+    app.logger.critical(error_msg)
+    if 'queue_log_handler' in globals():
+        log_queue.put(f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} [CRITICAL] root: {error_msg}")
+    raise SystemExit(error_msg)
 
 client = InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG)
 write_api = client.write_api(write_options=WriteOptions(batch_size=500, flush_interval=1000))
@@ -419,6 +426,7 @@ if __name__ == "__main__":
     app.logger.info(f"Starting CAN ingest server on port {PORT}")
     app.logger.info(f"DBC File: {DBC_FILE}")
     app.logger.info(f"InfluxDB URL: {INFLUX_URL}, Org: {INFLUX_ORG}, Bucket: {INFLUX_BUCKET}")
+    app.logger.info(f"InfluxDB Token: {'✅ Configured' if INFLUX_TOKEN else '❌ Missing'}")
     app.logger.info(f"Webhook notifications to Slack enabled. Interval: {WEBHOOK_MESSAGE_INTERVAL.total_seconds()}s")
     app.logger.info(f"Log file: listener.log")
     app.logger.info(f"Log streaming available at /log-stream")
