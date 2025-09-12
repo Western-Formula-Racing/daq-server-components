@@ -1,6 +1,6 @@
 import zipfile, csv, io, time, asyncio
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional, IO, Callable
+from typing import List, Optional, IO, Callable, Generator
 from zoneinfo import ZoneInfo
 from dataclasses import dataclass
 import cantools
@@ -25,7 +25,7 @@ class ProgressStats:
 class CANInfluxStreamer:
 
     def __init__(
-        self, bucket: str, batch_size: int = 1000, max_concurrent_uploads: int = 10
+        self, bucket: str, batch_size: int = 500, max_concurrent_uploads: int = 5
     ):
 
         self.batch_size = batch_size
@@ -158,18 +158,19 @@ class CANInfluxStreamer:
             pass
         return total
 
-    def _parse_row(
+    def _parse_row_generator(
         self, row: List[str], start_dt: datetime, filename: str
-    ) -> Optional[List[Point]]:
+    ) -> Generator[Point, None, None]:
+        # Convert to generator for lazy yielding
         try:
             if len(row) < 11 or not row[0]:
-                return None
+                return
 
             relative_ms = int(row[0])
             msg_id = int(row[2])
             byte_values = [int(b) for b in row[3:11] if b]
             if len(byte_values) != 8:
-                return None
+                return
 
             timestamp = (start_dt + timedelta(milliseconds=relative_ms)).astimezone(
                 timezone.utc
@@ -177,7 +178,6 @@ class CANInfluxStreamer:
             message = self.db.get_message_by_frame_id(msg_id)  # type:ignore
             decoded = message.decode(bytes(byte_values))
 
-            points = []
             for sig_name, raw in decoded.items():  # type:ignore
                 sig = message.get_signal_by_name(sig_name)
                 unit = getattr(sig, "unit", "N/A")
@@ -200,11 +200,10 @@ class CANInfluxStreamer:
                     .field("signalLabel", label)
                     .time(timestamp)
                 )
-                points.append(pt)
-            return points
+                yield pt
 
         except Exception:
-            return None
+            return
 
     async def process_file(
         self,
@@ -236,9 +235,8 @@ class CANInfluxStreamer:
                     batch = []
                     rows_in_batch = 0
                     for row in reader:
-                        points = self._parse_row(row, start_dt, filename)
-                        if points:
-                            batch.extend(points)
+                        for point in self._parse_row_generator(row, start_dt, filename):
+                            batch.append(point)
                             rows_in_batch += 1
                             if len(batch) >= self.batch_size:
                                 await queue.put((batch.copy(), rows_in_batch))
@@ -267,9 +265,8 @@ class CANInfluxStreamer:
                     for line in text_stream:
                         line = line.replace("\x00", "")
                         row = next(csv.reader([line]))
-                        points = self._parse_row(row, start_dt, filename)
-                        if points:
-                            batch.extend(points)
+                        for point in self._parse_row_generator(row, start_dt, filename):
+                            batch.append(point)
                             rows_in_batch += 1
                             if len(batch) >= self.batch_size:
                                 await queue.put((batch.copy(), rows_in_batch))
@@ -291,17 +288,12 @@ class CANInfluxStreamer:
         is_csv: bool = False,
         csv_filename: Optional[str] = None,
     ):
-        semaphore = asyncio.Semaphore(3)  # Limit to 3 files concurrently
+        semaphore = asyncio.Semaphore(2)  # Limit to 2 files concurrently
         if not is_csv:
-            tasks = []
             with zipfile.ZipFile(file, "r") as z:
-                for file_info in z.infolist():
+                for file_info in z.infolist():  # Process sequentially to save memory
                     if file_info.filename.endswith(".csv"):
-                        task = asyncio.create_task(
-                            self.process_file(file_info, z, queue, semaphore)
-                        )
-                        tasks.append(task)
-                await asyncio.gather(*tasks)
+                        await self.process_file(file_info, z, queue, semaphore)
         else:
             task = asyncio.create_task(
                 self.process_file(
@@ -333,7 +325,7 @@ class CANInfluxStreamer:
             producer = asyncio.create_task(self._producer(file, queue))
             consumers = [
                 asyncio.create_task(self._uploader(queue, progress, on_progress))
-                for _ in range(self.max_concurrent_uploads * 10)
+                for _ in range(self.max_concurrent_uploads * 2)
             ]
 
             await producer
@@ -356,7 +348,7 @@ class CANInfluxStreamer:
             )
             consumers = [
                 asyncio.create_task(self._uploader(queue, progress, on_progress))
-                for _ in range(self.max_concurrent_uploads * 10)
+                for _ in range(self.max_concurrent_uploads * 2)
             ]
 
             await producer
