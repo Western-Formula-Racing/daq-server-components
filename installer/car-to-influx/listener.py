@@ -41,11 +41,13 @@ _fallen_once = False
 # ─── PACKET STATISTICS FOR GUI ─────────────────────────────────────────────
 packet_history = deque()
 history_lock = threading.Lock()
-MAX_HISTORY_SECONDS = 75
+MAX_HISTORY_SECONDS = 30
 
-# ─── SIGNAL DEFINITION CACHE ───────────────────────────────────────────────
+# ─── CACHING FOR PERFORMANCE ───────────────────────────────────────────────
 signal_definition_cache = {}
 signal_cache_lock = threading.Lock()
+message_cache = {}  # Cache DBC message lookups by CAN ID
+can_id_hex_cache = {}  # Cache hex string conversions
 
 # ─── LOG STREAMING SETUP ───────────────────────────────────────────────────
 log_queue = queue.Queue()  # Thread-safe queue to hold log messages
@@ -103,10 +105,20 @@ if not INFLUX_TOKEN:
     raise SystemExit(error_msg)
 
 client = InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG)
-write_api = client.write_api(write_options=WriteOptions(batch_size=500, flush_interval=1000))
+# Optimized write options for better throughput
+write_api = client.write_api(write_options=WriteOptions(
+    batch_size=1000,  # Increased batch size
+    flush_interval=500,  # Reduced flush interval for lower latency
+    jitter_interval=100,  # Add jitter to prevent thundering herd
+    retry_interval=5000,  # Retry failed writes
+    max_retries=3,  # Maximum retry attempts
+    max_retry_delay=30000,  # Maximum retry delay
+    exponential_base=2  # Exponential backoff base
+))
 
 
 def _bytes_from_field(data_field):
+    """Optimized data field parsing with type checking."""
     if isinstance(data_field, list):
         return bytes(int(b) & 0xFF for b in data_field)
     if isinstance(data_field, str):
@@ -117,12 +129,71 @@ def _bytes_from_field(data_field):
     raise ValueError(f"Unrecognized data format for _bytes_from_field: {type(data_field)} {data_field!r}")
 
 
+def _get_cached_message(can_id):
+    """Get DBC message with caching to avoid repeated lookups."""
+    if can_id in message_cache:
+        return message_cache[can_id]
+    
+    try:
+        msg = db.get_message_by_frame_id(can_id)
+        message_cache[can_id] = msg
+        return msg
+    except KeyError:
+        message_cache[can_id] = None  # Cache the fact that this ID is unknown
+        return None
+
+
+def _get_cached_hex_id(can_id):
+    """Get cached hex string representation of CAN ID."""
+    if can_id not in can_id_hex_cache:
+        can_id_hex_cache[can_id] = format(can_id, "#04x")
+    return can_id_hex_cache[can_id]
+
+
+def _cleanup_caches_if_needed():
+    """Periodically clean up caches to prevent memory leaks."""
+    # Clean up message cache if it gets too large
+    if len(message_cache) > 1000:  # Reasonable limit for CAN IDs
+        app.logger.info(f"Message cache size ({len(message_cache)}) exceeded limit, clearing cache")
+        message_cache.clear()
+    
+    # Clean up hex ID cache if it gets too large
+    if len(can_id_hex_cache) > 1000:
+        app.logger.info(f"CAN ID hex cache size ({len(can_id_hex_cache)}) exceeded limit, clearing cache")
+        can_id_hex_cache.clear()
+    
+    # Signal cache is less likely to grow unbounded, but monitor it
+    if len(signal_definition_cache) > 5000:  # Signals per message * reasonable message count
+        app.logger.info(f"Signal cache size ({len(signal_definition_cache)}) exceeded limit, clearing cache")
+        with signal_cache_lock:
+            signal_definition_cache.clear()
+
+
 def _ts_to_datetime(ts: float) -> datetime:
     global _first_relative, _relative_anchor_ts, _relative_anchor_real, _last_raw_ts
-    if ts > 946_684_800:
+    
+    # Check if timestamp is in milliseconds (likely if > year 2001 in milliseconds)
+    # Unix timestamp for 2001-01-01 in milliseconds is ~978,307,200,000
+    if ts > 978_307_200_000:
+        # Convert milliseconds to seconds
+        ts_seconds = ts / 1000.0
+        app.logger.debug(f"Converting millisecond timestamp {ts} to seconds {ts_seconds}")
+        return datetime.fromtimestamp(ts_seconds, timezone.utc)
+    elif ts > 946_684_800:
+        # Already in seconds, use as-is
+        app.logger.debug(f"Using timestamp {ts} as seconds (absolute)")
         return datetime.fromtimestamp(ts, timezone.utc)
 
+    # Handle relative timestamps (small values that need anchoring)
     current_time = datetime.now(timezone.utc)
+    
+    # Check if this might be a relative timestamp in milliseconds
+    # If it's larger than typical relative seconds but smaller than absolute milliseconds
+    original_ts = ts
+    if ts > 1_000_000:  # Likely milliseconds for relative timestamps
+        ts = ts / 1000.0  # Convert to seconds for processing
+        app.logger.debug(f"Converting relative millisecond timestamp {original_ts} to seconds {ts}")
+    
     if _first_relative:
         _relative_anchor_real = current_time
         _relative_anchor_ts = ts
@@ -199,6 +270,10 @@ def ingest_can():
     if http_payload_size_for_batch > 0 or frames:  # If payload was received OR frames were parsed (even if empty list now)
         _last_successful_receipt_time = current_server_time
 
+    # Periodically clean up caches (every ~100 requests with frames)
+    if frames and len(frames) > 0 and (len(message_cache) + len(can_id_hex_cache)) % 100 == 0:
+        _cleanup_caches_if_needed()
+
     num_received_frames_in_batch = len(frames) if frames else 0
     total_can_data_size_in_batch = 0
     if frames:  # Only process if frames is not None and potentially has items
@@ -212,24 +287,35 @@ def ingest_can():
         app.logger.debug(
             f"Received 0 frames to process from {request.remote_addr} (HTTP size: {http_payload_size_for_batch}B).")
 
-    with history_lock:
-        packet_history.append((current_server_time, num_received_frames_in_batch, total_can_data_size_in_batch,
-                               http_payload_size_for_batch))
-        cutoff_for_deque = current_server_time - timedelta(seconds=MAX_HISTORY_SECONDS)
-        while packet_history and packet_history[0][0] < cutoff_for_deque:
-            packet_history.popleft()
+    # Update packet history in a single batch operation
+    if num_received_frames_in_batch > 0 or http_payload_size_for_batch > 0:
+        current_server_time = datetime.now(timezone.utc)
+        with history_lock:
+            packet_history.append((current_server_time, num_received_frames_in_batch, total_can_data_size_in_batch,
+                                   http_payload_size_for_batch))
+            # Batch cleanup - remove old entries
+            cutoff_for_deque = current_server_time - timedelta(seconds=MAX_HISTORY_SECONDS)
+            while packet_history and packet_history[0][0] < cutoff_for_deque:
+                packet_history.popleft()
 
-    if num_received_frames_in_batch > 0:  # Log only if frames were actually processed
+    # Log summary only, not individual frame details unless debug logging is enabled
+    if num_received_frames_in_batch > 0 and app.logger.isEnabledFor(logging.DEBUG):
         app.logger.debug(
-            f"Received {num_received_frames_in_batch} frames (CAN data: {total_can_data_size_in_batch}B, HTTP: {http_payload_size_for_batch}B) for processing from {request.remote_addr}.")
+            f"Processing {num_received_frames_in_batch} frames (CAN: {total_can_data_size_in_batch}B, HTTP: {http_payload_size_for_batch}B) from {request.remote_addr}")
+    elif num_received_frames_in_batch == 0 and app.logger.isEnabledFor(logging.DEBUG):
+        app.logger.debug(
+            f"Received 0 frames from {request.remote_addr} (HTTP: {http_payload_size_for_batch}B)")
 
     points = []
+    frame_errors = 0  # Track processing errors for summary logging
     if frames:  # Iterate only if frames exist
         for idx, frame in enumerate(frames):
             try:
                 can_id_raw = frame.get("id")
                 if can_id_raw is None:
-                    app.logger.warning(f"Frame #{idx + 1}: 'id' missing. Skipping. Content: {frame}")
+                    if app.logger.isEnabledFor(logging.WARNING):
+                        app.logger.warning(f"Frame #{idx + 1}: 'id' missing. Skipping. Content: {frame}")
+                    frame_errors += 1
                     continue
                 can_id = int(can_id_raw, 0) if isinstance(can_id_raw, str) else int(can_id_raw)
 
@@ -238,55 +324,60 @@ def ingest_can():
 
                 ts_raw_val = frame.get("timestamp")
                 if ts_raw_val is None:
-                    app.logger.warning(
-                        f"Frame #{idx + 1} (ID: {can_id:#x}): 'timestamp' missing. Skipping. Content: {frame}")
+                    if app.logger.isEnabledFor(logging.WARNING):
+                        app.logger.warning(f"Frame #{idx + 1} (ID: {can_id:#x}): 'timestamp' missing. Skipping.")
+                    frame_errors += 1
                     continue
                 ts_raw = float(ts_raw_val)
                 ts_dt = _ts_to_datetime(ts_raw)
 
             except (ValueError, TypeError) as e:
-                app.logger.warning(
-                    f"Frame #{idx + 1}: Malformed basic field. Error: {e}. Frame: {frame}. Skipping.")
+                if app.logger.isEnabledFor(logging.WARNING):
+                    app.logger.warning(f"Frame #{idx + 1}: Malformed basic field. Error: {e}. Skipping.")
+                frame_errors += 1
                 continue
             except Exception as e:
-                app.logger.error(
-                    f"Frame #{idx + 1}: Unexpected error basic fields. Error: {e}. Frame: {frame}. Skipping.")
+                app.logger.error(f"Frame #{idx + 1}: Unexpected error in basic fields. Error: {e}. Skipping.")
+                frame_errors += 1
                 continue
 
-            try:
-                msg = db.get_message_by_frame_id(can_id)
-            except KeyError:
-                app.logger.debug(
-                    f"Frame #{idx + 1}: Unknown CAN ID {can_id:#x} in DBC. Skipping.")
-                continue
-            except Exception as e:
-                app.logger.warning(
-                    f"Frame #{idx + 1}: Error getting msg for CAN ID {can_id:#x}. Error: {e}. Skipping.")
+            # Use cached message lookup
+            msg = _get_cached_message(can_id)
+            if msg is None:
+                # Only log unknown CAN IDs at debug level to reduce noise
+                if app.logger.isEnabledFor(logging.DEBUG):
+                    app.logger.debug(f"Frame #{idx + 1}: Unknown CAN ID {can_id:#x} in DBC. Skipping.")
                 continue
 
             try:
                 decoded_signals = msg.decode(data, allow_truncated=True, decode_choices=True)
             except Exception as e:
-                app.logger.warning(
-                    f"Frame #{idx + 1} (ID: {can_id:#x}, Name: {msg.name}): Decode error data '{data.hex()}'. Error: {e}. Skipping.")
+                if app.logger.isEnabledFor(logging.WARNING):
+                    app.logger.warning(f"Frame #{idx + 1} (ID: {can_id:#x}, Name: {msg.name}): Decode error. Error: {e}. Skipping.")
+                frame_errors += 1
                 continue
 
+            # Pre-compute values used multiple times
+            can_id_hex = _get_cached_hex_id(can_id)
+            
             for signal_name_from_decode, signal_value_obj in decoded_signals.items():
                 signal_def = None
                 cache_key = (msg.name, signal_name_from_decode)
+                
+                # Minimize lock time by checking cache first
                 with signal_cache_lock:
-                    if cache_key in signal_definition_cache:
-                        signal_def = signal_definition_cache[cache_key]
-                    else:
-                        try:
-                            current_signal_def = msg.get_signal_by_name(signal_name_from_decode)
+                    signal_def = signal_definition_cache.get(cache_key)
+                
+                if signal_def is None:
+                    try:
+                        current_signal_def = msg.get_signal_by_name(signal_name_from_decode)
+                        with signal_cache_lock:
                             signal_definition_cache[cache_key] = current_signal_def
-                            signal_def = current_signal_def
-                        except Exception as e:
-                            app.logger.warning(
-                                f"Frame #{idx + 1} (Msg: {msg.name}, Sig: {signal_name_from_decode}): No signal definition. Error: {e}. Skip signal.")
-                if not signal_def:
-                    continue
+                        signal_def = current_signal_def
+                    except Exception as e:
+                        if app.logger.isEnabledFor(logging.WARNING):
+                            app.logger.warning(f"Frame #{idx + 1} (Msg: {msg.name}, Sig: {signal_name_from_decode}): No signal definition. Skipping signal.")
+                        continue
 
                 unit = signal_def.unit if signal_def.unit is not None else "N/A"
                 actual_signal_name = signal_def.name
@@ -297,34 +388,42 @@ def ingest_can():
                         sensor_val = float(signal_value_obj.value)
                         signal_label = str(signal_value_obj.name)
                     except (ValueError, TypeError) as e:
-                        app.logger.warning(
-                            f"Frame #{idx + 1} (Msg: {msg.name}, Sig: {actual_signal_name}): Error converting enum. Val: {signal_value_obj.value}. Error: {e}. Skip.")
+                        if app.logger.isEnabledFor(logging.WARNING):
+                            app.logger.warning(f"Frame #{idx + 1} (Msg: {msg.name}, Sig: {actual_signal_name}): Error converting enum. Skipping.")
                         continue
                 elif isinstance(signal_value_obj, (int, float)):
                     sensor_val = float(signal_value_obj)
                     signal_label = str(signal_value_obj)
                 else:
-                    app.logger.warning(
-                        f"Frame #{idx + 1} (Msg: {msg.name}, Sig: {actual_signal_name}): Unhandled type {type(signal_value_obj)}: {signal_value_obj!r}. Skip.")
+                    if app.logger.isEnabledFor(logging.WARNING):
+                        app.logger.warning(f"Frame #{idx + 1} (Msg: {msg.name}, Sig: {actual_signal_name}): Unhandled type {type(signal_value_obj)}. Skipping.")
                     continue
 
                 pt = (Point("canBus").tag("messageName", msg.name).tag("signalName", actual_signal_name)
-                      .tag("canID", format(can_id, "#04x")).field("sensorReading", sensor_val)
+                      .tag("canID", can_id_hex).field("sensorReading", sensor_val)
                       .field("unit", unit).field("signalLabel", signal_label).time(ts_dt))
                 points.append(pt)
 
+    # Log processing summary
+    if frame_errors > 0:
+        app.logger.warning(f"Processed {num_received_frames_in_batch} frames with {frame_errors} errors, generated {len(points)} points")
+    elif num_received_frames_in_batch > 0 and app.logger.isEnabledFor(logging.DEBUG):
+        app.logger.debug(f"Successfully processed {num_received_frames_in_batch} frames, generated {len(points)} points")
+
     if not points:
-        app.logger.debug(f"No points decoded from {num_received_frames_in_batch} frames – nothing to write to InfluxDB.")
+        if app.logger.isEnabledFor(logging.DEBUG):
+            app.logger.debug(f"No points decoded from {num_received_frames_in_batch} frames – nothing to write to InfluxDB.")
         return jsonify(status="no_points_decoded", received_frames=num_received_frames_in_batch, written_points=0), 200
 
     global _last_whisper
     try:
         write_api.write(bucket=INFLUX_BUCKET, record=points)
-        app.logger.debug(
-            f"Successfully wrote {len(points)} points to InfluxDB from {num_received_frames_in_batch} frames.")
+        if app.logger.isEnabledFor(logging.DEBUG):
+            app.logger.debug(f"Successfully wrote {len(points)} points to InfluxDB from {num_received_frames_in_batch} frames.")
+        
+        # Optimized webhook notification timing
         if _last_whisper is None or (current_server_time - _last_whisper) > WEBHOOK_MESSAGE_INTERVAL and not _fallen_once:
-            send_webhook_notification(
-                payload_text="I hear the car whispering.")
+            send_webhook_notification(payload_text="I hear the car whispering.")
             _last_whisper = current_server_time
             _fallen_once = True  # Reset fallen state on successful write
 
@@ -343,7 +442,7 @@ def index():
 
 @app.route("/status")
 def status():
-    global _last_successful_receipt_time, packet_history, history_lock, signal_definition_cache
+    global _last_successful_receipt_time, packet_history, history_lock, signal_definition_cache, message_cache, can_id_hex_cache
     now = datetime.now(timezone.utc)
     cutoff_time_60s = now - timedelta(seconds=60)
 
@@ -353,6 +452,7 @@ def status():
     last_batch_can_data_size_bytes = 0
     last_batch_http_payload_size_bytes = 0
 
+    # Minimize lock time by taking a snapshot
     with history_lock:
         current_history_snapshot = list(packet_history)
 
@@ -385,12 +485,13 @@ def status():
         "can_data_rate_last_60s_bytes_sec": total_can_data_in_last_60s_bytes / 60.0 if packets_in_last_60s > 0 else 0,
         "total_http_payload_last_60s_bytes": total_http_payload_in_last_60s_bytes,
         "http_payload_rate_last_60s_bytes_sec": total_http_payload_in_last_60s_bytes / 60.0 if packets_in_last_60s > 0 else 0,
-        # Or based on number of POSTs if that makes more sense
         "last_batch_can_data_size_bytes": last_batch_can_data_size_bytes,
         "last_batch_http_payload_size_bytes": last_batch_http_payload_size_bytes,
         "last_successful_receipt_time_iso": _last_successful_receipt_time.isoformat() if _last_successful_receipt_time else None,
         "current_server_time_iso": now.isoformat(),
         "signal_cache_size": len(signal_definition_cache),
+        "message_cache_size": len(message_cache),
+        "can_id_hex_cache_size": len(can_id_hex_cache),
         "packet_history_size": len(packet_history)
     })
 
