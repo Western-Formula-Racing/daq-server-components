@@ -28,11 +28,11 @@ services:
       - influxdb2-config:/etc/influxdb2
     networks:
       - datalink
-    deploy:
-      resources:
-        limits:
-          memory: 1g
-          cpus: "1.0"
+    #deploy:
+      #resources:
+        #limits:
+          #memory: 1g
+          #cpus: "1.0"
 
 #  influxdb3:
 #    image: influxdb:3-core
@@ -70,6 +70,7 @@ services:
       GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
       GF_PATHS_PROVISIONING: /etc/grafana/provisioning
       INFLUXDB_TOKEN: "${INFLUXDB_TOKEN}"
+      GF_DASHBOARDS_MIN_REFRESH_INTERVAL: 100ms
     volumes:
       - grafana-storage:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
@@ -78,11 +79,11 @@ services:
       - datalink
     depends_on:
       - influxdb2
-    deploy:
-      resources:
-        limits:
-          memory: 1g
-          cpus: "1.0"
+    #deploy:
+      #resources:
+        #limits:
+          #memory: 1g
+          #cpus: "1.0"
 
   frontend:
     image: nginx:alpine
@@ -94,11 +95,11 @@ services:
       - ./frontend-build:/usr/share/nginx/html:ro
     networks:
       - datalink
-    deploy:
-      resources:
-        limits:
-          memory: 512m
-          cpus: "0.5"
+    #deploy:
+      #resources:
+        #limits:
+          #memory: 512m
+          #cpus: "0.5"
 
   car-to-influx:
     build: ./car-to-influx   # put Dockerfile + listener.py here
@@ -119,11 +120,11 @@ services:
       DBC_FILE: "WFR25-6389976.dbc"
     networks:
       - datalink
-    deploy:
-      resources:
-        limits:
-          memory: 512m
-          cpus: "0.5"
+    #deploy:
+      #resources:
+        #limits:
+          #memory: 512m
+          #cpus: "0.5"
 
   slackbot:
     build: ./slackbot   # put Dockerfile + slack_bot.py here
@@ -138,10 +139,10 @@ services:
     command: python slack_bot.py
     networks:
       - datalink
-    deploy:
-      resources:
-        limits:
-          cpus: "0.25"
+    #deploy:
+      #resources:
+        #limits:
+          #cpus: "0.25"
 
   lappy:
     build: ./lappy  # folder with lap.py and requirements.txt
@@ -155,11 +156,11 @@ services:
     command: python lap.py
     networks:
       - datalink
-    deploy:
-      resources:
-        limits:
-          memory: 256m
-          cpus: "0.5"
+    #deploy:
+      #resources:
+        #limits:
+          #memory: 256m
+          #cpus: "0.5"
 
   startup-data-loader:
     build: ./startup-data-loader
@@ -173,11 +174,11 @@ services:
       - datalink
     depends_on:
       - influxdb2
-    deploy:
-      resources:
-        limits:
-          memory: 512m
-          cpus: "1.0"
+    #deploy:
+      #resources:
+        #imits:
+          #memory: 512m
+          #cpus: "1.0"
 
   file-uploader:
     build: ./file-uploader
