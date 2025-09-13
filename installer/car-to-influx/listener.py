@@ -108,7 +108,7 @@ client = InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG)
 # Optimized write options for better throughput
 write_api = client.write_api(write_options=WriteOptions(
     batch_size=1000,  # Increased batch size
-    flush_interval=500,  # Reduced flush interval for lower latency
+    flush_interval=100,  # Reduced flush interval for lower latency
     jitter_interval=100,  # Add jitter to prevent thundering herd
     retry_interval=5000,  # Retry failed writes
     max_retries=3,  # Maximum retry attempts
