@@ -62,11 +62,11 @@ services:
     ports:
       - "8087:3000"
     environment:
-      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_USER: "admin"
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-your-grafana-password-here}
       GF_SECURITY_ADMIN_EMAIL: daq@westernformularacing.com
-      GF_AUTH_ANONYMOUS_ENABLED: false
-      GF_AUTH_BASIC_ENABLED: true
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_AUTH_BASIC_ENABLED: "true"
       GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
       GF_PATHS_PROVISIONING: /etc/grafana/provisioning
       INFLUXDB_TOKEN: "${INFLUXDB_TOKEN}"
