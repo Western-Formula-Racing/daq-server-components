@@ -51,11 +51,11 @@ fi
 echo "✅ Found existing all-access token!"
 echo "🔑 Token extracted: ${ALL_ACCESS_TOKEN:0:20}..."
 
-# Write token to .env file
+# Write or update token in .env file
 echo "💾 Writing token to .env file..."
-cat > .env << EOF
-# InfluxDB Configuration
-INFLUXDB_TOKEN=$ALL_ACCESS_TOKEN
-EOF
-
-echo "✅ Token saved to .env file!"
+if grep -q "^INFLUXDB_TOKEN=" .env 2>/dev/null; then
+    sed -i.bak "s/^INFLUXDB_TOKEN=.*/INFLUXDB_TOKEN=$ALL_ACCESS_TOKEN/" .env
+else
+    echo "INFLUXDB_TOKEN=$ALL_ACCESS_TOKEN" >> .env
+fi
+echo "✅ Token updated in .env file!"
