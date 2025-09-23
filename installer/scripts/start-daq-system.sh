@@ -5,6 +5,14 @@
 
 set -e
 
+if [ -f .env ]; then
+    export $(grep -vE '^\s*#|^\s*$' .env)
+else
+    echo "❌ ERROR: .env file not found in $(pwd)."
+    echo "Please create a .env file with the required environment variables before running this script."
+    exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
@@ -33,55 +41,23 @@ docker-compose up -d influxdb2
 echo "⏳ Waiting for InfluxDB to fully initialize..."
 sleep 10
 
-# Method 1: Docker-based extraction (Most Reliable)
-echo "🐳 Using Docker-based token extraction..."
-if bash scripts/extract-token-docker.sh; then
-    echo "✅ Token extraction successful via Docker method!"
-    TOKEN_EXTRACTED=true
-else
-    echo "⚠️  Docker-based extraction failed, trying Python method..."
-    TOKEN_EXTRACTED=false
-fi
 
-# Method 2: Python API script (Fallback)
-if [ "$TOKEN_EXTRACTED" != "true" ] && command -v python3 &> /dev/null; then
-    echo "🐍 Using Python script to extract token..."
-    if python3 scripts/extract-influx-token.py; then
-        echo "✅ Token extraction successful via Python!"
-        TOKEN_EXTRACTED=true
-    else
-        echo "⚠️  Python script failed, trying bash method..."
-        TOKEN_EXTRACTED=false
-    fi
-fi
+# Run the single most reliable token extraction script
+echo "🐳 Using robust Docker-based token extraction..."
 
-# Method 3: Bash API script (Final fallback)
-if [ "$TOKEN_EXTRACTED" != "true" ] && command -v jq &> /dev/null && command -v curl &> /dev/null; then
-    echo "🔧 Using bash script to extract token..."
-    if bash scripts/extract-influx-token.sh; then
-        echo "✅ Token extraction successful via bash!"
-        TOKEN_EXTRACTED=true
-    else
-        echo "❌ Bash script failed"
-        TOKEN_EXTRACTED=false
-    fi
-fi
-
-# Method 4: Complete failure - abort with helpful message
-if [ "$TOKEN_EXTRACTED" != "true" ]; then
+if ! bash scripts/extract-influx-token.sh; then
     echo ""
-    echo "❌ CRITICAL ERROR: All token extraction methods failed!"
-    echo ""
+    echo "❌ CRITICAL ERROR: Token extraction failed!"
     echo "🛠️  Manual steps to resolve:"
-    echo "1. Check InfluxDB logs: docker logs influxdb2"
-    echo "2. Access InfluxDB web UI: http://localhost:8086"
-    echo "3. Login with: admin / ${INFLUXDB_PASSWORD:-your-influxdb-password-here}"
-    echo "4. Generate a new token in the UI"
-    echo "5. Create .env file with: INFLUXDB_TOKEN=your_token_here"
+    echo "1. Check your INFLUXDB_PASSWORD in your environment or .env file."
+    echo "2. Check InfluxDB logs: docker logs influxdb2"
+    echo "3. If you are stuck, reset the database with 'docker-compose down -v'"
     echo ""
     echo "⚠️  Exiting startup process..."
     exit 1
 fi
+
+echo "✅ Token extraction successful!"
 
 echo ""
 echo "🚀 Step 2: Starting all services..."
@@ -92,7 +68,7 @@ docker-compose up -d influxdb2 grafana frontend car-to-influx slackbot lappy fil
 
 echo ""
 echo "⏳ Step 3: Waiting for services to stabilize..."
-sleep 15
+sleep 5
 
 echo ""
 echo "� Step 4: Loading startup data..."
