@@ -53,7 +53,7 @@ echo "🔑 Token extracted: ${ALL_ACCESS_TOKEN:0:20}..."
 
 # Write token to .env file
 echo "💾 Writing token to .env file..."
-cat > .env << EOF
+cat >> .env << EOF
 # InfluxDB Configuration
 INFLUXDB_TOKEN=$ALL_ACCESS_TOKEN
 EOF
