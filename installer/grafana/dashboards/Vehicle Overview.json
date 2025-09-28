@@ -1486,7 +1486,7 @@
     }
   ],
   "preload": false,
-  "refresh": "100ms",
+  "refresh": "500ms",
   "schemaVersion": 41,
   "tags": [],
   "templating": {
