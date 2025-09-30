@@ -1486,7 +1486,6 @@
     }
   ],
   "preload": false,
-  "refresh": "100ms",
   "schemaVersion": 41,
   "tags": [],
   "templating": {
@@ -1517,8 +1516,8 @@
     ]
   },
   "time": {
-    "from": "now-1m",
-    "to": "now"
+    "from": "2025-06-05 20:17:00",
+    "to": "2025-06-05 20:25:00"
   },
   "timepicker": {
     "refresh_intervals": [
