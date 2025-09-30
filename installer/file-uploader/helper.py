@@ -1,4 +1,4 @@
-import zipfile, csv, io, time, asyncio
+import zipfile, csv, io, time, asyncio, tempfile, subprocess, shutil
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional, IO, Callable, Generator
 from zoneinfo import ZoneInfo
@@ -60,7 +60,7 @@ class CANInfluxStreamer:
         )
 
         self.client = InfluxDBClient(
-            url=self.url, token=os.getenv("TOKEN") or "", org=self.org, enable_gzip=True
+            url=self.url, token=os.getenv("INFLUXDB_TOKEN") or "", org=self.org, enable_gzip=True
         )
         # Setup async write API with success/error callbacks
         def success_callback(conf, data):
@@ -81,6 +81,110 @@ class CANInfluxStreamer:
             error_callback=error_callback,
             retry_callback=retry_callback
         )
+
+    def _save_upload_to_disk(self, file: IO[bytes], suffix: str = ".zip") -> str:
+        """Save uploaded file to temporary location on disk and return the path."""
+        # Create temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+            # Reset file position to beginning
+            try:
+                file.seek(0)
+            except Exception:
+                pass
+            
+            # Copy file content to disk
+            shutil.copyfileobj(file, temp_file)
+            temp_file_path = temp_file.name
+            
+        return temp_file_path
+    
+    def _extract_zip_to_temp_dir(self, zip_path: str) -> str:
+        """Extract zip file to temporary directory using Linux unzip command."""
+        # Create temporary directory
+        temp_dir = tempfile.mkdtemp(prefix="can_data_")
+        
+        try:
+            # Use Linux unzip command to extract
+            result = subprocess.run(
+                ["unzip", "-j", zip_path, "*.csv", "-d", temp_dir],
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            print(f"📁 Extracted zip to: {temp_dir}")
+            return temp_dir
+        except subprocess.CalledProcessError as e:
+            # Clean up on error
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            raise RuntimeError(f"Failed to extract zip file: {e.stderr}") from e
+    
+    def _cleanup_temp_files(self, *paths: str):
+        """Clean up temporary files and directories."""
+        for path in paths:
+            try:
+                if os.path.isdir(path):
+                    shutil.rmtree(path, ignore_errors=True)
+                    print(f"🧹 Cleaned up directory: {path}")
+                elif os.path.isfile(path):
+                    os.unlink(path)
+                    print(f"🧹 Cleaned up file: {path}")
+            except Exception as e:
+                print(f"⚠️ Failed to clean up {path}: {e}")
+    
+    def count_total_messages_from_disk(self, csv_dir: str, estimate: bool = False) -> int:
+        """Count total messages from CSV files on disk."""
+        if not self.enable_progress_counting:
+            return 0
+            
+        total = 0
+        csv_files = [f for f in os.listdir(csv_dir) if f.endswith('.csv')]
+        
+        for filename in csv_files:
+            # Filename must be a timestamp we can parse
+            try:
+                datetime.strptime(filename[:-4], "%Y-%m-%d-%H-%M-%S")
+            except ValueError:
+                continue  # Skip files that don't match expected format
+                
+            file_path = os.path.join(csv_dir, filename)
+            sample_count = 0
+            valid_rows = 0
+            
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                    reader = csv.reader(f)
+                    for row in reader:
+                        if estimate and sample_count > 1000:  # Sample first 1000 rows
+                            # Estimate based on file position
+                            file_size = os.path.getsize(file_path)
+                            file_pos = f.tell()
+                            if file_pos > 0:
+                                estimated_total = int((valid_rows * file_size) / file_pos)
+                                total += estimated_total
+                                break
+                        
+                        sample_count += 1
+                        # Basic validation same as original
+                        if len(row) < 11 or not row[0]:
+                            continue
+                        try:
+                            byte_values = [int(b) for b in row[3:11] if b]
+                        except Exception:
+                            continue
+                        if len(byte_values) != 8:
+                            continue
+                        try:
+                            msg_id = int(row[2])
+                            self.db.get_message_by_frame_id(msg_id)
+                        except Exception:
+                            continue
+                        total += 1
+                        valid_rows += 1
+            except Exception as e:
+                print(f"⚠️ Error counting messages in {filename}: {e}")
+                continue
+                
+        return total
 
     def count_total_messages(self, file: IO[bytes], is_csv: bool = False, estimate: bool = False) -> int:
         """Count total messages in file. If estimate=True, samples first portion for speed."""
@@ -251,6 +355,48 @@ class CANInfluxStreamer:
         for row in reader:
             yield from self._parse_row_generator(row, start_dt, filename)
 
+    async def process_csv_file_from_disk(
+        self,
+        csv_file_path: str,
+        queue,
+        semaphore,
+    ):
+        """Process a single CSV file from disk."""
+        async with semaphore:
+            filename = os.path.basename(csv_file_path)
+            try:
+                start_dt = datetime.strptime(
+                    filename[:-4], "%Y-%m-%d-%H-%M-%S"
+                ).replace(tzinfo=self.tz_toronto)
+            except ValueError:
+                print(f"Skipping bad filename format: {filename}")
+                return
+
+            try:
+                with open(csv_file_path, 'r', encoding='utf-8', errors='replace') as f:
+                    # Stream points in smaller batches to prevent memory buildup
+                    batch = []
+                    rows_in_batch = 0
+                    
+                    reader = csv.reader(f)
+                    for row in reader:
+                        for point in self._parse_row_generator(row, start_dt, filename):
+                            batch.append(point)
+                            rows_in_batch += 1
+                            if len(batch) >= self.batch_size:
+                                # Wait for queue space if needed
+                                while queue.qsize() >= self.max_queue_size:
+                                    await asyncio.sleep(0.01)
+                                await queue.put((batch.copy(), rows_in_batch))
+                                batch.clear()
+                                rows_in_batch = 0
+                    
+                    if batch:
+                        await queue.put((batch, rows_in_batch))
+                        
+            except Exception as e:
+                print(f"❌ Error processing {filename}: {e}")
+    
     async def process_file(
         self,
         file_info,
@@ -331,6 +477,22 @@ class CANInfluxStreamer:
                 if batch:
                     await queue.put((batch, rows_in_batch))
 
+    async def _producer_from_disk(
+        self,
+        csv_dir: str,
+        queue: asyncio.Queue,
+    ):
+        """Producer that processes CSV files from disk directory."""
+        semaphore = asyncio.Semaphore(2)  # Limit concurrent file processing
+        
+        csv_files = [f for f in os.listdir(csv_dir) if f.endswith('.csv')]
+        print(f"📄 Found {len(csv_files)} CSV files to process")
+        
+        # Process CSV files sequentially to control memory usage
+        for filename in csv_files:
+            csv_path = os.path.join(csv_dir, filename)
+            await self.process_csv_file_from_disk(csv_path, queue, semaphore)
+    
     async def _producer(
         self,
         file: IO[bytes],
@@ -356,6 +518,78 @@ class CANInfluxStreamer:
             )
             await asyncio.gather(task)
 
+    async def stream_zip_from_disk(
+        self,
+        file: IO[bytes],
+        on_progress: Optional[Callable[[int, int], None]] = None,
+        estimate_count: bool = False,
+    ):
+        """Stream zip file data to InfluxDB using disk-based processing to avoid memory issues."""
+        zip_path = None
+        csv_dir = None
+        
+        try:
+            print("💾 Saving uploaded zip file to disk...")
+            zip_path = self._save_upload_to_disk(file, suffix=".zip")
+            
+            print("📦 Extracting zip file...")
+            csv_dir = self._extract_zip_to_temp_dir(zip_path)
+            
+            # Count total rows if enabled
+            total_rows = 0
+            if self.enable_progress_counting:
+                print("🔢 Counting total messages...")
+                total_rows = self.count_total_messages_from_disk(csv_dir, estimate=estimate_count)
+                if on_progress and total_rows > 0:
+                    on_progress(0, total_rows)
+            
+            progress = ProgressStats(total_rows=total_rows, start_time=time.time())
+            queue = asyncio.Queue(maxsize=self.max_queue_size)
+            
+            # Start producer and consumers
+            producer = asyncio.create_task(self._producer_from_disk(csv_dir, queue))
+            consumers = [
+                asyncio.create_task(self._uploader(queue, progress, on_progress))
+                for _ in range(self.max_concurrent_uploads * 2)
+            ]
+            
+            # Wait for producer to finish
+            await producer
+            
+            # Wait for all queued work to complete
+            await queue.join()
+            
+            # Signal consumers to exit
+            for _ in consumers:
+                await queue.put(None)
+            await asyncio.gather(*consumers)
+            
+            # Wait for all pending async writes
+            await self._wait_for_pending_writes(progress)
+            
+            elapsed = time.time() - progress.start_time
+            rate = (progress.processed_rows/elapsed) if elapsed else 0
+            if progress.total_rows > 0:
+                print(
+                    f"\n✅ Finished streaming {progress.processed_rows:,}/{progress.total_rows:,} rows in {elapsed:.2f}s ({rate:.1f} rows/s)"
+                )
+            else:
+                print(
+                    f"\n✅ Finished streaming {progress.processed_rows:,} rows in {elapsed:.2f}s ({rate:.1f} rows/s)"
+                )
+                
+        except Exception as e:
+            print(f"❌ Error in disk-based zip processing: {e}")
+            raise
+        finally:
+            # Always clean up temporary files
+            if zip_path or csv_dir:
+                print("🧹 Cleaning up temporary files...")
+                if zip_path:
+                    self._cleanup_temp_files(zip_path)
+                if csv_dir:
+                    self._cleanup_temp_files(csv_dir)
+    
     async def stream_to_influx(
         self,
         file: IO[bytes],
@@ -433,23 +667,36 @@ class CANInfluxStreamer:
         is_csv: bool = False,
         csv_filename: Optional[str] = None,
         on_progress: Optional[Callable[[int, int], None]] = None,
+        use_disk: bool = True,
     ):
         """
         Optimized method for very large files that skips row counting and uses minimal memory.
         Progress will be reported as processed count only (total unknown).
+        
+        Args:
+            use_disk: If True, uses disk-based processing to avoid memory issues with large zips
         """
         # Temporarily disable progress counting for maximum performance
         original_counting = self.enable_progress_counting
         self.enable_progress_counting = False
         
         try:
-            await self.stream_to_influx(
-                file=file,
-                is_csv=is_csv,
-                csv_filename=csv_filename,
-                on_progress=lambda processed, _: on_progress(processed, 0) if on_progress else None,
-                estimate_count=False
-            )
+            if use_disk and not is_csv:
+                # Use disk-based processing for zip files
+                await self.stream_zip_from_disk(
+                    file=file,
+                    on_progress=lambda processed, _: on_progress(processed, 0) if on_progress else None,
+                    estimate_count=False
+                )
+            else:
+                # Use original memory-based processing
+                await self.stream_to_influx(
+                    file=file,
+                    is_csv=is_csv,
+                    csv_filename=csv_filename,
+                    on_progress=lambda processed, _: on_progress(processed, 0) if on_progress else None,
+                    estimate_count=False
+                )
         finally:
             self.enable_progress_counting = original_counting
 
@@ -546,6 +793,64 @@ class CANInfluxStreamer:
               f"concurrent_uploads={self.max_concurrent_uploads}, queue_size={self.max_queue_size}, "
               f"rate_limit_delay={self.rate_limit_delay}s, "
               f"progress_counting={'enabled' if self.enable_progress_counting else 'disabled'}")
+
+    async def stream_file_auto(
+        self,
+        file: IO[bytes],
+        is_csv: bool = False,
+        csv_filename: Optional[str] = None,
+        on_progress: Optional[Callable[[int, int], None]] = None,
+        file_size_mb: Optional[float] = None,
+    ):
+        """
+        Automatically choose the best processing method based on file type and size.
+        
+        Args:
+            file_size_mb: File size in MB. If not provided, will attempt to estimate.
+            Other args same as stream_to_influx.
+        """
+        # Try to determine file size if not provided
+        if file_size_mb is None and hasattr(file, 'seek') and hasattr(file, 'tell'):
+            try:
+                current_pos = file.tell()
+                file.seek(0, 2)  # Seek to end
+                size_bytes = file.tell()
+                file.seek(current_pos)  # Restore position
+                file_size_mb = size_bytes / (1024 * 1024)
+            except Exception:
+                file_size_mb = 100  # Default to medium size if can't determine
+        
+        # Configure based on file size
+        if file_size_mb:
+            self.configure_for_file_size(file_size_mb)
+        
+        # Choose processing method
+        if is_csv:
+            # Always use memory-based processing for single CSV files
+            await self.stream_to_influx(
+                file=file,
+                is_csv=is_csv,
+                csv_filename=csv_filename,
+                on_progress=on_progress,
+                estimate_count=file_size_mb < 1000 if file_size_mb else True
+            )
+        elif file_size_mb and file_size_mb > 50:  # Use disk processing for zips > 50MB
+            print(f"🗄️  Large file detected ({file_size_mb:.1f}MB), using disk-based processing")
+            await self.stream_zip_from_disk(
+                file=file,
+                on_progress=on_progress,
+                estimate_count=file_size_mb < 1000
+            )
+        else:
+            # Use memory-based processing for smaller files
+            print(f"💾 Small file ({file_size_mb:.1f}MB), using memory-based processing")
+            await self.stream_to_influx(
+                file=file,
+                is_csv=is_csv,
+                csv_filename=csv_filename,
+                on_progress=on_progress,
+                estimate_count=True
+            )
 
     def _calculate_adaptive_delay(self) -> float:
         """Calculate adaptive delay based on recent failures to prevent overwhelming InfluxDB."""
