@@ -12,7 +12,6 @@ import traceback
 
 if os.getenv("DEBUG") is None:
     from dotenv import load_dotenv
-
     load_dotenv()
 
 error_logger = logging.getLogger(__name__)
@@ -22,7 +21,7 @@ PROGRESS = {}
 CURRENT_FILE = {"name": "", "task_id": "", "bucket": ""}
 WEBHOOK_URL = os.getenv("WEBHOOK_URL") or ""
 DEBUG: bool = bool(int(os.getenv("DEBUG") or 0))
-INFLUX_TOKEN = os.getenv("TOKEN")
+INFLUX_TOKEN = os.getenv("INFLUXDB_TOKEN")
 app = Flask(__name__)
 
 
@@ -31,6 +30,7 @@ def allowed_file(filename):
 
 
 def getBuckets() -> list[str]:
+    #TODO: DEBUG mode will be changed to AWS/Local mode
     if DEBUG:
         res = requests.get(
             "http://3.98.181.12:8086/api/v2/buckets",
@@ -107,7 +107,7 @@ def upload_file():
                 PROGRESS[task_id]["name"] = file.filename
                 PROGRESS[task_id]["bucket"] = bucket
                 PROGRESS[task_id]["msg"] = f"Processing... {pct}% ({sent}/{total} rows)"
-                if sent >= total:
+                if sent >= total and not PROGRESS[task_id].get("done"):
                     PROGRESS[task_id]["done"] = True
                     send_webhook_notification(
                         f"File Done Uploading: {CURRENT_FILE['name']} -> {CURRENT_FILE['bucket']}"
@@ -116,7 +116,10 @@ def upload_file():
                 pass
 
         def worker():
-            streamer = CANInfluxStreamer(bucket, batch_size=500)
+            # Auto-configure streamer for file size with InfluxDB-safe settings
+            file_size_mb = len(data) / (1024 * 1024)
+            streamer = CANInfluxStreamer(bucket)
+            streamer.configure_for_file_size(file_size_mb)
             try:
                 import asyncio
 
