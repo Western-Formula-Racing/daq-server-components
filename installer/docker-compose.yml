@@ -194,14 +194,13 @@ services:
     networks:
       - datalink
     environment:
-      - TOKEN=${INFLUXDB_TOKEN}
       - INFLUXDB_TOKEN=${INFLUXDB_TOKEN}
       - WEBHOOK_URL=https://hooks.slack.com/services/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
     deploy:
       resources:
         limits:
           cpus: "1"
-          memory: 512M
+          memory: 1024M
 
 #  artifact-viewer:
 #    image: artifact-viewer-dev
