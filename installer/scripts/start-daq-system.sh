@@ -5,7 +5,13 @@
 
 set -e
 
-export $(grep -vE '^\s*#|^\s*$' .env)
+if [ -f .env ]; then
+    export $(grep -vE '^\s*#|^\s*$' .env)
+else
+    echo "❌ ERROR: .env file not found in $(pwd)."
+    echo "Please create a .env file with the required environment variables before running this script."
+    exit 1
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
