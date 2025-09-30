@@ -195,8 +195,8 @@ services:
       - datalink
     environment:
       - TOKEN=${INFLUXDB_TOKEN}
-      - WEBHOOK_URL=https://hooks.slack.com/services/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
-      - DEBUG=0
+      - INFLUXDB_TOKEN=${INFLUXDB_TOKEN}
+      - WEBHOOK_URL=https://hooks.slack.com/services/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
     deploy:
       resources:
         limits:
