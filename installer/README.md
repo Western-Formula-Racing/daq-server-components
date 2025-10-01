@@ -247,13 +247,12 @@ installer/
 ├── docker-compose.yml           # Container orchestration
 ├── .env                        # Auto-generated secrets
 ├── README.md                   # This file
-├── TOKEN_EXTRACTION_README.md  # Token automation docs
+├── SIMPLIFIED_SETUP.md        # Preset token setup guide
+├── MIGRATION_SUMMARY.md       # Migration from token extraction
 │
 ├── scripts/                    # Automation scripts
-│   ├── start-daq-system.sh    # Main installer
-│   ├── extract-token-docker.sh # Docker-based token extraction
-│   ├── extract-influx-token.py # Python API extraction
-│   ├── extract-influx-token.sh # Bash API extraction
+│   ├── start-daq-system.sh    # Main installer (simplified, no token extraction)
+│   ├── migrate-to-preset-token.sh # Migration helper script
 │   └── pull-latest-images.sh   # Pull pre-built images from registry
 │
 ├── .github/                    # GitHub Actions CI/CD
