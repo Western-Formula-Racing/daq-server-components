@@ -1,491 +1,173 @@
-# WFR DAQ System - Installation Guide
+# Quick Start - Preset Token Setup
 
-## 🚀 Quick Start
+## TL;DR - Get Running in 2 Minutes
 
-**With Slack Integration:**
+### 1. Setup Environment (30 seconds)
 ```bash
 cd installer
-./scripts/start-daq-system.sh
+cp .env.example .env
 ```
 
-**Without Slack Integration:**
+**Optional but Recommended:** Generate a secure token
 ```bash
-cd installer
-./scripts/start-daq-system-no-slack.sh
+# Generate secure token
+openssl rand -base64 32
+
+# Or use Python
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-## 🔧 Environment Setup
-
-### Required Environment Variables
-
-Before running the system, you need to set up your environment variables. The system uses a `.env` file for configuration.
-
-1. **Copy the example file:**
-   ```bash
-   cp .env.example .env
-   ```
-
-2. **Edit `.env` with your actual values:**
-   ```bash
-   # Required variables
-   INFLUXDB_TOKEN=your_actual_token_here
-   INFLUXDB_INIT_PASSWORD=your_secure_password
-   GRAFANA_ADMIN_PASSWORD=your_secure_password
-   SLACK_BOT_TOKEN=xoxb-your-bot-token
-   SLACK_APP_TOKEN=xapp-your-app-token
-   ```
-
-3. **Get your InfluxDB token:**
-   ```bash
-   ./scripts/extract-token-docker.sh
-   ```
-   This will automatically update your `.env` file with the extracted token.
-
-### Sharing Environment Variables with Team
-
-Since `.env` files contain sensitive information, they are **not committed** to the repository. To share configuration with your team:
-
-1. **Use the `.env.example` template** - this shows the required structure without actual values
-2. **Share actual values securely** through:
-   - Team password manager (LastPass, Bitwarden, etc.)
-   - Encrypted team chat
-   - Secure note sharing
-   - Environment variables in your deployment platform
-
-**⚠️ Never commit actual `.env` files to the repository!**
-
-### Step 2: Manual Installation Steps
-
-If you prefer manual control or troubleshooting:
-
-**Full Installation:**
+Edit `.env` and set:
 ```bash
-docker-compose up -d influxdb2
-sleep 15
-./scripts/extract-token-docker.sh
-docker-compose up -d
+INFLUXDB_ADMIN_TOKEN=your-generated-token-here
 ```
 
-**Minimal Installation (no Slack):**
-```bash
-docker-compose -f docker-compose.no-slack.yml up -d
-```
-
-## 📋 System Overview
-
-The WFR DAQ (Data Acquisition) system is a containerized solution for collecting, storing, and visualizing Formula Racing car telemetry data. This installer sets up a complete data pipeline including:
-
-- **InfluxDB v2**: Time-series database for telemetry storage
-- **Grafana**: Real-time dashboard and visualization platform  
-- **CAN Data Receiver**: Processes CAN bus frames from the race car
-- **Slack Bot**: Provides team notifications and data analysis
-- **Lap Timing System**: Tracks and analyzes lap performance
-- **Frontend Application**: Web interface for system management
-
-## 🔄 **CI/CD Pipeline - Automated Building**
-
-This project includes automated CI/CD pipelines using GitHub Actions that build and test your Docker stack on every commit.
-
-### **Automated Workflows**
-
-#### **🚀 Build & Test Pipeline** (`.github/workflows/docker-build.yml`)
-- **Triggers**: Push to `main`/`develop` branches, Pull Requests
-- **What it does**:
-  - ✅ Validates `docker-compose.yml` files
-  - 🐳 Builds custom Docker images (`car-to-influx`, `slackbot`, `lappy`, `startup-data-loader`, `file-uploader`)
-  - 📦 Pushes images to GitHub Container Registry (`ghcr.io`)
-  - 🧪 Runs basic smoke tests
-  - 🧹 Cleans up Docker resources
-
-#### **🔍 Code Quality Pipeline** (`.github/workflows/code-quality.yml`)
-- **Triggers**: Push to `main`/`develop` branches, Pull Requests
-- **What it does**:
-  - 🐳 Lints Dockerfiles with Hadolint
-  - 🔒 Checks Python dependencies for security vulnerabilities
-  - 📜 Validates shell scripts with ShellCheck
-
-#### **🚢 Deployment Pipeline** (`.github/workflows/deploy.yml`)
-- **Triggers**: Manual trigger only
-- **What it does**:
-  - 📋 Supports deployment to staging/production environments
-  - 🔧 Configurable via GitHub Actions UI
-
-### **Container Registry**
-
-Built images are automatically pushed to:
-```
-ghcr.io/western-formula-racing/daq-server-components/car-to-influx:latest
-ghcr.io/western-formula-racing/daq-server-components/slackbot:latest
-ghcr.io/western-formula-racing/daq-server-components/lappy:latest
-ghcr.io/western-formula-racing/daq-server-components/startup-data-loader:latest
-ghcr.io/western-formula-racing/daq-server-components/file-uploader:latest
-```
-
-### **Using Pre-built Images**
-
-Instead of building locally, you can use the pre-built images:
-
-```bash
-# Pull all images from GitHub Container Registry
-docker pull ghcr.io/western-formula-racing/daq-server-components/car-to-influx:latest
-docker pull ghcr.io/western-formula-racing/daq-server-components/slackbot:latest
-docker pull ghcr.io/western-formula-racing/daq-server-components/lappy:latest
-docker pull ghcr.io/western-formula-racing/daq-server-components/startup-data-loader:latest
-docker pull ghcr.io/western-formula-racing/daq-server-components/file-uploader:latest
-
-# Option 1: Pull all images using the helper script
-./scripts/pull-latest-images.sh
-
-# Option 2: Pull manually (same commands as above)
-# ... existing manual commands ...
-
-# Update your docker-compose.yml to use registry images
-services:
-  car-to-influx:
-    image: ghcr.io/western-formula-racing/daq-server-components/car-to-influx:latest
-    # ... rest of config
-```
-
-### **Pipeline Status**
-
-Check the status of your pipelines:
-- **GitHub Actions**: https://github.com/Western-Formula-Racing/daq-server-components/actions
-- **Container Registry**: https://github.com/Western-Formula-Racing/daq-server-components/packages
-
-## 🏗️ Installation Process
-
-### Option A: Full Installation (with Slack)
-```bash
-./scripts/start-daq-system.sh
-```
-
-### Option B: Minimal Installation (no Slack)
-```bash
-./scripts/start-daq-system-no-slack.sh
-```
-
-Both options provide the same core functionality, but the minimal installation excludes:
-- Slack bot container
-- Slack startup notifications
-- Slack-related dependencies
-
-**What happens during startup:**
-
-1. **InfluxDB Initialization** (30 seconds)
-   - Starts InfluxDB container with persistent storage
-   - Waits for database to become ready
-   - Configures organization "WFR" and bucket "ourCar"
-
-2. **Token Extraction** (Automatic)
-   - Uses Docker-based CLI to extract all-access token
-   - Creates `.env` file with `INFLUXDB_TOKEN`
-   - Falls back to Python/Bash API methods if needed
-
-3. **Service Deployment** (30 seconds)
-   - Starts all services in dependency order
-   - Establishes `datalink` network for inter-container communication
-   - Applies resource limits and restart policies
-
-4. **Startup Data Loading** (Automatic)
-   - Loads any CSV files from `startup-data-loader/data/` directory
-   - Uses DBC file to decode CAN messages
-   - Streams historical telemetry data to InfluxDB
-   - Provides real-time progress feedback
-
-5. **Configuration Provisioning** (Automatic)
-   - Grafana auto-configures InfluxDB datasource
-   - Loads default dashboards from `grafana/dashboards/`
-   - Sets up admin user: `admin` / `YOUR_GRAFANA_PASSWORD`
-
-6. **Health Verification & Notifications** (15 seconds)
-   - Tests all service endpoints
-   - Verifies Grafana ↔ InfluxDB connectivity
-   - Reports system status and access URLs
-   - Sends comprehensive status to Slack (if configured)
-
-### Step 2: Access Services
-
-After successful installation, access these URLs:
-
-- **📊 Grafana Dashboard**: http://localhost:8087
-- **🗄️ InfluxDB Interface**: http://localhost:8086  
-- **🖥️ Frontend Application**: http://localhost:8060
-- **📡 CAN Data Receiver**: http://localhost:8085
-- **📈 Lap Timing System**: http://localhost:8050
-
-## 🔧 Manual Installation Steps
-
-If you prefer manual control or troubleshooting:
-
-### 1. Start Core Database
-```bash
-docker-compose up -d influxdb2
-sleep 15  # Wait for initialization
-```
-
-### 2. Extract Authentication Token
-```bash
-./scripts/extract-token-docker.sh
-```
-
-### 3. Start All Services
+### 2. Start Everything (30 seconds)
 ```bash
 docker-compose up -d
 ```
 
-### 4. Verify System Health
+### 3. Done! (30 seconds for services to start)
+Access your services:
+- **Grafana**: http://localhost:8087 
+- **InfluxDB**: http://localhost:8086 
+- **Frontend**: http://localhost:8060
+- **CAN Receiver**: http://localhost:8085
+- **File Uploader**: http://localhost:8084
+- **Lap Timer**: http://localhost:8050
+
+---
+
+## What Changed?
+
+### Old Way (Complex) ❌
 ```bash
-docker ps  # Check container status
-docker logs grafana  # Check Grafana logs
-curl http://localhost:8087/api/health  # Test Grafana
+docker-compose up -d influxdb2        # Start DB only
+sleep 30                               # Wait
+./scripts/extract-influx-token.sh     # Extract token
+# Handle potential failures
+docker-compose up -d                   # Start rest
 ```
 
-## 📁 Project Structure
-
-```
-installer/
-├── docker-compose.yml           # Container orchestration
-├── .env                        # Auto-generated secrets
-├── README.md                   # This file
-├── SIMPLIFIED_SETUP.md        # Preset token setup guide
-├── MIGRATION_SUMMARY.md       # Migration from token extraction
-│
-├── scripts/                    # Automation scripts
-│   ├── start-daq-system.sh    # Main installer (simplified, no token extraction)
-│   ├── migrate-to-preset-token.sh # Migration helper script
-│   └── pull-latest-images.sh   # Pull pre-built images from registry
-│
-├── .github/                    # GitHub Actions CI/CD
-│   └── workflows/
-│       ├── docker-build.yml    # Build & test pipeline
-│       ├── code-quality.yml    # Linting & security checks
-│       └── deploy.yml          # Deployment pipeline
-│
-├── startup-data-loader/       # Data ingestion container
-│   ├── Dockerfile
-│   ├── load_data.py           # CSV to InfluxDB streamer
-│   ├── requirements.txt
-│   ├── WFR25.dbc              # CAN database file
-│   ├── data/                  # CSV data files directory
-│   │   └── *.csv              # CAN data files (auto-loaded)
-│   └── README.md
-│
-├── grafana/                    # Grafana configuration
-│   ├── provisioning/
-│   │   ├── datasources/        # Auto InfluxDB connection
-│   │   └── dashboards/         # Dashboard provider config
-│   ├── dashboards/             # JSON dashboard files
-│   └── README.md               # Dashboard import guide
-│
-├── car-to-influx/             # CAN data processor
-│   ├── Dockerfile
-│   ├── listener.py
-│   ├── WFR25-f772b40.dbc      # CAN database file
-│   └── templates/
-│
-├── slackbot/                  # Team notifications
-│   ├── Dockerfile
-│   ├── slack_bot.py
-│   └── requirements.txt
-│
-├── lappy/                     # Lap timing analysis
-│   ├── Dockerfile
-│   ├── lap.py
-│   └── requirements.txt
-│
-└── frontend-build/            # Web interface
-    ├── index.html
-    └── assets/
-```
-
-## **Automation Scripts - Status Check System**
-
-The `start-daq-system.sh` script includes an intelligent service status checking system that provides detailed health information for all Docker containers.
-
-### **How the Status Check Works**
-
-The status check uses a **hierarchical decision tree** to determine the state of each service:
-
-#### **Helper Functions**
+### New Way (Simple) ✅
 ```bash
-# Check if container is currently running
-container_running() {
-    docker ps --format "table {{.Names}}" | grep -q "^$1$"
-}
-
-# Check if container exists (even if stopped)
-container_exists() {
-    docker ps -a --format "table {{.Names}}" | grep -q "^$1$"
-}
+docker-compose up -d                   # Start everything
 ```
 
-#### **Status Check Logic Flow**
-```
-┌─────────────────┐
-│   START CHECK   │
-└─────────────────┘
-         │
-         ▼
-┌─────────────────┐     YES
-│ Is service =    │────────────► [SPECIAL CASE: startup-data-loader]
-│ startup-data-   │
-│ loader?         │     NO
-└─────────────────┘         │
-         │                  ▼
-         ▼         ┌─────────────────┐
-┌─────────────────┐│ Is container    │     YES
-│ Is container    ││ running?        │────────────► ✅ RUNNING
-│ running?        │└─────────────────┘
-└─────────────────┘         │
-         │                  NO
-         ▼                  ▼
-┌─────────────────┐┌─────────────────┐
-│ Is container    ││ Is container    │     YES
-│ exists?         ││ exists?         │────────────► ⚠️ EXISTS BUT NOT RUNNING
-└─────────────────┘└─────────────────┘
-         │                  │
-         YES                NO
-         │                  │
-         ▼                  ▼
-    ✅ RUNNING         ❌ NOT FOUND
-```
+---
 
-#### **Special Case: startup-data-loader**
-The data loader gets special treatment because it's designed to **run once and exit**:
-- **Normal services**: Run continuously (like web servers)
-- **startup-data-loader**: Runs once to load CSV data, then exits
-- **Exit code 0** = success, **non-zero** = error
-- **No CSV files** = container never starts
+## Key Points
 
-#### **Status Messages**
-| Status | Meaning | Icon |
-|--------|---------|------|
-| ✅ RUNNING | Container is actively running | 🟢 |
-| ✅ SERVICE COMPLETE - STOPPED | startup-data-loader finished successfully | 🟢 |
-| ⚠️ EXISTS BUT NOT RUNNING | Container exists but stopped (may be restartable) | 🟡 |
-| ⚠️ COMPLETED WITH EXIT CODE X | startup-data-loader finished with errors | 🟡 |
-| ❓ NOT NEEDED (NO DATA FILES) | startup-data-loader skipped (no CSV files) | 🔵 |
-| ❌ NOT FOUND | Container doesn't exist at all | 🔴 |
+### Environment Variable
+**All services now use:** `INFLUXDB_ADMIN_TOKEN`
 
-#### **Docker Commands Used**
-- `docker ps`: Lists running containers
-- `docker ps -a`: Lists all containers (including stopped)
-- `docker inspect <container> --format='{{.State.ExitCode}}'`: Gets exit code of stopped container
+**Default value if not set:** `wfr-admin-token-change-in-production`
 
-This system ensures accurate status reporting for both long-running services and one-time data loading tasks!
+### Security
+⚠️ **Change the default token in production!**
 
-## 🔒 Security & Credentials
-
-### Default Accounts
-- **Grafana**: `admin` / `YOUR_GRAFANA_PASSWORD`
-- **InfluxDB**: `admin` / `YOUR_INFLUXDB_PASSWORD`
-- **Organization**: `WFR`
-- **Bucket**: `ourCar`
-
-### Token Management
-- InfluxDB tokens are automatically extracted and rotated
-- Slack tokens are configured in `docker-compose.yml`
-- All secrets stored in `.env` file (git-ignored)
-- Slack webhook URL can be set via `SLACK_WEBHOOK_URL` environment variable
-
-## 💬 Slack Integration
-
-### Automatic Startup Notifications
-The system automatically sends a comprehensive status report to Slack after startup, including:
-- Service status for all containers
-- Connectivity test results  
-- Service URLs and access information
-- Data loading completion status
-
-### Configuration
 ```bash
-# Add to .env file:
-SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
+# In .env file:
+INFLUXDB_ADMIN_TOKEN=your-super-secret-token-here
 ```
 
-### Manual Slack Bot Setup
-```bash
-# Edit docker-compose.yml:
-environment:
-  SLACK_BOT_TOKEN: "xoxb-your-bot-token-here"
-  SLACK_APP_TOKEN: "xapp-your-app-token-here"
+### Services Using Token
+- ✅ InfluxDB (initialization)
+- ✅ Grafana (datasource)
+- ✅ car-to-influx (CAN data)
+- ✅ file-uploader
+- ✅ startup-data-loader
+- ✅ influxdb3
 
-# Restart slackbot service:
-docker-compose restart slackbot
+---
+
+## Troubleshooting
+
+### Problem: Services can't connect to InfluxDB
+```bash
+# Check token in .env
+grep INFLUXDB_ADMIN_TOKEN .env
+
+# Restart services
+docker-compose restart
 ```
 
-## 🐛 Troubleshooting
-
-### Common Issues
-
-**Services won't start:**
+### Problem: Need fresh start
 ```bash
-docker-compose logs SERVICE_NAME
-docker system prune  # Clean up resources
+# Complete reset
+docker-compose down -v
+docker-compose up -d
 ```
 
-**Token extraction fails:**
+### Problem: Check if working
 ```bash
-# Manual token creation
-open http://localhost:8086
-# Login → Data → API Tokens → Generate API Token
-# Copy token to .env file
-```
-
-**Grafana can't connect to InfluxDB:**
-```bash
-docker logs grafana
-# Check datasource configuration
-# Verify token in .env file
-```
-
-**Port conflicts:**
-```bash
-lsof -i :8087  # Check what's using Grafana port
-# Modify ports in docker-compose.yml if needed
-```
-
-## 📈 Data Flow
-
-1. **Historical Data Loading** → CSV files in `startup-data-loader/data/` automatically loaded on first start
-2. **Race Car** → CAN Bus frames
-3. **CAN Receiver** (port 8085) → Processes frames using DBC file
-4. **InfluxDB** (port 8086) → Stores time-series data
-5. **Grafana** (port 8087) → Visualizes real-time telemetry
-6. **Slack Bot** → Sends race notifications
-7. **Frontend** (port 8060) → System management interface
-
-## 🔄 Maintenance
-
-### Daily Operations
-```bash
-# View system status
+# See all running services
 docker ps
 
-# Monitor logs  
+# Check logs
 docker-compose logs -f
 
-# Restart specific service
-docker-compose restart SERVICE_NAME
+# Test InfluxDB
+curl http://localhost:8086/health
 
-# Update containers
-docker-compose pull && docker-compose up -d
+# Test Grafana  
+curl http://localhost:8087/api/health
 ```
 
-### Data Backup
+---
+
+## Advanced
+
+### Custom Token per Service
+Edit `docker-compose.yml` if you need different tokens:
+
+```yaml
+environment:
+  INFLUXDB_TOKEN: "${READ_ONLY_TOKEN}"  # For read-only services
+```
+
+### Using with CI/CD
 ```bash
-# Backup InfluxDB data
-docker exec influxdb2 influx backup /backup
-docker cp influxdb2:/backup ./influxdb-backup-$(date +%Y%m%d)
-
-# Backup Grafana dashboards
-cp -r grafana/dashboards ./grafana-backup-$(date +%Y%m%d)
+# Set token via environment variable
+export INFLUXDB_ADMIN_TOKEN="your-ci-token"
+docker-compose up -d
 ```
 
-## 📞 Support
+### Docker Secrets (Production)
+```yaml
+secrets:
+  influx_token:
+    external: true
+    
+services:
+  car-to-influx:
+    secrets:
+      - influx_token
+    environment:
+      INFLUXDB_TOKEN_FILE: /run/secrets/influx_token
+```
 
-For issues or questions:
-- Check logs: `docker logs CONTAINER_NAME`
-- Review documentation in `TOKEN_EXTRACTION_README.md`
-- Contact DAQ Team Lead
-- Review Western Formula Racing DAQ documentation
+---
+
+## Files Reference
+
+- 📄 `docker-compose.yml` - Main configuration (updated with preset token)
+- 📄 `.env.example` - Template with INFLUXDB_ADMIN_TOKEN
+- 📄 `SIMPLIFIED_SETUP.md` - Full documentation
+- 📄 `MIGRATION_SUMMARY.md` - Complete change log
+- 🔧 `scripts/migrate-to-preset-token.sh` - Migration helper
+- 🔧 `scripts/start-daq-system.sh` - Simplified startup (no token extraction)
+
+---
+
+## Need Help?
+
+1. **Check logs**: `docker-compose logs -f`
+2. **Validate config**: `docker-compose config`
+3. **See running services**: `docker ps`
+4. **Read full docs**: `SIMPLIFIED_SETUP.md`
+5. **Migration guide**: `MIGRATION_SUMMARY.md`
+
+---
+
+**That's it! No more shell scripts, no more token extraction, just pure Docker Compose goodness! 🚀**
