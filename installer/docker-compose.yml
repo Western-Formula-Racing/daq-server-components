@@ -23,6 +23,7 @@ services:
       DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_INIT_PASSWORD:-admin}
       DOCKER_INFLUXDB_INIT_ORG: WFR
       DOCKER_INFLUXDB_INIT_BUCKET: ourCar
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_ADMIN_TOKEN:-wfr-admin-token-change-in-production}
     volumes:
       - influxdb2-data:/var/lib/influxdb2
       - influxdb2-config:/etc/influxdb2
@@ -34,29 +35,29 @@ services:
           #memory: 1g
           #cpus: "1.0"
 
-  #influxdb3:
-    #image: influxdb:3-core
-    #container_name: influxdb3
-    #command: >
-      #influxdb3 serve
-      #--node-id influxdb3-node
-      #--object-store file
-      #--data-dir /var/lib/influxdb3
-    #restart: unless-stopped
-    #ports:
-      #- "9000:8181"
-    #environment:
-      #INFLUX_URL: "http://influxdb3:8181"
-      #INFLUX_TOKEN: "${INFLUXDB_TOKEN}"
-    #volumes:
-      #- influxdb3-data:/var/lib/influxdb3
-    #networks:
-      #- datalink
-    #deploy:
-      #resources:
-        #limits:
-          #memory: 1g
-          #cpus: "1.0"
+  influxdb3:
+    image: influxdb:3-core
+    container_name: influxdb3
+    command: >
+      influxdb3 serve
+      --node-id influxdb3-node
+      --object-store file
+      --data-dir /var/lib/influxdb3
+    restart: unless-stopped
+    ports:
+      - "9000:8181"
+    environment:
+      INFLUX_URL: "http://influxdb3:8181"
+      INFLUX_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-wfr-admin-token-change-in-production}"
+    volumes:
+      - influxdb3-data:/var/lib/influxdb3
+    networks:
+      - datalink
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: "1.0"
 
   grafana:
     image: grafana/grafana
@@ -72,7 +73,7 @@ services:
       GF_AUTH_BASIC_ENABLED: "true"
       GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
       GF_PATHS_PROVISIONING: /etc/grafana/provisioning
-      INFLUXDB_TOKEN: "${INFLUXDB_TOKEN}"
+      INFLUXDB_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-wfr-admin-token-change-in-production}"
       GF_DASHBOARDS_MIN_REFRESH_INTERVAL: 100ms
     volumes:
       - grafana-storage:/var/lib/grafana
@@ -115,7 +116,7 @@ services:
       - ./car-to-influx:/app
     command: python listener.py
     environment:
-      INFLUXDB_TOKEN: "${INFLUXDB_TOKEN}"
+      INFLUXDB_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-wfr-admin-token-change-in-production}"
       INFLUXDB_URL: "http://influxdb2:8086"
       INFLUXDB_ORG: "WFR"
       INFLUXDB_BUCKET: "ourCar"
@@ -170,7 +171,7 @@ services:
     container_name: startup-data-loader
     restart: "no"  # Run once only
     environment:
-      INFLUXDB_TOKEN: "${INFLUXDB_TOKEN}"
+      INFLUXDB_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-wfr-admin-token-change-in-production}"
     volumes:
       - ./startup-data-loader/data:/data:ro  # Mount startup-data-loader/data as read-only
     networks:
@@ -194,14 +195,13 @@ services:
     networks:
       - datalink
     environment:
-      - TOKEN=${INFLUXDB_TOKEN}
-      - WEBHOOK_URL=https://hooks.slack.com/services/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
-      - DEBUG=0
+      - INFLUXDB_TOKEN=${INFLUXDB_ADMIN_TOKEN:-wfr-admin-token-change-in-production}
+      - WEBHOOK_URL=https://hooks.slack.com/services/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
     deploy:
       resources:
         limits:
           cpus: "1"
-          memory: 512M
+          memory: 1024M
 
 #  artifact-viewer:
 #    image: artifact-viewer-dev

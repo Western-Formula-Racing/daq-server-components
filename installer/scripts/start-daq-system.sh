@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # WFR DAQ System Automated Startup Script
-# Handles InfluxDB token extraction and Grafana auto-configuration
+# Simplified to use docker-compose only with preset admin token
 
 set -e
 
@@ -32,48 +32,19 @@ container_exists() {
     docker ps -a --format "table {{.Names}}" | grep -q "^$1$"
 }
 
-echo "🔧 Step 1: Starting InfluxDB..."
-echo "Starting InfluxDB container first to generate tokens..."
-
-# Start only InfluxDB first
-docker-compose up -d influxdb2
-
-echo "⏳ Waiting for InfluxDB to fully initialize..."
-sleep 10
-
-
-# Run the single most reliable token extraction script
-echo "🐳 Using robust Docker-based token extraction..."
-
-if ! bash scripts/extract-influx-token.sh; then
-    echo ""
-    echo "❌ CRITICAL ERROR: Token extraction failed!"
-    echo "🛠️  Manual steps to resolve:"
-    echo "1. Check your INFLUXDB_PASSWORD in your environment or .env file."
-    echo "2. Check InfluxDB logs: docker logs influxdb2"
-    echo "3. If you are stuck, reset the database with 'docker-compose down -v'"
-    echo ""
-    echo "⚠️  Exiting startup process..."
-    exit 1
-fi
-
-echo "✅ Token extraction successful!"
-
-echo ""
-echo "🚀 Step 2: Starting all services..."
-echo "Starting the complete DAQ stack..."
+echo "� Step 1: Starting all services..."
+echo "Starting the complete DAQ stack with docker-compose..."
 
 # Start all services except data loader first
 docker-compose up -d influxdb2 grafana frontend car-to-influx slackbot lappy file-uploader
 
 echo ""
-echo "⏳ Step 3: Waiting for services to stabilize..."
-sleep 5
+echo "⏳ Step 2: Waiting for services to stabilize..."
+sleep 10
 
 echo ""
-echo "� Step 4: Loading startup data..."
+echo "📦 Step 3: Loading startup data..."
 echo "Starting data loader to populate InfluxDB with initial data..."
-
 
 # Check if startup data exists in startup-data-loader/data
 if [ -d "startup-data-loader/data" ] && [ -n "$(ls -A startup-data-loader/data/*.csv 2>/dev/null)" ]; then
@@ -93,7 +64,7 @@ else
 fi
 
 echo ""
-echo "�🔍 Step 5: Service Status Check..."
+echo "🔍 Step 4: Service Status Check..."
 
 # Check service status
 echo "Service Status:"
@@ -124,7 +95,7 @@ for service in "${services[@]}"; do
 done
 
 echo ""
-echo "🌐 Step 6: Service URLs:"
+echo "🌐 Step 5: Service URLs:"
 echo "----------------------"
 echo "📊 Grafana Dashboard: http://3.98.181.12:8087"
 echo "   └─ Username: admin"
@@ -132,7 +103,8 @@ echo "   └─ Password: ${GRAFANA_ADMIN_PASSWORD:-your-grafana-password-here}"
 echo ""
 echo "🗄️  InfluxDB Interface: http://3.98.181.12:8086"
 echo "   └─ Username: admin"
-echo "   └─ Password: ${INFLUXDB_PASSWORD:-your-influxdb-password-here}"
+echo "   └─ Password: ${INFLUXDB_INIT_PASSWORD:-admin}"
+echo "   └─ Admin Token: ${INFLUXDB_ADMIN_TOKEN:-wfr-admin-token-change-in-production}"
 echo ""
 echo "🖥️  Frontend Application: http://3.98.181.12:8060"
 echo "📡 CAN Data Receiver: http://3.98.181.12:8085"

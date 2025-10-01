@@ -12,7 +12,6 @@ import traceback
 
 if os.getenv("DEBUG") is None:
     from dotenv import load_dotenv
-
     load_dotenv()
 
 error_logger = logging.getLogger(__name__)
@@ -22,7 +21,7 @@ PROGRESS = {}
 CURRENT_FILE = {"name": "", "task_id": "", "bucket": ""}
 WEBHOOK_URL = os.getenv("WEBHOOK_URL") or ""
 DEBUG: bool = bool(int(os.getenv("DEBUG") or 0))
-INFLUX_TOKEN = os.getenv("TOKEN")
+INFLUXDB_TOKEN = os.getenv("INFLUXDB_TOKEN")
 app = Flask(__name__)
 
 
@@ -31,15 +30,16 @@ def allowed_file(filename):
 
 
 def getBuckets() -> list[str]:
+    #TODO: DEBUG mode will be changed to AWS/Local mode
     if DEBUG:
         res = requests.get(
             "http://3.98.181.12:8086/api/v2/buckets",
-            headers={"Authorization": f"Token {INFLUX_TOKEN}"},
+            headers={"Authorization": f"Token {INFLUXDB_TOKEN}"},
         ).json()
     else:
         res = requests.get(
             "http://influxdb2:8086/api/v2/buckets",
-            headers={"Authorization": f"Token {INFLUX_TOKEN}"},
+            headers={"Authorization": f"Token {INFLUXDB_TOKEN}"},
         ).json()
     names: list[str] = [bucket["name"] for bucket in res["buckets"]]
     return names
@@ -107,7 +107,7 @@ def upload_file():
                 PROGRESS[task_id]["name"] = file.filename
                 PROGRESS[task_id]["bucket"] = bucket
                 PROGRESS[task_id]["msg"] = f"Processing... {pct}% ({sent}/{total} rows)"
-                if sent >= total:
+                if sent >= total and not PROGRESS[task_id].get("done"):
                     PROGRESS[task_id]["done"] = True
                     send_webhook_notification(
                         f"File Done Uploading: {CURRENT_FILE['name']} -> {CURRENT_FILE['bucket']}"
@@ -116,7 +116,10 @@ def upload_file():
                 pass
 
         def worker():
-            streamer = CANInfluxStreamer(bucket, batch_size=500)
+            # Auto-configure streamer for file size with InfluxDB-safe settings
+            file_size_mb = len(data) / (1024 * 1024)
+            streamer = CANInfluxStreamer(bucket)
+            
             try:
                 import asyncio
 
@@ -124,11 +127,24 @@ def upload_file():
                 uploaded_filename = file.filename or ""
 
                 if content_type == "application/zip":
-                    asyncio.run(streamer.stream_to_influx(buf, on_progress=on_progress))
-                elif content_type == "text/csv":
+                    # Use the new automatic method that chooses disk vs memory based on file size
                     asyncio.run(
-                        streamer.stream_to_influx(
-                            buf, True, on_progress, csv_filename=uploaded_filename
+                        streamer.stream_file_auto(
+                            buf, 
+                            is_csv=False, 
+                            on_progress=on_progress,
+                            file_size_mb=file_size_mb
+                        )
+                    )
+                elif content_type == "text/csv":
+                    # CSV files always use memory-based processing (they're single files)
+                    asyncio.run(
+                        streamer.stream_file_auto(
+                            buf, 
+                            is_csv=True, 
+                            csv_filename=uploaded_filename,
+                            on_progress=on_progress,
+                            file_size_mb=file_size_mb
                         )
                     )
                 else:
