@@ -2,3 +2,4 @@ cantools
 influxdb-client
 Flask
 requests
+python-dotenv
