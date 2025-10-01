@@ -116,22 +116,6 @@ curl http://localhost:8087/api/health
 
 ---
 
-## Migration from Old Setup
-
-If you have an existing deployment with token extraction:
-
-```bash
-# Use automated migration
-./scripts/migrate-to-preset-token.sh
-
-# OR manually:
-docker-compose down -v
-echo "INFLUXDB_ADMIN_TOKEN=$(openssl rand -base64 32)" >> .env
-docker-compose up -d
-```
-
----
-
 ## Advanced
 
 ### Custom Token per Service
