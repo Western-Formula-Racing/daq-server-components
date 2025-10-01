@@ -23,6 +23,7 @@ services:
       DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_INIT_PASSWORD:-admin}
       DOCKER_INFLUXDB_INIT_ORG: WFR
       DOCKER_INFLUXDB_INIT_BUCKET: ourCar
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_ADMIN_TOKEN:-wfr-admin-token-change-in-production}
     volumes:
       - influxdb2-data:/var/lib/influxdb2
       - influxdb2-config:/etc/influxdb2
@@ -47,7 +48,7 @@ services:
       - "9000:8181"
     environment:
       INFLUX_URL: "http://influxdb3:8181"
-      INFLUX_TOKEN: "${INFLUXDB_TOKEN}"
+      INFLUX_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-wfr-admin-token-change-in-production}"
     volumes:
       - influxdb3-data:/var/lib/influxdb3
     networks:
@@ -72,7 +73,7 @@ services:
       GF_AUTH_BASIC_ENABLED: "true"
       GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
       GF_PATHS_PROVISIONING: /etc/grafana/provisioning
-      INFLUXDB_TOKEN: "${INFLUXDB_TOKEN}"
+      INFLUXDB_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-wfr-admin-token-change-in-production}"
       GF_DASHBOARDS_MIN_REFRESH_INTERVAL: 100ms
     volumes:
       - grafana-storage:/var/lib/grafana
@@ -115,7 +116,7 @@ services:
       - ./car-to-influx:/app
     command: python listener.py
     environment:
-      INFLUXDB_TOKEN: "${INFLUXDB_TOKEN}"
+      INFLUXDB_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-wfr-admin-token-change-in-production}"
       INFLUXDB_URL: "http://influxdb2:8086"
       INFLUXDB_ORG: "WFR"
       INFLUXDB_BUCKET: "ourCar"
@@ -170,7 +171,7 @@ services:
     container_name: startup-data-loader
     restart: "no"  # Run once only
     environment:
-      INFLUXDB_TOKEN: "${INFLUXDB_TOKEN}"
+      INFLUXDB_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-wfr-admin-token-change-in-production}"
     volumes:
       - ./startup-data-loader/data:/data:ro  # Mount startup-data-loader/data as read-only
     networks:
@@ -194,7 +195,7 @@ services:
     networks:
       - datalink
     environment:
-      - INFLUXDB_TOKEN=${INFLUXDB_TOKEN}
+      - INFLUXDB_TOKEN=${INFLUXDB_ADMIN_TOKEN:-wfr-admin-token-change-in-production}
       - WEBHOOK_URL=https://hooks.slack.com/services/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
     deploy:
       resources:
