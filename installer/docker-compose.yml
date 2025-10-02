@@ -29,6 +29,12 @@ services:
       - influxdb2-config:/etc/influxdb2
     networks:
       - datalink
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8086/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     #deploy:
       #resources:
         #limits:
@@ -177,7 +183,12 @@ services:
     networks:
       - datalink
     depends_on:
-      - influxdb2
+      influxdb2:
+        condition: service_healthy
+    command: >
+      sh -c "echo 'Waiting additional 10 seconds for InfluxDB to stabilize...' &&
+             sleep 10 &&
+             python load_data.py"
     #deploy:
       #resources:
         #imits:

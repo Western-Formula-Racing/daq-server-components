@@ -246,29 +246,37 @@ async def load_startup_data():
                 return False
             time.sleep(2)
     
-    # Find CSV files in /data directory
+    # Find CSV files in /data directory (including subdirectories)
     data_dir = "/data"
     if not os.path.exists(data_dir):
         print(f"❌ Data directory {data_dir} not found")
         return False
     
-    csv_files = [f for f in os.listdir(data_dir) if f.endswith(".csv")]
+    csv_files = []
+    for root, dirs, files in os.walk(data_dir):
+        for file in files:
+            if file.endswith(".csv"):
+                csv_files.append(os.path.join(root, file))
+    
     if not csv_files:
-        print("⚠️ No CSV files found in /data directory")
+        print("⚠️ No CSV files found in /data directory or subdirectories")
         return True  # Not an error, just no data to load
     
     print(f"📂 Found {len(csv_files)} CSV file(s) to process:")
     for csv_file in csv_files:
-        print(f"   • {csv_file}")
+        # Show relative path from data directory for cleaner output
+        rel_path = os.path.relpath(csv_file, data_dir)
+        print(f"   • {rel_path}")
     print()
     
     # Initialize streamer
     try:
         streamer = CANInfluxStreamer(bucket="ourCar", batch_size=5000, max_concurrent_uploads=1)
         
-        for i, csv_filename in enumerate(csv_files, 1):
-            csv_path = os.path.join(data_dir, csv_filename)
-            print(f"📊 Processing file {i}/{len(csv_files)}: {csv_filename}")
+        for i, csv_path in enumerate(csv_files, 1):
+            csv_filename = os.path.basename(csv_path)
+            rel_path = os.path.relpath(csv_path, data_dir)
+            print(f"📊 Processing file {i}/{len(csv_files)}: {rel_path}")
             
             try:
                 with open(csv_path, 'rb') as f:
@@ -277,10 +285,10 @@ async def load_startup_data():
                         csv_filename=csv_filename,
                         on_progress=progress_callback
                     )
-                print(f"\n✅ Successfully loaded {csv_filename}")
+                print(f"\n✅ Successfully loaded {rel_path}")
                 
             except Exception as e:
-                print(f"\n❌ Failed to process {csv_filename}: {e}")
+                print(f"\n❌ Failed to process {rel_path}: {e}")
                 continue
             
             print()  # Add spacing between files
