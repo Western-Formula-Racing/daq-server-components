@@ -1,4 +1,4 @@
-import zipfile, csv, io, time, asyncio, tempfile, subprocess, shutil
+import zipfile, csv, io, time, asyncio, tempfile, subprocess, shutil, atexit
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional, IO, Callable, Generator
 from zoneinfo import ZoneInfo
@@ -8,6 +8,36 @@ from influxdb_client.client.influxdb_client import InfluxDBClient
 from influxdb_client.client.write.point import Point
 from influxdb_client.client.write_api import WriteOptions, ASYNCHRONOUS
 import os
+
+# Global list to track temp directories for emergency cleanup
+_temp_directories = []
+
+def _rolling_cleanup():
+    """Clean up temp files older than 6 hours."""
+    import glob
+    temp_patterns = ['/tmp/csv_upload_*', '/var/tmp/csv_upload_*']
+    current_time = time.time()
+    six_hours = 6 * 60 * 60  # 6 hours in seconds
+    
+    cleaned_count = 0
+    for pattern in temp_patterns:
+        for temp_dir in glob.glob(pattern):
+            try:
+                # Check if directory is older than 6 hours
+                dir_mtime = os.path.getmtime(temp_dir)
+                if current_time - dir_mtime > six_hours:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                    cleaned_count += 1
+                    print(f"🧹 Purged old temp directory: {temp_dir}")
+            except Exception as e:
+                print(f"⚠️ Failed to purge {temp_dir}: {e}")
+    
+    if cleaned_count > 0:
+        print(f"🧹 Rolling cleanup: purged {cleaned_count} directories older than 6 hours")
+
+# Register rolling cleanup on process exit and run it once at startup
+atexit.register(_rolling_cleanup)
+_rolling_cleanup()  # Clean up any old temp files from previous runs
 
 if os.getenv("DEBUG") is None:
     from dotenv import load_dotenv
@@ -119,17 +149,18 @@ class CANInfluxStreamer:
             raise RuntimeError(f"Failed to extract zip file: {e.stderr}") from e
     
     def _cleanup_temp_files(self, *paths: str):
-        """Clean up temporary files and directories."""
+        """Simple cleanup - just try to remove, don't worry about failures."""
         for path in paths:
-            try:
-                if os.path.isdir(path):
-                    shutil.rmtree(path, ignore_errors=True)
-                    print(f"🧹 Cleaned up directory: {path}")
-                elif os.path.isfile(path):
-                    os.unlink(path)
-                    print(f"🧹 Cleaned up file: {path}")
-            except Exception as e:
-                print(f"⚠️ Failed to clean up {path}: {e}")
+            if path and os.path.exists(path):
+                try:
+                    if os.path.isdir(path):
+                        shutil.rmtree(path, ignore_errors=True)
+                        print(f"🧹 Cleaned up directory: {path}")
+                    else:
+                        os.unlink(path)
+                        print(f"🧹 Cleaned up file: {path}")
+                except Exception as e:
+                    print(f"⚠️ Cleanup failed for {path}: {e} (will be purged in 6 hours)")
     
     def count_total_messages_from_disk(self, csv_dir: str, estimate: bool = False) -> int:
         """Count total messages from CSV files on disk."""
@@ -824,33 +855,14 @@ class CANInfluxStreamer:
         if file_size_mb:
             self.configure_for_file_size(file_size_mb)
         
-        # Choose processing method
-        if is_csv:
-            # Always use memory-based processing for single CSV files
-            await self.stream_to_influx(
-                file=file,
-                is_csv=is_csv,
-                csv_filename=csv_filename,
-                on_progress=on_progress,
-                estimate_count=file_size_mb < 1000 if file_size_mb else True
-            )
-        elif file_size_mb and file_size_mb > 50:  # Use disk processing for zips > 50MB
-            print(f"🗄️  Large file detected ({file_size_mb:.1f}MB), using disk-based processing")
-            await self.stream_zip_from_disk(
-                file=file,
-                on_progress=on_progress,
-                estimate_count=file_size_mb < 1000
-            )
-        else:
-            # Use memory-based processing for smaller files
-            print(f"💾 Small file ({file_size_mb:.1f}MB), using memory-based processing")
-            await self.stream_to_influx(
-                file=file,
-                is_csv=is_csv,
-                csv_filename=csv_filename,
-                on_progress=on_progress,
-                estimate_count=True
-            )
+        # Since we now only support CSV files, always use memory-based processing
+        await self.stream_to_influx(
+            file=file,
+            is_csv=is_csv,
+            csv_filename=csv_filename,
+            on_progress=on_progress,
+            estimate_count=file_size_mb < 1000 if file_size_mb else True
+        )
 
     def _calculate_adaptive_delay(self) -> float:
         """Calculate adaptive delay based on recent failures to prevent overwhelming InfluxDB."""
@@ -917,6 +929,105 @@ class CANInfluxStreamer:
             print(f"⚠️ {len(self._write_callbacks)} writes still pending after timeout")
         else:
             print("✅ All async writes completed")
+
+    async def stream_multiple_csvs(
+        self,
+        file_data: List[tuple[str, bytes]],
+        on_progress: Optional[Callable[[int, int], None]] = None,
+        total_size_mb: Optional[float] = None,
+    ):
+        """
+        Stream multiple CSV files to InfluxDB by saving them to a temp directory first.
+        
+        Args:
+            file_data: List of tuples containing (filename, file_bytes)
+            on_progress: Progress callback function
+            total_size_mb: Total size of all files in MB
+        """
+        temp_dir = None
+        
+        # Create temporary directory first, before any async operations
+        temp_dir = tempfile.mkdtemp(prefix="csv_upload_")
+        print(f"📁 Created temp directory: {temp_dir}")
+        
+        # Track for cleanup (rolling 6-hour purge will handle failures)
+        _temp_directories.append(temp_dir)
+        
+        try:
+            
+            # Save all CSV files to temp directory
+            for filename, data in file_data:
+                if not filename:
+                    continue
+                    
+                # Ensure filename ends with .csv
+                if not filename.lower().endswith('.csv'):
+                    filename += '.csv'
+                    
+                temp_path = os.path.join(temp_dir, filename)
+                with open(temp_path, 'wb') as f:
+                    f.write(data)
+                print(f"💾 Saved {filename} ({len(data)} bytes)")
+            
+            # Configure for file size
+            if total_size_mb:
+                self.configure_for_file_size(total_size_mb)
+            
+            # Count total rows if enabled
+            total_rows = 0
+            if self.enable_progress_counting:
+                print("🔢 Counting total messages...")
+                total_rows = self.count_total_messages_from_disk(temp_dir, estimate=total_size_mb > 100 if total_size_mb else False)
+                if on_progress and total_rows > 0:
+                    on_progress(0, total_rows)
+            
+            progress = ProgressStats(total_rows=total_rows, start_time=time.time())
+            queue = asyncio.Queue(maxsize=self.max_queue_size)
+            
+            # Start producer and consumers
+            producer = asyncio.create_task(self._producer_from_disk(temp_dir, queue))
+            consumers = [
+                asyncio.create_task(self._uploader(queue, progress, on_progress))
+                for _ in range(self.max_concurrent_uploads * 2)
+            ]
+            
+            # Wait for producer to finish
+            await producer
+            
+            # Wait for all queued work to complete
+            await queue.join()
+            
+            # Signal consumers to exit
+            for _ in consumers:
+                await queue.put(None)
+            await asyncio.gather(*consumers)
+            
+            # Wait for all pending async writes
+            await self._wait_for_pending_writes(progress)
+            
+            elapsed = time.time() - progress.start_time
+            rate = (progress.processed_rows/elapsed) if elapsed else 0
+            if progress.total_rows > 0:
+                print(
+                    f"\n✅ Finished streaming {progress.processed_rows:,}/{progress.total_rows:,} rows in {elapsed:.2f}s ({rate:.1f} rows/s)"
+                )
+            else:
+                print(
+                    f"\n✅ Finished streaming {progress.processed_rows:,} rows in {elapsed:.2f}s ({rate:.1f} rows/s)"
+                )
+                
+        except Exception as e:
+            print(f"❌ Error in multiple CSV processing: {e}")
+            raise
+        finally:
+            # Simple cleanup - if it fails, rolling cleanup will get it in 6 hours
+            if temp_dir:
+                self._cleanup_temp_files(temp_dir)
+                # Remove from tracking list regardless of cleanup success
+                try:
+                    _temp_directories.remove(temp_dir)
+                except ValueError:
+                    pass
 
     def close(self):
         try:

@@ -22,7 +22,7 @@ function clickHandler(e) {
 		alert("File Currently Uploading");
 		return;
 	}
-	console.log("file uploaded");
+	console.log("files uploaded");
 	const name_label = document.getElementById("file-name-label");
 	const selected_bucket = document.getElementById("bucket-select").value;
 
@@ -34,29 +34,39 @@ function clickHandler(e) {
 
 	const files = e.target.files;
 	if (!files || files.length === 0) {
-		console.error("no file");
-		name_label.innerText = "No File Selected";
+		console.error("no files");
+		name_label.innerText = "No Files Selected";
 		name_label.style = "color: red;";
-		alert("No File Selected");
+		alert("No Files Selected");
 		return;
 	}
 
-	const file = files[0];
-	// console.log(file);
-	// console.log(file.type);
-	if (file.type !== "text/csv" && file.type !== "application/zip") {
-		console.err("File not right type");
-		name_label.innerText = "File can only be ZIP or CSV";
-		name_label.style = "color: red;";
-		alert("File can only be ZIP or CSV");
-		return;
+	// Validate all files are CSV
+	for (let i = 0; i < files.length; i++) {
+		const file = files[i];
+		if (file.type !== "text/csv" && !file.name.toLowerCase().endsWith('.csv')) {
+			console.error("File not CSV type");
+			name_label.innerText = `File ${file.name} is not a CSV file`;
+			name_label.style = "color: red;";
+			alert(`File ${file.name} is not a CSV file. Only CSV files are allowed.`);
+			return;
+		}
 	}
 
-	name_label.innerText = file.name;
+	// Display file names
+	const fileNames = Array.from(files).map(f => f.name);
+	if (files.length === 1) {
+		name_label.innerText = fileNames[0];
+	} else {
+		name_label.innerText = `${files.length} CSV files: ${fileNames.slice(0, 3).join(', ')}${files.length > 3 ? '...' : ''}`;
+	}
 	name_label.style = "color: white;";
 
 	const form = new FormData();
-	form.append("file", file);
+	// Append all files with the same field name
+	for (let i = 0; i < files.length; i++) {
+		form.append("file", files[i]);
+	}
 	form.append("bucket", selected_bucket);
 
 	fetch("/upload", {
@@ -90,7 +100,7 @@ function dropHandler(e) {
 		alert("File Currently Uploading");
 		return;
 	}
-	console.log("file dropped");
+	console.log("files dropped");
 	const name_label = document.getElementById("file-name-label");
 	const selected_bucket = document.getElementById("bucket-select").value;
 
@@ -102,28 +112,39 @@ function dropHandler(e) {
 
 	const files = e.dataTransfer?.files;
 	if (!files || files.length === 0) {
-		console.log("no file");
-		name_label.innerText = "No File Selected";
+		console.log("no files");
+		name_label.innerText = "No Files Selected";
 		name_label.style = "color: red;";
-		alert("No File Selected");
-		return;
-	}
-	const file = files[0];
-	// console.log(file);
-	// console.log(file.type);
-	if (file.type !== "text/csv" && file.type !== "application/zip") {
-		console.log("File not right type");
-		name_label.innerText = "File can only be ZIP or CSV";
-		name_label.style = "color: red;";
-		alert("File can only be ZIP or CSV");
+		alert("No Files Selected");
 		return;
 	}
 
-	name_label.innerText = file.name;
+	// Validate all files are CSV
+	for (let i = 0; i < files.length; i++) {
+		const file = files[i];
+		if (file.type !== "text/csv" && !file.name.toLowerCase().endsWith('.csv')) {
+			console.log("File not CSV type");
+			name_label.innerText = `File ${file.name} is not a CSV file`;
+			name_label.style = "color: red;";
+			alert(`File ${file.name} is not a CSV file. Only CSV files are allowed.`);
+			return;
+		}
+	}
+
+	// Display file names
+	const fileNames = Array.from(files).map(f => f.name);
+	if (files.length === 1) {
+		name_label.innerText = fileNames[0];
+	} else {
+		name_label.innerText = `${files.length} CSV files: ${fileNames.slice(0, 3).join(', ')}${files.length > 3 ? '...' : ''}`;
+	}
 	name_label.style = "color: white;";
 
 	const form = new FormData();
-	form.append("file", file);
+	// Append all files with the same field name
+	for (let i = 0; i < files.length; i++) {
+		form.append("file", files[i]);
+	}
 	form.append("bucket", selected_bucket);
 
 	fetch("/upload", {
@@ -213,7 +234,7 @@ function handleProgress(task_id) {
 								d="M13 13h3a3 3 0 0 0 0-6h-.025A5.56 5.56 0 0 0 16 6.5 5.5 5.5 0 0 0 5.207 5.021C5.137 5.017 5.071 5 5 5a4 4 0 0 0 0 8h2.167M10 15V6m0 0L8 8m2-2 2 2"
 							/>
 						</svg>
-						<h3>Click to upload or drag and drop</h3>`;
+						<h3>Click to upload CSV files or drag and drop</h3>`;
 		}
 	};
 }
