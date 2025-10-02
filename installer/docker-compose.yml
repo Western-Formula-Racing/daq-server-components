@@ -143,6 +143,11 @@ services:
     environment:
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-your-slack-bot-token-here}
       SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-your-slack-app-token-here}
+      INFLUXDB_ADMIN_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-wfr-admin-token-change-in-production}"
+      INFLUXDB_URL: "http://influxdb2:8086"
+      INFLUXDB_ORG: "WFR"
+      INFLUXDB_BUCKET: "ourCar"
+      SLACK_WEBHOOK_URL: "${SLACK_WEBHOOK_URL:-}"
     volumes:
       - ./slackbot:/app
     working_dir: /app
