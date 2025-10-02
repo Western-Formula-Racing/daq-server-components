@@ -16,7 +16,7 @@
 				<div class="info">
 					<img src="{{ url_for('static', filename='logo-32_375x.webp' )}}" />
 					<h1>Upload Files to InfluxDB</h1>
-					<h2>(csv or zip with csv files)</h2>
+					<h2>(multiple csv files supported)</h2>
 					<span id="bucket-select_span">
 						<label for="bucket-select">Bucket:</label>
 						<select name="bucket" id="bucket-select">
@@ -50,12 +50,13 @@
 								d="M13 13h3a3 3 0 0 0 0-6h-.025A5.56 5.56 0 0 0 16 6.5 5.5 5.5 0 0 0 5.207 5.021C5.137 5.017 5.071 5 5 5a4 4 0 0 0 0 8h2.167M10 15V6m0 0L8 8m2-2 2 2"
 							/>
 						</svg>
-						<h3>Click to upload or drag and drop</h3>
+						<h3>Click to upload CSV files or drag and drop</h3>
 					</label>
 					<input
 						type="file"
-						accept="application/zip, text/csv"
+						accept="text/csv"
 						id="drop_zone-input"
+						multiple
 						style="display: none"
 					/>
 				</div>
