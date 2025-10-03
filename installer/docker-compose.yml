@@ -7,6 +7,7 @@ volumes:
   influxdb2-data:
   influxdb2-config:
   influxdb3-data:
+  telegraf-data:
 
 # in previous testings, we used influxdb2 as the container name for influxdb2
 # changing it to influxdb2 now to be more standard
@@ -83,6 +84,7 @@ services:
       - influxdb3
     volumes:
       - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro
+      - telegraf-data:/var/lib/telegraf
     networks:
       - datalink
 
@@ -206,6 +208,7 @@ services:
       INFLUXDB_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-wfr-admin-token-change-in-production}"
     volumes:
       - ./startup-data-loader/data:/data:ro  # Mount startup-data-loader/data as read-only
+      - telegraf-data:/var/lib/telegraf  # Shared volume with telegraf
     networks:
       - datalink
     depends_on:
@@ -214,7 +217,7 @@ services:
     command: >
       sh -c "echo 'Waiting additional 10 seconds for InfluxDB to stabilize...' &&
              sleep 10 &&
-             python load_data.py"
+             python load_data_influxdb2.py & python load_data_telegraf.py & wait"
     #deploy:
       #resources:
         #imits:
