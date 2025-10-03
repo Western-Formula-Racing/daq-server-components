@@ -59,11 +59,29 @@ services:
       - influxdb3-data:/var/lib/influxdb3
     networks:
       - datalink
-    deploy:
-      resources:
-        limits:
-          memory: 1g
-          cpus: "1.0"
+    # deploy:
+      # resources:
+        # limits:
+          # memory: 1g
+          # cpus: "1.0"
+
+  influxdb3-explorer:
+    image: influxdata/influxdb3-ui
+    container_name: influxdb3-explorer
+    restart: unless-stopped
+    ports:
+      - "8888:80"
+      - "8889:8888"
+    command: ["--mode=admin"]
+    networks:
+      - datalink
+    depends_on:
+      - influxdb3
+    # deploy:
+      # resources:
+        # limits:
+          # memory: 512m
+          # cpus: "0.5"
 
   grafana:
     image: grafana/grafana
