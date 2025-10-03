@@ -100,24 +100,24 @@ class CANLineProtocolWriter:
 
             lines = []
             for sig_name, raw_val in decoded.items():
-                sig = message.get_signal_by_name(sig_name)
-                unit = getattr(sig, "unit", "N/A")
-                desc = getattr(sig, "comment", "") or "No description"
-
-                val = float(raw_val.value) if hasattr(raw_val, "value") else float(raw_val)
-                label = raw_val.name if hasattr(raw_val, "name") else str(raw_val)
+                # Handle different signal value types
+                if hasattr(raw_val, 'value') and hasattr(raw_val, 'name'):
+                    try:
+                        val = float(raw_val.value)
+                    except (ValueError, TypeError):
+                        continue  # Skip invalid enum values
+                elif isinstance(raw_val, (int, float)):
+                    val = float(raw_val)
+                else:
+                    continue  # Skip unhandled types
 
                 tags = {
-                    "dataSource": "canBus",
                     "signalName": sig_name,
                     "messageName": message.name,
                     "canId": str(msg_id),
                 }
                 fields = {
                     "sensorReading": val,
-                    "unit": unit,
-                    "description": desc,
-                    "signalLabel": label,
                 }
                 line = self._format_line_protocol("WFR25", tags, fields, timestamp_ns)
                 lines.append(line)
