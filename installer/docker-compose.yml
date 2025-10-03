@@ -217,7 +217,9 @@ services:
     command: >
       sh -c "echo 'Waiting additional 10 seconds for InfluxDB to stabilize...' &&
              sleep 10 &&
-             python load_data_influxdb2.py & python load_data_telegraf.py & wait"
+             python load_data_telegraf.py"
+
+    # python load_data_influxdb2.py & python load_data_telegraf.py & wait"
     #deploy:
       #resources:
         #imits:
