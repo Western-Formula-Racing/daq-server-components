@@ -179,3 +179,4 @@ car-to-influx/testing_data/cleaned_can.csv
 
 /.vscode
 # /installer/startup-data-loader/data
+/installer/startup-data-loader/data
