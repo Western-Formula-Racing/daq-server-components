@@ -215,6 +215,7 @@ services:
     restart: "no"  # Run once only
     environment:
       INFLUXDB_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-wfr-admin-token-change-in-production}"
+      BACKFILL: "1"  # Enable backfill mode for direct InfluxDB writing
     volumes:
       - ./startup-data-loader/data:/data:ro  # Mount startup-data-loader/data as read-only
       - telegraf-data:/var/lib/telegraf  # Shared volume with telegraf
