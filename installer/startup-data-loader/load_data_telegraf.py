@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-WFR DAQ System - Startup Data Loader for Telegraf File Input
-Loads CSV data and writes metrics in InfluxDB line protocol format to a file
+WFR DAQ System - Startup Data Loader
+- Default: writes metrics in InfluxDB line protocol format to a Telegraf file
+- BACKFILL=1: writes directly to InfluxDB (fast bulk load)
 """
 
 import os
@@ -15,8 +16,19 @@ from typing import List, Optional, IO, Callable
 from zoneinfo import ZoneInfo
 from dataclasses import dataclass
 import cantools
+from influxdb_client import InfluxDBClient, WriteOptions
 
 OUTPUT_FILE = "/var/lib/telegraf/can_metrics.out"
+
+# InfluxDB direct write config
+INFLUX_URL = "http://influxdb3:8181"
+INFLUX_TOKEN = "apiv3_wfr_admin_token_change_in_production"
+INFLUX_ORG = "WFR"
+INFLUX_BUCKET = "WFR25"
+
+# Mode switch
+BACKFILL_MODE = os.getenv("BACKFILL", "0") == "1"
+
 
 @dataclass
 class ProgressStats:
@@ -24,6 +36,7 @@ class ProgressStats:
     processed_rows: int = 0
     failed_rows: int = 0
     start_time: float = 0
+
 
 class CANLineProtocolWriter:
     def __init__(self, output_path: str, batch_size: int = 1000):
@@ -40,9 +53,27 @@ class CANLineProtocolWriter:
         self.db = cantools.database.load_file(dbc_files[0])
         print(f"📁 Loaded DBC file: {dbc_files[0]}")
 
-        # Clear or create output file
-        with open(self.output_path, "w") as f:
-            pass
+        # Influx client setup (only if in backfill mode)
+        if BACKFILL_MODE:
+            self.client = InfluxDBClient(
+                url=INFLUX_URL,
+                token=INFLUX_TOKEN,
+                org=INFLUX_ORG
+            )
+            self.write_api = self.client.write_api(
+                write_options=WriteOptions(
+                    batch_size=50000,
+                    flush_interval=10_000,
+                    jitter_interval=2000,
+                    retry_interval=5000
+                )
+            )
+        else:
+            # Clear or create output file for Telegraf
+            with open(self.output_path, "w") as f:
+                pass
+            self.client = None
+            self.write_api = None
 
     def count_total_messages(self, file: IO[bytes], is_csv: bool = True) -> int:
         total = 0
@@ -93,39 +124,36 @@ class CANLineProtocolWriter:
                 return None
 
             timestamp_dt = (start_dt + timedelta(milliseconds=relative_ms)).astimezone(timezone.utc)
-            timestamp_ns = int(timestamp_dt.timestamp() * 1e9)  # nanoseconds timestamp as required
+            timestamp_ns = int(timestamp_dt.timestamp() * 1e9)
 
             message = self.db.get_message_by_frame_id(msg_id)
             decoded = message.decode(bytes(byte_values))
 
             lines = []
             for sig_name, raw_val in decoded.items():
-                # Handle different signal value types
                 if hasattr(raw_val, 'value') and hasattr(raw_val, 'name'):
                     try:
                         val = float(raw_val.value)
                     except (ValueError, TypeError):
-                        continue  # Skip invalid enum values
+                        continue
                 elif isinstance(raw_val, (int, float)):
                     val = float(raw_val)
                 else:
-                    continue  # Skip unhandled types
+                    continue
 
                 tags = {
                     "signalName": sig_name,
                     "messageName": message.name,
                     "canId": str(msg_id),
                 }
-                fields = {
-                    "sensorReading": val,
-                }
+                fields = {"sensorReading": val}
                 line = self._format_line_protocol("WFR25", tags, fields, timestamp_ns)
                 lines.append(line)
             return lines
         except Exception:
             return None
 
-    async def stream_csv_to_file(self, file: IO[bytes], csv_filename: str, on_progress: Optional[Callable[[int, int], None]] = None):
+    async def stream_csv(self, file: IO[bytes], csv_filename: str, on_progress: Optional[Callable[[int, int], None]] = None):
         total_rows = self.count_total_messages(file, is_csv=True)
         if on_progress:
             on_progress(0, total_rows)
@@ -152,20 +180,27 @@ class CANLineProtocolWriter:
                     rows_in_batch += 1
 
                     if len(batch_lines) >= self.batch_size:
-                        with open(self.output_path, "a") as out_file:
-                            out_file.write("\n".join(batch_lines) + "\n")
+                        if BACKFILL_MODE:
+                            self.write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=batch_lines)
+                        else:
+                            with open(self.output_path, "a") as out_file:
+                                out_file.write("\n".join(batch_lines) + "\n")
+
                         progress.processed_rows += rows_in_batch
                         if on_progress:
                             on_progress(progress.processed_rows, progress.total_rows)
                         batch_lines.clear()
                         rows_in_batch = 0
-                        # Small delay to let Telegraf catch up
-                        await asyncio.sleep(0.1)
 
-            # Write remaining lines
+                        if not BACKFILL_MODE:
+                            await asyncio.sleep(0.1)  # let Telegraf catch up
+
             if batch_lines:
-                with open(self.output_path, "a") as out_file:
-                    out_file.write("\n".join(batch_lines) + "\n")
+                if BACKFILL_MODE:
+                    self.write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=batch_lines)
+                else:
+                    with open(self.output_path, "a") as out_file:
+                        out_file.write("\n".join(batch_lines) + "\n")
                 progress.processed_rows += rows_in_batch
                 if on_progress:
                     on_progress(progress.processed_rows, progress.total_rows)
@@ -176,16 +211,21 @@ class CANLineProtocolWriter:
                 pass
 
         elapsed = time.time() - progress.start_time
-        print(f"\n✅ Processed {progress.processed_rows:,} rows in {elapsed:.2f}s ({(progress.processed_rows/elapsed) if elapsed else 0:.1f} rows/s)")
+        mode_str = "InfluxDB Direct" if BACKFILL_MODE else "Telegraf File"
+        print(f"\n✅ Processed {progress.processed_rows:,} rows in {elapsed:.2f}s using {mode_str} mode "
+              f"({(progress.processed_rows/elapsed) if elapsed else 0:.1f} rows/s)")
+
 
 def progress_callback(processed: int, total: int):
     if total > 0:
         percentage = (processed / total) * 100
         print(f"\r📊 Progress: {processed:,}/{total:,} rows ({percentage:.1f}%)", end="", flush=True)
 
+
 async def load_startup_data():
-    print("🚀 WFR DAQ System - Startup Data Loader for Telegraf")
-    print("=" * 55)
+    mode_str = "InfluxDB Direct (BACKFILL)" if BACKFILL_MODE else "Telegraf File"
+    print(f"🚀 WFR DAQ System - Startup Data Loader [{mode_str}]")
+    print("=" * 60)
 
     data_dir = "/data"
     if not os.path.exists(data_dir):
@@ -200,7 +240,7 @@ async def load_startup_data():
 
     if not csv_files:
         print("⚠️ No CSV files found in /data directory or subdirectories")
-        return True  # Not an error
+        return True
 
     print(f"📂 Found {len(csv_files)} CSV file(s) to process:")
     for csv_file in csv_files:
@@ -218,13 +258,12 @@ async def load_startup_data():
 
             try:
                 with open(csv_path, 'rb') as f:
-                    await writer.stream_csv_to_file(
+                    await writer.stream_csv(
                         file=f,
                         csv_filename=csv_filename,
                         on_progress=progress_callback
                     )
                 print(f"\n✅ Successfully wrote metrics for {rel_path}")
-
             except Exception as e:
                 print(f"\n❌ Failed to process {rel_path}: {e}")
                 continue
@@ -238,17 +277,18 @@ async def load_startup_data():
         print(f"❌ Error initializing line protocol writer: {e}")
         return False
 
+
 def main():
     start_time = time.time()
-
     try:
         success = asyncio.run(load_startup_data())
         elapsed = time.time() - start_time
+        mode_str = "InfluxDB Direct" if BACKFILL_MODE else "Telegraf Loader"
         if success:
-            print(f"\n🏁 Data writing completed in {elapsed:.2f} seconds (Telegraf Loader)")
+            print(f"\n🏁 Data writing completed in {elapsed:.2f} seconds ({mode_str})")
             sys.exit(0)
         else:
-            print(f"\n💥 Data writing failed after {elapsed:.2f} seconds (Telegraf Loader)")
+            print(f"\n💥 Data writing failed after {elapsed:.2f} seconds ({mode_str})")
             sys.exit(1)
 
     except KeyboardInterrupt:
@@ -257,6 +297,7 @@ def main():
     except Exception as e:
         print(f"\n💥 Unexpected error: {e}")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
