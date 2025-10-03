@@ -49,21 +49,18 @@ services:
       --node-id influxdb3-node
       --object-store file
       --data-dir /var/lib/influxdb3
+      --admin-token-file /influxdb3-admin-token.json
     restart: unless-stopped
     ports:
       - "9000:8181"
     environment:
       INFLUX_URL: "http://influxdb3:8181"
-      INFLUX_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-wfr-admin-token-change-in-production}"
+      INFLUXDB_INIT_ADMIN_TOKEN: "wfr-admin-token-change-in-production"
     volumes:
       - influxdb3-data:/var/lib/influxdb3
+      - ./influxdb3-admin-token.json:/influxdb3-admin-token.json:ro
     networks:
       - datalink
-    # deploy:
-      # resources:
-        # limits:
-          # memory: 1g
-          # cpus: "1.0"
 
   influxdb3-explorer:
     image: influxdata/influxdb3-ui
@@ -77,11 +74,17 @@ services:
       - datalink
     depends_on:
       - influxdb3
-    # deploy:
-      # resources:
-        # limits:
-          # memory: 512m
-          # cpus: "0.5"
+
+  # telegraf:
+    # image: telegraf:1.30
+    # container_name: telegraf
+    # restart: unless-stopped
+    # depends_on:
+    #   - influxdb3
+    # volumes:
+    #   - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro
+    # networks:
+    #  - datalink
 
   grafana:
     image: grafana/grafana
