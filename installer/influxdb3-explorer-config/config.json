@@ -1,0 +1,6 @@
+{
+  "DEFAULT_INFLUX_SERVER": "http://influxdb3:8181",
+  "DEFAULT_INFLUX_DATABASE": "WFR25",
+  "DEFAULT_API_TOKEN": "apiv3_wfr_admin_token_change_in_production",
+  "DEFAULT_SERVER_NAME": "WFR InfluxDB3"
+}
