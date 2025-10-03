@@ -81,7 +81,10 @@ services:
     container_name: telegraf
     restart: unless-stopped
     depends_on:
-      - influxdb3
+      influxdb3:
+        condition: service_started
+      startup-data-loader:
+        condition: service_healthy
     volumes:
       - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro
       - telegraf-data:/var/lib/telegraf
@@ -209,15 +212,26 @@ services:
     volumes:
       - ./startup-data-loader/data:/data:ro  # Mount startup-data-loader/data as read-only
       - telegraf-data:/var/lib/telegraf  # Shared volume with telegraf
+      - ./startup-data-loader:/app  # Mount the app directory
+    working_dir: /app
     networks:
       - datalink
     depends_on:
       influxdb2:
         condition: service_healthy
     command: >
-      sh -c "echo 'Waiting additional 10 seconds for InfluxDB to stabilize...' &&
-             sleep 10 &&
-             python load_data_telegraf.py"
+      sh -c "echo 'Waiting additional 5 seconds for InfluxDB to stabilize...' &&
+             sleep 5 &&
+             echo 'Creating telegraf input file...' &&
+             python load_data_telegraf.py &&
+             echo 'Telegraf input file created successfully' &&
+             touch /var/lib/telegraf/.startup_complete"
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /var/lib/telegraf/can_metrics.out && test -f /var/lib/telegraf/.startup_complete || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
 
     # python load_data_influxdb2.py & python load_data_telegraf.py & wait"
     #deploy:
