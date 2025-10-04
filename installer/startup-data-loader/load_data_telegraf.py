@@ -5,6 +5,10 @@ WFR DAQ System - Startup Data Loader
 - BACKFILL=1: writes directly to InfluxDB (fast bulk load)
 """
 
+#TODO: reduce amount of printing, add logging
+#TODO: handle memory usage, currently observing 15GB memory usage increase in 1 hour
+#TODO: use json to save progress state, so it can be resumed if interrupted
+
 import os
 import sys
 import asyncio
