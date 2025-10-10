@@ -14,8 +14,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application files
 COPY . .
 
-# Make the script executable
-RUN chmod +x load_data.py
+# Create Telegraf output directory
+RUN mkdir -p /var/lib/telegraf
 
-# Run the data loader
-CMD ["python", "load_data.py"]
+# Make the script executable
+RUN chmod +x load_data_influxdb2.py
+RUN chmod +x load_data_telegraf.py
+
+# Run both data loaders in parallel
+CMD ["sh", "-c", "python load_data_influxdb2.py & python load_data_telegraf.py & wait"]
