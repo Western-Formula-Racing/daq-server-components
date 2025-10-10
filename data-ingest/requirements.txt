@@ -1,5 +1,0 @@
-pandas
-watchdog
-influxdb-client
-cantools
-tqdm
