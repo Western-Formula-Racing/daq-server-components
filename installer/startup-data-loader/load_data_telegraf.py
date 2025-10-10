@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
 
 # To run locally: BACKFILL=1 python3 load_data_telegraf.py
+# Options
+
+# Add 5 second pause between files
+# INTER_FILE_DELAY=5 python3 load_data_telegraf.py
+
+# Combine both delays
+# BACKFILL=1 BATCH_DELAY=0.05 INTER_FILE_DELAY=10 python3 load_data_telegraf.py
+
 """
 WFR DAQ System - Startup Data Loader
 - Default: writes metrics in InfluxDB line protocol format to a Telegraf file
 - BACKFILL=1: writes directly to InfluxDB (fast bulk load)
+- Supports resume after interrupt using JSON state file
 """
-
-#TODO: reduce amount of printing, add logging
-#TODO: handle memory usage, currently observing 15GB memory usage increase in 1 hour
-#TODO: use json to save progress state, so it can be resumed if interrupted
 
 import os
 import sys
@@ -17,15 +22,20 @@ import asyncio
 import time
 import csv
 import io
+import json
+import hashlib
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional, IO, Callable
+from typing import List, Optional, IO, Callable, Dict, Set
 from zoneinfo import ZoneInfo
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 import cantools
 from influxdb_client import InfluxDBClient, WriteOptions
 
 # Output file - use local file if telegraf directory doesn't exist
 OUTPUT_FILE = "can_metrics.out" if not os.path.exists("/var/lib/telegraf") else "/var/lib/telegraf/can_metrics.out"
+
+# Progress state file
+PROGRESS_FILE = "load_data_progress.json"
 
 # InfluxDB direct write config
 INFLUX_URL = "http://3.98.181.12:9000"
@@ -36,21 +46,124 @@ INFLUX_BUCKET = "WFR25"
 # Mode switch
 BACKFILL_MODE = os.getenv("BACKFILL", "0") == "1"
 
+# Performance tuning - delays to reduce server load
+BATCH_DELAY = float(os.getenv("BATCH_DELAY", "0.0"))  # Delay after each batch write (seconds)
+INTER_FILE_DELAY = float(os.getenv("INTER_FILE_DELAY", "0.0"))  # Delay between files (seconds)
+
 
 @dataclass
-class ProgressStats:
-    total_rows: int = 0
-    processed_rows: int = 0
-    failed_rows: int = 0
-    start_time: float = 0
+class FileProgress:
+    filename: str
+    file_hash: str
+    total_rows: int
+    processed_rows: int
+    completed: bool = False
+    last_update: float = 0
+
+
+@dataclass
+class ProgressState:
+    completed_files: Set[str]
+    file_progress: Dict[str, FileProgress]
+    start_time: float
+    last_saved: float
+
+    def to_dict(self):
+        return {
+            'completed_files': list(self.completed_files),
+            'file_progress': {k: asdict(v) for k, v in self.file_progress.items()},
+            'start_time': self.start_time,
+            'last_saved': self.last_saved
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        file_progress = {}
+        for k, v in data.get('file_progress', {}).items():
+            file_progress[k] = FileProgress(**v)
+        
+        return cls(
+            completed_files=set(data.get('completed_files', [])),
+            file_progress=file_progress,
+            start_time=data.get('start_time', time.time()),
+            last_saved=data.get('last_saved', time.time())
+        )
+
+    @classmethod
+    def load(cls, filepath: str = PROGRESS_FILE):
+        """Load progress state from JSON file"""
+        if os.path.exists(filepath):
+            try:
+                with open(filepath, 'r') as f:
+                    data = json.load(f)
+                    state = cls.from_dict(data)
+                    print(f"📥 Loaded progress state: {len(state.completed_files)} files completed")
+                    return state
+            except Exception as e:
+                print(f"⚠️  Could not load progress file: {e}. Starting fresh.")
+        
+        return cls(
+            completed_files=set(),
+            file_progress={},
+            start_time=time.time(),
+            last_saved=time.time()
+        )
+
+    def save(self, filepath: str = PROGRESS_FILE):
+        """Save progress state to JSON file"""
+        self.last_saved = time.time()
+        try:
+            with open(filepath, 'w') as f:
+                json.dump(self.to_dict(), f, indent=2)
+        except Exception as e:
+            print(f"⚠️  Could not save progress: {e}")
+
+    def should_process_file(self, file_path: str, file_hash: str) -> bool:
+        """Check if a file needs to be processed"""
+        if file_path in self.completed_files:
+            return False
+        
+        if file_path in self.file_progress:
+            progress = self.file_progress[file_path]
+            # Only skip if hash matches and file was completed
+            if progress.file_hash == file_hash and progress.completed:
+                return False
+        
+        return True
+
+    def get_file_offset(self, file_path: str, file_hash: str) -> int:
+        """Get the row offset to resume from for a file"""
+        if file_path in self.file_progress:
+            progress = self.file_progress[file_path]
+            # Only resume if hash matches
+            if progress.file_hash == file_hash and not progress.completed:
+                return progress.processed_rows
+        return 0
+
+
+def compute_file_hash(file_path: str) -> str:
+    """Compute MD5 hash of file for change detection"""
+    hash_md5 = hashlib.md5()
+    try:
+        with open(file_path, "rb") as f:
+            # Read first and last 64KB to speed up hash for large files
+            chunk = f.read(65536)
+            hash_md5.update(chunk)
+            f.seek(-min(65536, os.path.getsize(file_path)), 2)
+            chunk = f.read(65536)
+            hash_md5.update(chunk)
+    except Exception:
+        return ""
+    return hash_md5.hexdigest()
 
 
 class CANLineProtocolWriter:
-    def __init__(self, output_path: str, batch_size: int = 1000):
+    def __init__(self, output_path: str, batch_size: int = 1000, progress_state: Optional[ProgressState] = None):
         self.batch_size = batch_size
         self.output_path = output_path
         self.org = "WFR"
         self.tz_toronto = ZoneInfo("America/Toronto")
+        self.progress_state = progress_state or ProgressState.load()
 
         # Find DBC file in current directory
         dbc_files = [f for f in os.listdir(".") if f.endswith(".dbc")]
@@ -62,6 +175,15 @@ class CANLineProtocolWriter:
 
         # Influx client setup (only if in backfill mode)
         if BACKFILL_MODE:
+            # Adjust batch size and flush interval based on BATCH_DELAY
+            influx_batch_size = 50000
+            influx_flush_interval = 10_000
+            
+            if BATCH_DELAY > 0:
+                # If user adds delay, we can use larger batches
+                influx_batch_size = min(100000, int(50000 * (1 + BATCH_DELAY)))
+                influx_flush_interval = min(30_000, int(10_000 * (1 + BATCH_DELAY)))
+            
             self.client = InfluxDBClient(
                 url=INFLUX_URL,
                 token=INFLUX_TOKEN,
@@ -69,16 +191,18 @@ class CANLineProtocolWriter:
             )
             self.write_api = self.client.write_api(
                 write_options=WriteOptions(
-                    batch_size=50000,
-                    flush_interval=10_000,
+                    batch_size=influx_batch_size,
+                    flush_interval=influx_flush_interval,
                     jitter_interval=2000,
                     retry_interval=5000
                 )
             )
+            print(f"⚙️  InfluxDB batch_size={influx_batch_size}, flush_interval={influx_flush_interval}ms")
         else:
-            # Clear or create output file for Telegraf
-            with open(self.output_path, "w") as f:
-                pass
+            # Clear or create output file for Telegraf only if starting fresh
+            if not self.progress_state.completed_files and not self.progress_state.file_progress:
+                with open(self.output_path, "w") as f:
+                    pass
             self.client = None
             self.write_api = None
 
@@ -160,12 +284,30 @@ class CANLineProtocolWriter:
         except Exception:
             return None
 
-    async def stream_csv(self, file: IO[bytes], csv_filename: str, on_progress: Optional[Callable[[int, int], None]] = None):
+    async def stream_csv(self, file: IO[bytes], csv_path: str, csv_filename: str, 
+                        on_progress: Optional[Callable[[int, int], None]] = None):
+        file_hash = compute_file_hash(csv_path)
+        resume_offset = self.progress_state.get_file_offset(csv_path, file_hash)
+        
         total_rows = self.count_total_messages(file, is_csv=True)
+        
+        # Initialize or update file progress
+        if csv_path not in self.progress_state.file_progress:
+            self.progress_state.file_progress[csv_path] = FileProgress(
+                filename=csv_filename,
+                file_hash=file_hash,
+                total_rows=total_rows,
+                processed_rows=0
+            )
+        
+        file_progress = self.progress_state.file_progress[csv_path]
+        
+        if resume_offset > 0:
+            print(f"🔄 Resuming from row {resume_offset:,}/{total_rows:,}")
+        
         if on_progress:
-            on_progress(0, total_rows)
+            on_progress(resume_offset, total_rows)
 
-        progress = ProgressStats(total_rows=total_rows, start_time=time.time())
         try:
             start_dt = datetime.strptime(csv_filename[:-4], "%Y-%m-%d-%H-%M-%S").replace(tzinfo=self.tz_toronto)
         except ValueError:
@@ -178,13 +320,21 @@ class CANLineProtocolWriter:
 
         batch_lines = []
         rows_in_batch = 0
+        current_row = 0
+        save_interval = 1000  # Save progress every 1000 rows
 
         try:
             for row in reader:
+                # Skip rows if resuming
+                if current_row < resume_offset:
+                    current_row += 1
+                    continue
+                
                 lines = self._parse_row(row, start_dt)
                 if lines:
                     batch_lines.extend(lines)
                     rows_in_batch += 1
+                    current_row += 1
 
                     if len(batch_lines) >= self.batch_size:
                         if BACKFILL_MODE:
@@ -193,46 +343,69 @@ class CANLineProtocolWriter:
                             with open(self.output_path, "a") as out_file:
                                 out_file.write("\n".join(batch_lines) + "\n")
 
-                        progress.processed_rows += rows_in_batch
+                        file_progress.processed_rows = current_row
+                        file_progress.last_update = time.time()
+                        
                         if on_progress:
-                            on_progress(progress.processed_rows, progress.total_rows)
+                            on_progress(current_row, total_rows)
+                        
+                        # Save progress periodically
+                        if current_row % save_interval == 0:
+                            self.progress_state.save()
+                        
                         batch_lines.clear()
                         rows_in_batch = 0
 
-                        if not BACKFILL_MODE:
+                        # Configurable delay to reduce server load
+                        if BATCH_DELAY > 0:
+                            await asyncio.sleep(BATCH_DELAY)
+                        elif not BACKFILL_MODE:
                             await asyncio.sleep(0.1)  # let Telegraf catch up
 
+            # Write remaining batch
             if batch_lines:
                 if BACKFILL_MODE:
                     self.write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=batch_lines)
                 else:
                     with open(self.output_path, "a") as out_file:
                         out_file.write("\n".join(batch_lines) + "\n")
-                progress.processed_rows += rows_in_batch
+                file_progress.processed_rows = current_row
                 if on_progress:
-                    on_progress(progress.processed_rows, progress.total_rows)
+                    on_progress(current_row, total_rows)
+            
+            # Mark file as completed
+            file_progress.completed = True
+            file_progress.last_update = time.time()
+            self.progress_state.completed_files.add(csv_path)
+            self.progress_state.save()
+            
         finally:
             try:
                 text_stream.detach()
             except:
                 pass
 
-        elapsed = time.time() - progress.start_time
         mode_str = "InfluxDB Direct" if BACKFILL_MODE else "Telegraf File"
-        print(f"\n✅ Processed {progress.processed_rows:,} rows in {elapsed:.2f}s using {mode_str} mode "
-              f"({(progress.processed_rows/elapsed) if elapsed else 0:.1f} rows/s)")
+        print(f"\n✅ Processed {current_row:,} rows using {mode_str} mode")
 
 
-def progress_callback(processed: int, total: int):
-    if total > 0:
-        percentage = (processed / total) * 100
-        print(f"\r📊 Progress: {processed:,}/{total:,} rows ({percentage:.1f}%)", end="", flush=True)
+def make_progress_callback(file_path: str):
+    """Create a progress callback for a specific file"""
+    def callback(processed: int, total: int):
+        if total > 0:
+            percentage = (processed / total) * 100
+            rel_path = os.path.basename(file_path)
+            print(f"\r📊 {rel_path}: {processed:,}/{total:,} rows ({percentage:.1f}%)", end="", flush=True)
+    return callback
 
 
 async def load_startup_data():
     mode_str = "InfluxDB Direct (BACKFILL)" if BACKFILL_MODE else "Telegraf File"
     print(f"🚀 WFR DAQ System - Startup Data Loader [{mode_str}]")
     print("=" * 60)
+
+    # Load or initialize progress state
+    progress_state = ProgressState.load()
 
     # Check for local data directory first, then container path
     data_dir = "data" if os.path.exists("data") else "/data"
@@ -250,39 +423,72 @@ async def load_startup_data():
         print("⚠️ No CSV files found in /data directory or subdirectories")
         return True
 
-    print(f"📂 Found {len(csv_files)} CSV file(s) to process:")
-    for csv_file in csv_files:
+    # Filter out already completed files
+    files_to_process = []
+    for csv_path in csv_files:
+        file_hash = compute_file_hash(csv_path)
+        if progress_state.should_process_file(csv_path, file_hash):
+            files_to_process.append(csv_path)
+        else:
+            rel_path = os.path.relpath(csv_path, data_dir)
+            print(f"⏭️  Skipping already completed: {rel_path}")
+
+    if not files_to_process:
+        print("✅ All files already processed!")
+        return True
+
+    print(f"📂 Found {len(files_to_process)} CSV file(s) to process:")
+    for csv_file in files_to_process:
         rel_path = os.path.relpath(csv_file, data_dir)
         print(f"   • {rel_path}")
     print()
 
     try:
-        writer = CANLineProtocolWriter(output_path=OUTPUT_FILE, batch_size=1000)
+        writer = CANLineProtocolWriter(
+            output_path=OUTPUT_FILE, 
+            batch_size=1000,
+            progress_state=progress_state
+        )
 
-        for i, csv_path in enumerate(csv_files, 1):
+        for i, csv_path in enumerate(files_to_process, 1):
             csv_filename = os.path.basename(csv_path)
             rel_path = os.path.relpath(csv_path, data_dir)
-            print(f"📊 Processing file {i}/{len(csv_files)}: {rel_path}")
+            print(f"📊 Processing file {i}/{len(files_to_process)}: {rel_path}")
 
             try:
                 with open(csv_path, 'rb') as f:
                     await writer.stream_csv(
                         file=f,
+                        csv_path=csv_path,
                         csv_filename=csv_filename,
-                        on_progress=progress_callback
+                        on_progress=make_progress_callback(csv_path)
                     )
                 print(f"\n✅ Successfully wrote metrics for {rel_path}")
             except Exception as e:
                 print(f"\n❌ Failed to process {rel_path}: {e}")
+                # Save progress even on error
+                progress_state.save()
                 continue
 
+            # Delay between files to reduce server load
+            if INTER_FILE_DELAY > 0 and i < len(files_to_process):
+                print(f"⏸️  Waiting {INTER_FILE_DELAY}s before next file...")
+                await asyncio.sleep(INTER_FILE_DELAY)
+            
             print()
 
         print("🎉 Startup data writing completed!")
+        
+        # Clean up progress file on successful completion
+        if os.path.exists(PROGRESS_FILE):
+            os.remove(PROGRESS_FILE)
+            print(f"🧹 Cleaned up progress file")
+        
         return True
 
     except Exception as e:
         print(f"❌ Error initializing line protocol writer: {e}")
+        progress_state.save()
         return False
 
 
@@ -300,7 +506,8 @@ def main():
             sys.exit(1)
 
     except KeyboardInterrupt:
-        print("\n⏹️ Data writing interrupted")
+        print("\n⏹️ Data writing interrupted - progress saved")
+        print(f"💡 Run the script again to resume from where it left off")
         sys.exit(1)
     except Exception as e:
         print(f"\n💥 Unexpected error: {e}")
