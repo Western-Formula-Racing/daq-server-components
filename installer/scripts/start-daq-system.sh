@@ -46,9 +46,9 @@ echo ""
 echo "📦 Step 3: Loading startup data..."
 echo "Starting data loader to populate InfluxDB with initial data..."
 
-# Check if startup data exists in startup-data-loader/data
-if [ -d "startup-data-loader/data" ] && [ -n "$(ls -A startup-data-loader/data/*.csv 2>/dev/null)" ]; then
-    echo "📂 Found CSV files in startup-data-loader/data/, starting data loader..."
+# Check if startup data exists in data directory
+if [ -d "../data" ] && [ -n "$(find ../data -name "*.csv" 2>/dev/null | head -1)" ]; then
+    echo "📂 Found CSV files in ../data/, starting data loader..."
     docker-compose up startup-data-loader
     
     # Check if data loader completed successfully
@@ -60,7 +60,7 @@ if [ -d "startup-data-loader/data" ] && [ -n "$(ls -A startup-data-loader/data/*
         echo "📋 Check logs: docker logs startup-data-loader"
     fi
 else
-    echo "📂 No CSV files found in startup-data-loader/data/, skipping data loading"
+    echo "📂 No CSV files found in ../data/, skipping data loading"
 fi
 
 echo ""

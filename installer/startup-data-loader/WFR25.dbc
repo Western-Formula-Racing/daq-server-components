@@ -33,8 +33,58 @@ NS_ :
 
 BS_:
 
-BU_: INV ORIONBMS VCU CUSTOMBMS ELCON MOBO
+BU_: INV ORIONBMS VCU CUSTOMBMS ELCON MOBO BASESTATION
 
+
+BO_ 3221225472 VECTOR__INDEPENDENT_SIG_MSG: 0 Vector__XXX
+ SG_ Balance_current : 16|16@1+ (0.01,0) [0|0] "mA" Vector__XXX
+ SG_ Greatest_voltage_delta : 48|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
+ SG_ Reference_cell_voltage : 32|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
+ SG_ PCB_hottest_temperature : 8|8@1+ (0.001,0) [0|0] "C" Vector__XXX
+ SG_ Number_of_cells_being_balanced : 0|8@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ NewSignal_0004 : 40|8@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ NewSignal_0005 : 48|8@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ NewSignal_0025 : 56|8@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Balance_current : 16|16@1+ (0.01,0) [0|0] "mA" Vector__XXX
+ SG_ Greatest_voltage_delta : 48|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
+ SG_ Reference_cell_voltage : 32|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
+ SG_ PCB_hottest_temperature : 8|8@1+ (0.001,0) [0|0] "C" Vector__XXX
+ SG_ Number_of_cells_being_balanced : 0|8@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ NewSignal_0044 : 0|8@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ NewSignal_0051 : 0|8@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ NewSignal_0052 : 0|8@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ NewSignal_0053 : 0|8@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ NewSignal_0054 : 0|8@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ NewSignal_0055 : 0|8@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Balance_current : 16|16@1+ (0.01,0) [0|0] "mA" Vector__XXX
+ SG_ Greatest_voltage_delta : 48|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
+ SG_ Reference_cell_voltage : 32|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
+ SG_ PCB_hottest_temperature : 8|8@1+ (0.001,0) [0|0] "C" Vector__XXX
+ SG_ Number_of_cells_being_balanced : 0|8@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Balance_current : 16|16@1+ (0.01,0) [0|0] "mA" Vector__XXX
+ SG_ Greatest_voltage_delta : 48|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
+ SG_ Reference_cell_voltage : 32|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
+ SG_ PCB_hottest_temperature : 8|8@1+ (0.001,0) [0|0] "C" Vector__XXX
+ SG_ Number_of_cells_being_balanced : 0|8@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ NewSignal_0034 : 48|8@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Quantity_of_cells_being_balanced : 56|8@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ NewSignal_0058 : 0|8@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Balance_current : 16|16@1+ (0.01,0) [0|0] "mA" Vector__XXX
+ SG_ Greatest_voltage_delta : 48|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
+ SG_ Reference_cell_voltage : 32|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
+ SG_ PCB_hottest_temperature : 8|8@1+ (0.001,0) [0|0] "C" Vector__XXX
+ SG_ Number_of_cells_being_balanced : 0|8@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ NewSignal_0071 : 56|8@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Thermistor_index : 56|8@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Temperature : 40|16@1+ (0.01,0) [0|0] "deg C" Vector__XXX
+ SG_ Cell_index : 32|8@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_voltage : 16|16@1+ (0.001,0.1) [0|256] "V" Vector__XXX
+ SG_ Side : 16|2@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Troubleshoot : 56|8@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Side : 55|2@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Fault_component : 56|8@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ NewSignal_0006 : 0|8@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Absolute_min_cell_voltage : 0|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
 
 BO_ 2012 VCU_PDM_Rear_cmd: 8 VCU
  SG_ HSD1 : 0|8@1+ (1,0) [0|1] "" Vector__XXX
@@ -325,11 +375,47 @@ BO_ 177 M177_Torque_Capability: 8 INV
 
 BO_ 1000 TORCH_FAULT: 8 CUSTOMBMS
  SG_ Module_ID : 0|8@1+ (1,0) [0|256] "" Vector__XXX
- SG_ Errorcode : 8|8@1+ (1,0) [0|256] "" Vector__XXX
- SG_ Cell_voltage : 16|16@1+ (0.001,0.1) [0|256] "V" Vector__XXX
- SG_ Cell_index : 32|8@1+ (1,0) [0|0] "" Vector__XXX
- SG_ Temperature : 40|16@1+ (0.01,0) [0|0] "deg C" Vector__XXX
- SG_ Thermistor_index : 56|8@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Error_code : 8|8@1+ (1,0) [0|256] "" Vector__XXX
+ SG_ Cell_0_status : 24|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_1_status : 25|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_2_status : 26|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_3_status : 27|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_4_status : 28|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_5_status : 29|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_6_status : 30|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_7_status : 31|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_8_status : 32|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_9_status : 33|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_10_status : 34|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_11_status : 35|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_12_status : 36|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_13_status : 37|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_14_status : 38|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_15_status : 39|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_16_status : 40|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_17_status : 41|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_18_status : 42|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_19_status : 43|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_20_status : 44|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Thermistor_1_status : 45|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Thermistor_2_status : 46|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Thermistor_3_status : 47|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Thermistor_4_status : 48|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Thermistor_5_status : 49|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Thermistor_6_status : 50|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Thermistor_7_status : 51|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Thermistor_8_status : 52|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Thermistor_9_status : 53|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Thermistor_10_status : 54|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Thermistor_11_status : 55|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Thermistor_12_status : 56|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Thermistor_13_status : 57|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Thermistor_14_status : 58|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Thermistor_15_status : 59|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Thermistor_16_status : 60|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Thermistor_17_status : 61|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Thermistor_18_status : 62|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Fault_component : 16|8@1+ (1,0) [0|0] "" Vector__XXX
 
 BO_ 1006 TORCH_M1_V1: 8 CUSTOMBMS
  SG_ M1_Cell1_Voltage : 0|16@1+ (0.0001,0) [0|65] "V" Vector__XXX
@@ -648,39 +734,129 @@ BO_ 2566869221 ELCON_STATUS: 8 ELCON
  SG_ Communication_state : 36|1@1+ (1,0) [0|0] "" Vector__XXX
 
 BO_ 1001 TORCH_M1_BALANCE: 8 CUSTOMBMS
- SG_ Number_of_cells_being_balanced : 0|8@1+ (1,0) [0|0] "" Vector__XXX
- SG_ PCB_hottest_temperature : 8|8@1+ (0.001,0) [0|0] "C" Vector__XXX
- SG_ Reference_cell_voltage : 32|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
- SG_ Greatest_voltage_delta : 48|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
- SG_ Balance_current : 16|16@1+ (0.01,0) [0|0] "mA" Vector__XXX
+ SG_ Max_cell_voltage_delta : 0|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
+ SG_ Resistor_hottest_temperature : 16|16@1+ (0.01,0) [0|0] "C" Vector__XXX
+ SG_ Cell_1_balance_flag : 32|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_2_balance_flag : 33|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_3_balance_flag : 34|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_4_balance_flag : 35|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_5_balance_flag : 36|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_6_balance_flag : 37|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_7_balance_flag : 38|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_8_balance_flag : 39|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_9_balance_flag : 40|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_10_balance_flag : 41|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_11_balance_flag : 42|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_12_balance_flag : 43|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_13_balance_flag : 44|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_14_balance_flag : 45|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_15_balance_flag : 46|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_16_balance_flag : 47|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_17_balance_flag : 48|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_18_balance_flag : 49|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_19_balance_flag : 50|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_20_balance_flag : 51|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Out_of_balance_cell_count : 56|8@1+ (1,0) [0|0] "" Vector__XXX
 
 BO_ 1002 TORCH_M2_BALANCE: 8 CUSTOMBMS
- SG_ Number_of_cells_being_balanced : 0|8@1+ (1,0) [0|0] "" Vector__XXX
- SG_ PCB_hottest_temperature : 8|8@1+ (0.001,0) [0|0] "C" Vector__XXX
- SG_ Reference_cell_voltage : 32|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
- SG_ Greatest_voltage_delta : 48|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
- SG_ Balance_current : 16|16@1+ (0.01,0) [0|0] "mA" Vector__XXX
+ SG_ Max_cell_voltage_delta : 0|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
+ SG_ Resistor_hottest_temperature : 16|16@1+ (0.01,0) [0|0] "C" Vector__XXX
+ SG_ Cell_1_balance_flag : 32|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_2_balance_flag : 33|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_3_balance_flag : 34|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_4_balance_flag : 35|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_5_balance_flag : 36|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_6_balance_flag : 37|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_7_balance_flag : 38|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_8_balance_flag : 39|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_9_balance_flag : 40|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_10_balance_flag : 41|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_11_balance_flag : 42|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_12_balance_flag : 43|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_13_balance_flag : 44|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_14_balance_flag : 45|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_15_balance_flag : 46|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_16_balance_flag : 47|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_17_balance_flag : 48|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_18_balance_flag : 49|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_19_balance_flag : 50|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_20_balance_flag : 51|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Out_of_balance_cell_count : 56|8@1+ (1,0) [0|0] "" Vector__XXX
 
 BO_ 1003 TORCH_M3_BALANCE: 8 CUSTOMBMS
- SG_ Number_of_cells_being_balanced : 0|8@1+ (1,0) [0|0] "" Vector__XXX
- SG_ PCB_hottest_temperature : 8|8@1+ (0.001,0) [0|0] "C" Vector__XXX
- SG_ Reference_cell_voltage : 32|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
- SG_ Greatest_voltage_delta : 48|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
- SG_ Balance_current : 16|16@1+ (0.01,0) [0|0] "mA" Vector__XXX
+ SG_ Max_cell_voltage_delta : 0|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
+ SG_ Resistor_hottest_temperature : 16|16@1+ (0.01,0) [0|0] "C" Vector__XXX
+ SG_ Cell_1_balance_flag : 32|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_2_balance_flag : 33|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_3_balance_flag : 34|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_4_balance_flag : 35|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_5_balance_flag : 36|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_6_balance_flag : 37|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_7_balance_flag : 38|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_8_balance_flag : 39|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_9_balance_flag : 40|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_10_balance_flag : 41|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_11_balance_flag : 42|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_12_balance_flag : 43|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_13_balance_flag : 44|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_14_balance_flag : 45|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_15_balance_flag : 46|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_16_balance_flag : 47|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_17_balance_flag : 48|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_18_balance_flag : 49|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_19_balance_flag : 50|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_20_balance_flag : 51|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Out_of_balance_cell_count : 56|8@1+ (1,0) [0|0] "" Vector__XXX
 
 BO_ 1004 TORCH_M4_BALANCE: 8 CUSTOMBMS
- SG_ Number_of_cells_being_balanced : 0|8@1+ (1,0) [0|0] "" Vector__XXX
- SG_ PCB_hottest_temperature : 8|8@1+ (0.001,0) [0|0] "C" Vector__XXX
- SG_ Reference_cell_voltage : 32|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
- SG_ Greatest_voltage_delta : 48|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
- SG_ Balance_current : 16|16@1+ (0.01,0) [0|0] "mA" Vector__XXX
+ SG_ Max_cell_voltage_delta : 0|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
+ SG_ Resistor_hottest_temperature : 16|16@1+ (0.01,0) [0|0] "C" Vector__XXX
+ SG_ Cell_1_balance_flag : 32|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_2_balance_flag : 33|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_3_balance_flag : 34|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_4_balance_flag : 35|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_5_balance_flag : 36|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_6_balance_flag : 37|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_7_balance_flag : 38|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_8_balance_flag : 39|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_9_balance_flag : 40|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_10_balance_flag : 41|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_11_balance_flag : 42|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_12_balance_flag : 43|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_13_balance_flag : 44|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_14_balance_flag : 45|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_15_balance_flag : 46|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_16_balance_flag : 47|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_17_balance_flag : 48|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_18_balance_flag : 49|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_19_balance_flag : 50|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_20_balance_flag : 51|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Out_of_balance_cell_count : 56|8@1+ (1,0) [0|0] "" Vector__XXX
 
 BO_ 1005 TORCH_M5_BALANCE: 8 CUSTOMBMS
- SG_ Number_of_cells_being_balanced : 0|8@1+ (1,0) [0|0] "" Vector__XXX
- SG_ PCB_hottest_temperature : 8|8@1+ (0.001,0) [0|0] "C" Vector__XXX
- SG_ Reference_cell_voltage : 32|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
- SG_ Greatest_voltage_delta : 48|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
- SG_ Balance_current : 16|16@1+ (0.01,0) [0|0] "mA" Vector__XXX
+ SG_ Max_cell_voltage_delta : 0|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
+ SG_ Resistor_hottest_temperature : 16|16@1+ (0.01,0) [0|0] "C" Vector__XXX
+ SG_ Cell_1_balance_flag : 32|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_2_balance_flag : 33|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_3_balance_flag : 34|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_4_balance_flag : 35|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_5_balance_flag : 36|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_6_balance_flag : 37|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_7_balance_flag : 38|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_8_balance_flag : 39|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_9_balance_flag : 40|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_10_balance_flag : 41|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_11_balance_flag : 42|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_12_balance_flag : 43|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_13_balance_flag : 44|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_14_balance_flag : 45|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_15_balance_flag : 46|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_16_balance_flag : 47|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_17_balance_flag : 48|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_18_balance_flag : 49|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_19_balance_flag : 50|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Cell_20_balance_flag : 51|1@1+ (1,0) [0|0] "" Vector__XXX
+ SG_ Out_of_balance_cell_count : 56|8@1+ (1,0) [0|0] "" Vector__XXX
 
 BO_ 2014 VCU_Front_Sensors_1: 8 VCU
  SG_ A1 : 0|16@1+ (0.01,0) [0|5] "V" Vector__XXX
@@ -730,9 +906,6 @@ BO_ 2021 VCU_Rear_Sensors_4: 8 VCU
  SG_ A15 : 32|16@1+ (0.01,0) [0|5] "V" Vector__XXX
  SG_ A16 : 48|16@1+ (0.01,0) [0|5] "V" Vector__XXX
 
-BO_ 999 BMS_Min_VCELL: 8 MOBO
- SG_ Absolute_min_cell_voltage : 0|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
-
 BO_ 2022 VCU_APPS_Calibration: 8 VCU
  SG_ apps1_min : 0|16@1+ (0.01,0) [0|5] "V" Vector__XXX
  SG_ apps1_max : 16|16@1+ (0.01,0) [0|5] "V" Vector__XXX
@@ -779,10 +952,44 @@ BO_ 1057 PackInfo: 8 MOBO
  SG_ MinCellVoltage : 32|16@1+ (0.001,0) [0|0] "" Vector__XXX
  SG_ MaxCellVoltage : 48|16@1+ (0.001,0) [0|0] "" Vector__XXX
 
+BO_ 992 TORCH_EXTRACT_VMIN: 8 CUSTOMBMS
+
+BO_ 993 TORCH_M2_VMIN: 8 CUSTOMBMS
+ SG_ Minimum_cell_voltage : 0|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
+
+BO_ 994 TORCH_M3_VMIN: 8 CUSTOMBMS
+ SG_ Minimum_cell_voltage : 0|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
+
+BO_ 995 TORCH_M4_VMIN: 8 CUSTOMBMS
+ SG_ Minimum_cell_voltage : 0|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
+
+BO_ 996 TORCH_M5_VMIN: 8 CUSTOMBMS
+ SG_ Minimum_cell_voltage : 0|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
+
+BO_ 1200 BASE_STATION_ALIVE: 8 BASESTATION
+
+BO_ 997 TORCH_GLOBAL_MIN_VCELL: 8 CUSTOMBMS
+ SG_ Absolute_min_cell_voltage : 0|16@1+ (0.0001,0) [0|0] "V" Vector__XXX
+
+BO_ 998 TORCH_START_BALANCE: 8 Vector__XXX
+
+BO_ 999 TORCH_STOP_BALANCE: 8 Vector__XXX
+
 
 
 CM_ BU_ ELCON "Accumulator charger";
 CM_ BU_ MOBO "Accumulator motherboard";
+CM_ BU_ BASESTATION "DAQ base station";
+CM_ SG_ 3221225472 Balance_current "Value of cell balancing current";
+CM_ SG_ 3221225472 Greatest_voltage_delta "Largest difference in cell voltage";
+CM_ SG_ 3221225472 Reference_cell_voltage "Reference cell voltage that module's balancing too";
+CM_ SG_ 3221225472 PCB_hottest_temperature "Hottest PCB thermistor";
+CM_ SG_ 3221225472 Number_of_cells_being_balanced "Quantity of cells being balanced";
+CM_ SG_ 3221225472 Thermistor_index "Thermistor index causing fault (if applicable)";
+CM_ SG_ 3221225472 Temperature "Temperature value causing fault (if applicable)";
+CM_ SG_ 3221225472 Cell_index "Cell voltage index causing fault (if applicable)";
+CM_ SG_ 3221225472 Cell_voltage "Cell voltage causing fault (if applicable)";
+CM_ SG_ 3221225472 Absolute_min_cell_voltage "The lowest cell voltage in the entire pack";
 CM_ SG_ 173 INV_Iq_Command "The commanded Q-axis current";
 CM_ SG_ 173 INV_Id_Command "The commanded D-axis current";
 CM_ SG_ 173 INV_Flux_Weakening_Output "This is the current output of the flux regulator.";
@@ -905,11 +1112,8 @@ CM_ BO_ 2003 "Precharge command from front ECU to rear";
 CM_ BO_ 1000 "Error message that triggers the opening of the BMS relay";
 CM_ SG_ 1000 Module_ID "Module Number
 ";
-CM_ SG_ 1000 Errorcode "Error code defining the reason of shutdown";
-CM_ SG_ 1000 Cell_voltage "Cell voltage causing fault (if applicable)";
-CM_ SG_ 1000 Cell_index "Cell voltage index causing fault (if applicable)";
-CM_ SG_ 1000 Temperature "Temperature value causing fault (if applicable)";
-CM_ SG_ 1000 Thermistor_index "Thermistor index causing fault (if applicable)";
+CM_ SG_ 1000 Error_code "Error code defining the reason of shutdown";
+CM_ SG_ 1000 Fault_component "Component that's causing the error (if applicable)";
 CM_ SG_ 2550588916 Max_charge_voltage "Max allowable charging terminal voltage";
 CM_ SG_ 2550588916 Max_charge_current "Max allowable charging current";
 CM_ SG_ 2550588916 Control "Toggle charging. 0 = start charging, 1 = stop charging";
@@ -920,34 +1124,8 @@ CM_ SG_ 2566869221 Overheat_flag "0 = good, 1 = charger has overheated & stopped
 CM_ SG_ 2566869221 Input_voltage_flag "0 = input voltage is good, 1 = input voltage is wrong & charger will halt";
 CM_ SG_ 2566869221 Starting_state "0 = charger detects battery voltage & starts charging, 1 = charger stays turned off (prevents reverse polarity)";
 CM_ SG_ 2566869221 Communication_state "0 = communication is good, 1 = communication receive time-out";
-CM_ SG_ 1001 Number_of_cells_being_balanced "Quantity of cells being balanced";
-CM_ SG_ 1001 PCB_hottest_temperature "Hottest PCB thermistor";
-CM_ SG_ 1001 Reference_cell_voltage "Reference cell voltage that module's balancing too";
-CM_ SG_ 1001 Greatest_voltage_delta "Largest difference in cell voltage";
-CM_ SG_ 1001 Balance_current "Value of cell balancing current";
-CM_ SG_ 1002 Number_of_cells_being_balanced "Quantity of cells being balanced";
-CM_ SG_ 1002 PCB_hottest_temperature "Hottest PCB thermistor";
-CM_ SG_ 1002 Reference_cell_voltage "Reference cell voltage that module's balancing too";
-CM_ SG_ 1002 Greatest_voltage_delta "Largest difference in cell voltage";
-CM_ SG_ 1002 Balance_current "Value of cell balancing current";
-CM_ SG_ 1003 Number_of_cells_being_balanced "Quantity of cells being balanced";
-CM_ SG_ 1003 PCB_hottest_temperature "Hottest PCB thermistor";
-CM_ SG_ 1003 Reference_cell_voltage "Reference cell voltage that module's balancing too";
-CM_ SG_ 1003 Greatest_voltage_delta "Largest difference in cell voltage";
-CM_ SG_ 1003 Balance_current "Value of cell balancing current";
-CM_ SG_ 1004 Number_of_cells_being_balanced "Quantity of cells being balanced";
-CM_ SG_ 1004 PCB_hottest_temperature "Hottest PCB thermistor";
-CM_ SG_ 1004 Reference_cell_voltage "Reference cell voltage that module's balancing too";
-CM_ SG_ 1004 Greatest_voltage_delta "Largest difference in cell voltage";
-CM_ SG_ 1004 Balance_current "Value of cell balancing current";
-CM_ SG_ 1005 Number_of_cells_being_balanced "Quantity of cells being balanced";
-CM_ SG_ 1005 PCB_hottest_temperature "Hottest PCB thermistor";
-CM_ SG_ 1005 Reference_cell_voltage "Reference cell voltage that module's balancing too";
-CM_ SG_ 1005 Greatest_voltage_delta "Largest difference in cell voltage";
-CM_ SG_ 1005 Balance_current "Value of cell balancing current";
-CM_ BO_ 999 "Gives the pack min cell voltage to all modules";
-CM_ SG_ 999 Absolute_min_cell_voltage "The lowest cell voltage in the entire pack";
 CM_ SG_ 2024 Accel_Y "";
+CM_ BO_ 992 "Sent by module 1, this empty message tells the other four modules to transmit their minimum cell voltage.";
 BA_DEF_ BO_  "GenMsgCycleTime" INT 0 100000;
 BA_DEF_  "BusType" STRING ;
 BA_DEF_DEF_  "GenMsgCycleTime" 0;
@@ -997,6 +1175,148 @@ VAL_ 2004 HSD4 0 "OFF" 1 "ON" ;
 VAL_ 2004 HSD5 0 "OFF" 1 "ON" ;
 VAL_ 2004 HSD6 0 "OFF" 1 "ON" ;
 VAL_ 2004 HSD7 0 "OFF" 1 "ON" ;
+VAL_ 1000 Module_ID 1 "Module 1" 2 "Module 2" 3 "Module 3" 4 "Module 4" 5 "Module 5" ;
+VAL_ 1000 Error_code 69 "Module overheat (69)" 70 "Cell undervolt (70)" 71 "Cell overvolt (71)" 72 "Open cell (72)" 73 "Open thermistor (73)" 74 "LTC MUX fault (DIAGN) (74)" 75 "LTC mute fail (75)" 76 "LTC cell voltage register fault (CVST) (76)" 77 "LTC status register fault (STATST) (77)" 78 "LTC auxiliary register fault (AXST) (78)" 79 "LTC ADC mismatch fault (ADOL) (79)" 80 "LTC VA out of range (80)" 81 "LTC VD out of range (81)" 82 "LTC REF2 out of range (82)" 83 "LTC overheat (83)" 84 "LTC balance PWM setup fail (84)" 85 "Balance initiation fail (85)" 86 "LTC CRC fail (86)" 87 "STM32 CAN read fail (87)" ;
+VAL_ 1000 Cell_0_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Cell_1_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Cell_2_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Cell_3_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Cell_4_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Cell_5_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Cell_6_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Cell_7_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Cell_8_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Cell_9_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Cell_10_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Cell_11_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Cell_12_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Cell_13_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Cell_14_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Cell_15_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Cell_16_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Cell_17_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Cell_18_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Cell_19_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Cell_20_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Thermistor_1_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Thermistor_2_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Thermistor_3_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Thermistor_4_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Thermistor_5_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Thermistor_6_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Thermistor_7_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Thermistor_8_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Thermistor_9_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Thermistor_10_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Thermistor_11_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Thermistor_12_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Thermistor_13_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Thermistor_14_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Thermistor_15_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Thermistor_16_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Thermistor_17_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Thermistor_18_status 0 "Good" 1 "Fault" ;
+VAL_ 1000 Fault_component 1 "Side A LTC6813" 0 "Side B LTC6813" 2 "STM32" 3 "N/A" ;
 VAL_ 1056 PackStatus 0 "Idle" 1 "Precharge Start" 2 "Precharging" 3 "Active" 4 "Charging" 5 "Charge Complete" 6 "Fault" ;
 VAL_ 1056 Fault 0 "None" 69 "Thermistor >60C" 70 "Cell <2.5 V" 71 "Cell >4.2 V" 72 "Cell Delta >0.2V" 73 "Open Cell" 74 "Open Thermistor" 75 "LTC DIAGN fail" 76 "LTC AXST fail" 77 "LTC CVST fail" 78 "LTC STATST fail" 79 "LTC ADOW fail" 80 "LTC AXOW fail" 81 "LTC ADOL fail" 82 "LTC CRC fail" 83 "Current >100A" 84 "CAN Timeout >2s" 85 ">96 CAN Errors" ;
+VAL_ 1001 Cell_1_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1001 Cell_2_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1001 Cell_3_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1001 Cell_4_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1001 Cell_5_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1001 Cell_6_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1001 Cell_7_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1001 Cell_8_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1001 Cell_9_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1001 Cell_10_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1001 Cell_11_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1001 Cell_12_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1001 Cell_13_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1001 Cell_14_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1001 Cell_15_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1001 Cell_16_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1001 Cell_17_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1001 Cell_18_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1001 Cell_19_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1001 Cell_20_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1002 Cell_1_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1002 Cell_2_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1002 Cell_3_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1002 Cell_4_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1002 Cell_5_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1002 Cell_6_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1002 Cell_7_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1002 Cell_8_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1002 Cell_9_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1002 Cell_10_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1002 Cell_11_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1002 Cell_12_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1002 Cell_13_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1002 Cell_14_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1002 Cell_15_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1002 Cell_16_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1002 Cell_17_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1002 Cell_18_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1002 Cell_19_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1002 Cell_20_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1003 Cell_1_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1003 Cell_2_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1003 Cell_3_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1003 Cell_4_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1003 Cell_5_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1003 Cell_6_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1003 Cell_7_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1003 Cell_8_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1003 Cell_9_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1003 Cell_10_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1003 Cell_11_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1003 Cell_12_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1003 Cell_13_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1003 Cell_14_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1003 Cell_15_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1003 Cell_16_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1003 Cell_17_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1003 Cell_18_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1003 Cell_19_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1003 Cell_20_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1004 Cell_1_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1004 Cell_2_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1004 Cell_3_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1004 Cell_4_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1004 Cell_5_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1004 Cell_6_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1004 Cell_7_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1004 Cell_8_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1004 Cell_9_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1004 Cell_10_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1004 Cell_11_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1004 Cell_12_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1004 Cell_13_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1004 Cell_14_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1004 Cell_15_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1004 Cell_16_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1004 Cell_17_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1004 Cell_18_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1004 Cell_19_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1004 Cell_20_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1005 Cell_1_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1005 Cell_2_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1005 Cell_3_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1005 Cell_4_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1005 Cell_5_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1005 Cell_6_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1005 Cell_7_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1005 Cell_8_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1005 Cell_9_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1005 Cell_10_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1005 Cell_11_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1005 Cell_12_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1005 Cell_13_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1005 Cell_14_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1005 Cell_15_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1005 Cell_16_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1005 Cell_17_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1005 Cell_18_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1005 Cell_19_balance_flag 0 "Not balancing" 1 "Balancing" ;
+VAL_ 1005 Cell_20_balance_flag 0 "Not balancing" 1 "Balancing" ;
 
