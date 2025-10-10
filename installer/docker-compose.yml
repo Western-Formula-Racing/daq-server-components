@@ -44,7 +44,7 @@ services:
           #cpus: "1.0"
 
   influxdb3:
-    image: influxdb:3-core
+    image: influxdb:3.5.0-core
     container_name: influxdb3
     command: >
       influxdb3 serve
@@ -63,6 +63,13 @@ services:
       - ./influxdb3-admin-token.json:/influxdb3-admin-token.json:ro
     networks:
       - datalink
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 1 bash -c 'cat < /dev/null > /dev/tcp/localhost/8181' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
 
   influxdb3-explorer:
     image: influxdata/influxdb3-ui:1.3.0
