@@ -6,7 +6,7 @@ from flask import (
     stream_with_context,
     Response,
 )
-import uuid, time, threading, json, io, logging, requests, os
+import uuid, time, threading, json, io, logging, requests, os, asyncio
 from helper import CANInfluxStreamer
 import traceback
 
@@ -16,7 +16,7 @@ if os.getenv("DEBUG") is None:
 
 error_logger = logging.getLogger(__name__)
 
-ALLOWED_EXTENSIONS = {"csv", "zip"}
+ALLOWED_EXTENSIONS = {"csv"}
 PROGRESS = {}
 CURRENT_FILE = {"name": "", "task_id": "", "bucket": ""}
 WEBHOOK_URL = os.getenv("WEBHOOK_URL") or ""
@@ -79,24 +79,40 @@ def upload_file():
                 ),
                 400,
             )
-        file = request.files.get("file")
         bucket = request.form.get("bucket")
         if not bucket or bucket == "":
             return "No Bucket Provided", 400
-        if not file or file.filename == "":
-            return "No File Provided", 400
-        content_type = file.mimetype or ""
-        if content_type not in ("application/zip", "text/csv"):
-            return "Invalid File Type", 400
+        
+        # Handle multiple CSV files
+        files = request.files.getlist("file")
+        if not files or len(files) == 0:
+            return "No Files Provided", 400
+        
+        # Validate all files are CSV
+        for f in files:
+            if not f or not f.filename or f.filename == "":
+                return "Empty file provided", 400
+            content_type = f.mimetype or ""
+            filename = f.filename or ""
+            if content_type != "text/csv" and not filename.lower().endswith('.csv'):
+                return f"Invalid File Type: {filename}. Only CSV files allowed.", 400
 
-        data = file.read()
-        buf = io.BytesIO(data)
+        # Calculate total size of all files
+        total_size = 0
+        file_data = []
+        for f in files:
+            data = f.read()
+            total_size += len(data)
+            file_data.append((f.filename or "unknown.csv", data))
+            f.seek(0)  # Reset for potential re-read
+            
         task_id = str(uuid.uuid4())
         PROGRESS[task_id] = {"pct": 0, "msg": "Starting...", "done": False}
-        CURRENT_FILE["name"] = str(file.filename)
+        file_names = [f.filename or "unknown.csv" for f in files]
+        CURRENT_FILE["name"] = f"{len(files)} CSV files: {', '.join(file_names[:3])}{'...' if len(files) > 3 else ''}"
         CURRENT_FILE["task_id"] = str(task_id)
         CURRENT_FILE["bucket"] = bucket
-        send_webhook_notification(f"Uploading file: {file.filename} -> {bucket}")
+        send_webhook_notification(f"Uploading {len(files)} CSV files -> {bucket}: {', '.join(file_names[:3])}{'...' if len(files) > 3 else ''}")
 
         def on_progress(sent: int, total: int):
             try:
@@ -104,7 +120,7 @@ def upload_file():
                 PROGRESS[task_id]["pct"] = pct
                 PROGRESS[task_id]["sent"] = sent
                 PROGRESS[task_id]["total"] = total
-                PROGRESS[task_id]["name"] = file.filename
+                PROGRESS[task_id]["name"] = CURRENT_FILE["name"]
                 PROGRESS[task_id]["bucket"] = bucket
                 PROGRESS[task_id]["msg"] = f"Processing... {pct}% ({sent}/{total} rows)"
                 if sent >= total and not PROGRESS[task_id].get("done"):
@@ -117,39 +133,18 @@ def upload_file():
 
         def worker():
             # Auto-configure streamer for file size with InfluxDB-safe settings
-            file_size_mb = len(data) / (1024 * 1024)
+            file_size_mb = total_size / (1024 * 1024)
             streamer = CANInfluxStreamer(bucket)
             
             try:
-                import asyncio
-
-                buf.seek(0)
-                uploaded_filename = file.filename or ""
-
-                if content_type == "application/zip":
-                    # Use the new automatic method that chooses disk vs memory based on file size
-                    asyncio.run(
-                        streamer.stream_file_auto(
-                            buf, 
-                            is_csv=False, 
-                            on_progress=on_progress,
-                            file_size_mb=file_size_mb
-                        )
+                # Process multiple CSV files using the new method
+                asyncio.run(
+                    streamer.stream_multiple_csvs(
+                        file_data=file_data,
+                        on_progress=on_progress,
+                        total_size_mb=file_size_mb
                     )
-                elif content_type == "text/csv":
-                    # CSV files always use memory-based processing (they're single files)
-                    asyncio.run(
-                        streamer.stream_file_auto(
-                            buf, 
-                            is_csv=True, 
-                            csv_filename=uploaded_filename,
-                            on_progress=on_progress,
-                            file_size_mb=file_size_mb
-                        )
-                    )
-                else:
-                    PROGRESS[task_id]["msg"] = "content_type is neither csv nor zip"
-                    PROGRESS[task_id]["done"] = True
+                )
 
             except Exception as e:
                 error_logger.error(e)
