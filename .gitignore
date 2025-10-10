@@ -181,3 +181,4 @@ car-to-influx/testing_data/cleaned_can.csv
 # /installer/startup-data-loader/data
 /installer/startup-data-loader/data
 /data
+installer/startup-data-loader/can_metrics.out
