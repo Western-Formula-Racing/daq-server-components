@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+
+# To run locally: BACKFILL=1 python3 load_data_telegraf.py
 """
 WFR DAQ System - Startup Data Loader
 - Default: writes metrics in InfluxDB line protocol format to a Telegraf file
@@ -22,10 +24,11 @@ from dataclasses import dataclass
 import cantools
 from influxdb_client import InfluxDBClient, WriteOptions
 
-OUTPUT_FILE = "/var/lib/telegraf/can_metrics.out"
+# Output file - use local file if telegraf directory doesn't exist
+OUTPUT_FILE = "can_metrics.out" if not os.path.exists("/var/lib/telegraf") else "/var/lib/telegraf/can_metrics.out"
 
 # InfluxDB direct write config
-INFLUX_URL = "http://influxdb3:8181"
+INFLUX_URL = "http://3.98.181.12:9000"
 INFLUX_TOKEN = "apiv3_wfr_admin_token_change_in_production"
 INFLUX_ORG = "WFR"
 INFLUX_BUCKET = "WFR25"
@@ -231,7 +234,8 @@ async def load_startup_data():
     print(f"🚀 WFR DAQ System - Startup Data Loader [{mode_str}]")
     print("=" * 60)
 
-    data_dir = "/data"
+    # Check for local data directory first, then container path
+    data_dir = "data" if os.path.exists("data") else "/data"
     if not os.path.exists(data_dir):
         print(f"❌ Data directory {data_dir} not found")
         return False
