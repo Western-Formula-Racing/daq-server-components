@@ -23,14 +23,14 @@ bot_token = os.environ["SLACK_BOT_TOKEN"]
 web_client = WebClient(token=bot_token)
 socket_client = SocketModeClient(app_token=app_token, web_client=web_client)
 
-WEBHOOK_URL = "https://hooks.slack.com/services/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"
+WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL")
 
 # --- InfluxDB Configuration ---
-INFLUX_URL = "http://influxwfr:8086"
+INFLUX_URL = "http://influxdb2:8086"
 INFLUX_ORG = "WFR"
-INFLUX_BUCKET = "WFR2025"
+INFLUX_BUCKET = "ourCar"
 # Consider moving INFLUX_TOKEN to an environment variable for security
-INFLUX_TOKEN = "s9XkBC7pKOlb92-N9M40qilmxxoBe4wrnki4zpS_o0QSVTuMSQRQBerQB9Zv0YV40tmYayuX3w4G2MNizdy3qw=="
+INFLUX_TOKEN = os.environ.get("INFLUXDB_ADMIN_TOKEN")
 TORONTO_TZ = pytz.timezone("America/Toronto")
 
 # --- Run Definition & Caching Configuration ---
@@ -729,10 +729,13 @@ if __name__ == "__main__":
     socket_client.socket_mode_request_listeners.append(process_events)
     try:
         socket_client.connect()
-        requests.post(
-            "https://hooks.slack.com/services/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",
-            json={"text": "Lappy on duty! :lappy:"}
-        )
+        if WEBHOOK_URL:
+            requests.post(
+                WEBHOOK_URL,
+                json={"text": "Lappy on duty! :lappy:"}
+            )
+        else:
+            print("⚠️ SLACK_WEBHOOK_URL not configured - skipping webhook notification")
         print("🟢 Bot connected and listening for messages.")
         Event().wait()
     except Exception as e:
