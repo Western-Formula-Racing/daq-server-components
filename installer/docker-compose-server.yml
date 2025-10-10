@@ -1,9 +1,10 @@
+# SERVER: AWS
+
 networks:
   datalink:
     driver: bridge
 
-# Server 
-# 1 GB RAM, 2 vCPUs, 40 GB SSD
+# 2 GB RAM, 2 vCPUs, 60 GB SSD
 
 volumes:
   grafana-storage:
@@ -15,7 +16,7 @@ volumes:
 # changing it to influxdb2 now to be more standard
 services:
   influxdb3:
-    image: influxdb:3-core
+    image: influxdb:3.5.0-core
     container_name: influxdb3
     command: >
       influxdb3 serve
@@ -35,16 +36,16 @@ services:
     networks:
       - datalink
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8181/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+      test: ["CMD-SHELL", "timeout 1 bash -c 'cat < /dev/null > /dev/tcp/localhost/8181' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     deploy:
       resources:
         limits:
-          memory: .5g
-          cpus: "1"
+          memory: 1g
+          cpus: "1.0"
 
   influxdb3-explorer:
     image: influxdata/influxdb3-ui:1.3.0
@@ -62,13 +63,12 @@ services:
     networks:
       - datalink
     depends_on:
-      influxdb3:
-        condition: service_healthy
+      - influxdb3
     deploy:
       resources:
         limits:
-          memory: .5g
-          cpus: "1"
+          memory: 1g
+          cpus: "1.0"
 
 
   grafana:
