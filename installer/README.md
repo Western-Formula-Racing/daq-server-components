@@ -1,173 +1,179 @@
-# Quick Start - Preset Token Setup
+# Simplified Docker Compose Setup (No Shell Scripts)
 
-## TL;DR - Get Running in 2 Minutes
+## Overview
+This DAQ system now uses a **preset InfluxDB admin token** instead of dynamically extracting tokens via shell scripts. This simplifies deployment and makes it fully `docker-compose` based.
 
-### 1. Setup Environment (30 seconds)
+## Key Changes
+
+### 1. Preset Admin Token
+- InfluxDB is initialized with a preset admin token specified in the `.env` file
+- All services use the same `INFLUXDB_ADMIN_TOKEN` environment variable
+- No need for token extraction scripts
+
+### 2. Environment Variable
+Add this to your `.env` file:
+```bash
+# InfluxDB Admin Token (preset for all services to use)
+# IMPORTANT: Change this in production for security!
+INFLUXDB_ADMIN_TOKEN=wfr-admin-token-change-in-production
+```
+
+### 3. Services Using the Token
+The following services now reference `INFLUXDB_ADMIN_TOKEN`:
+- `influxdb2` - Sets the admin token during initialization via `DOCKER_INFLUXDB_INIT_ADMIN_TOKEN`
+- `influxdb3` - Uses the token for API access
+- `grafana` - Uses the token to connect to InfluxDB datasource
+- `car-to-influx` - Uses the token to write CAN data
+- `startup-data-loader` - Uses the token to load initial data
+- `file-uploader` - Uses the token to upload files
+
+## Quick Start
+
+### 1. Set Up Environment
 ```bash
 cd installer
 cp .env.example .env
+# Edit .env and set INFLUXDB_ADMIN_TOKEN to a secure value
 ```
 
-**Optional but Recommended:** Generate a secure token
+### 2. Start All Services
 ```bash
-# Generate secure token
+docker-compose up -d
+```
+
+### 3. Verify Services
+```bash
+# Check all containers are running
+docker ps
+
+# Check InfluxDB health
+curl http://localhost:8086/health
+
+# Check Grafana health
+curl http://localhost:8087/api/health
+```
+
+## Production Security
+
+⚠️ **Important**: The default token `wfr-admin-token-change-in-production` should be changed for production deployments!
+
+### Generate a Secure Token
+```bash
+# Generate a random secure token
 openssl rand -base64 32
 
 # Or use Python
 python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-Edit `.env` and set:
+Update your `.env` file:
 ```bash
-INFLUXDB_ADMIN_TOKEN=your-generated-token-here
+INFLUXDB_ADMIN_TOKEN=your-secure-random-token-here
 ```
 
-### 2. Start Everything (30 seconds)
-```bash
-docker-compose up -d
-```
+## Removed Files/Features
 
-### 3. Done! (30 seconds for services to start)
-Access your services:
-- **Grafana**: http://localhost:8087 
-- **InfluxDB**: http://localhost:8086 
-- **Frontend**: http://localhost:8060
-- **CAN Receiver**: http://localhost:8085
-- **File Uploader**: http://localhost:8084
-- **Lap Timer**: http://localhost:8050
+### Shell Scripts No Longer Needed
+- `extract-influx-token.sh` - Token extraction logic removed
+- Token validation steps removed from startup script
 
----
+### Simplified Startup Process
+The `start-daq-system.sh` script now:
+1. Starts all services with `docker-compose up -d`
+2. Waits for services to stabilize
+3. Optionally loads startup data
+4. Shows service status
 
-## What Changed?
+No more:
+- Starting InfluxDB separately
+- Running token extraction scripts
+- Restarting services with new tokens
 
-### Old Way (Complex) ❌
-```bash
-docker-compose up -d influxdb2        # Start DB only
-sleep 30                               # Wait
-./scripts/extract-influx-token.sh     # Extract token
-# Handle potential failures
-docker-compose up -d                   # Start rest
-```
+## Accessing Services
 
-### New Way (Simple) ✅
-```bash
-docker-compose up -d                   # Start everything
-```
+All services use the same admin token configured in `.env`:
 
----
+### InfluxDB Web UI
+- URL: http://localhost:8086
+- Username: `admin`
+- Password: `${INFLUXDB_INIT_PASSWORD}` (from .env)
+- API Token: `${INFLUXDB_ADMIN_TOKEN}` (from .env)
 
-## Key Points
+### Grafana
+- URL: http://localhost:8087
+- Username: `admin`
+- Password: `${GRAFANA_ADMIN_PASSWORD}` (from .env)
+- InfluxDB datasource is auto-configured with the admin token
 
-### Environment Variable
-**All services now use:** `INFLUXDB_ADMIN_TOKEN`
-
-**Default value if not set:** `wfr-admin-token-change-in-production`
-
-### Security
-⚠️ **Change the default token in production!**
-
-```bash
-# In .env file:
-INFLUXDB_ADMIN_TOKEN=your-super-secret-token-here
-```
-
-### Services Using Token
-- ✅ InfluxDB (initialization)
-- ✅ Grafana (datasource)
-- ✅ car-to-influx (CAN data)
-- ✅ file-uploader
-- ✅ startup-data-loader
-- ✅ influxdb3
-
----
+### Other Services
+- Frontend: http://localhost:8060
+- CAN Data Receiver: http://localhost:8085
+- Lap Timing: http://localhost:8050
+- File Uploader: http://localhost:8084
 
 ## Troubleshooting
 
-### Problem: Services can't connect to InfluxDB
+### Token Not Working
+If you change the token after initial setup:
 ```bash
-# Check token in .env
-grep INFLUXDB_ADMIN_TOKEN .env
-
-# Restart services
-docker-compose restart
-```
-
-### Problem: Need fresh start
-```bash
-# Complete reset
+# Remove all volumes to reset InfluxDB
 docker-compose down -v
+
+# Start fresh with new token
 docker-compose up -d
 ```
 
-### Problem: Check if working
+### Service Can't Connect to InfluxDB
+1. Check the token matches in `.env`
+2. Verify InfluxDB is running: `docker ps | grep influxdb2`
+3. Check InfluxDB logs: `docker logs influxdb2`
+4. Restart the service: `docker-compose restart <service-name>`
+
+### View All Environment Variables
 ```bash
-# See all running services
-docker ps
-
-# Check logs
-docker-compose logs -f
-
-# Test InfluxDB
-curl http://localhost:8086/health
-
-# Test Grafana  
-curl http://localhost:8087/api/health
+docker-compose config
 ```
 
----
+## Migration from Old Setup
 
-## Advanced
+If you're migrating from the token extraction method:
 
-### Custom Token per Service
-Edit `docker-compose.yml` if you need different tokens:
+1. **Backup your data** (optional):
+   ```bash
+   docker exec influxdb2 influx backup /tmp/backup -t $(grep INFLUXDB_TOKEN .env | cut -d= -f2)
+   docker cp influxdb2:/tmp/backup ./influx-backup
+   ```
 
-```yaml
-environment:
-  INFLUXDB_TOKEN: "${READ_ONLY_TOKEN}"  # For read-only services
-```
+2. **Update your .env file**:
+   ```bash
+   # Remove old INFLUXDB_TOKEN line if present
+   # Add new INFLUXDB_ADMIN_TOKEN
+   echo "INFLUXDB_ADMIN_TOKEN=your-chosen-token" >> .env
+   ```
 
-### Using with CI/CD
-```bash
-# Set token via environment variable
-export INFLUXDB_ADMIN_TOKEN="your-ci-token"
-docker-compose up -d
-```
+3. **Reset and restart**:
+   ```bash
+   docker-compose down -v
+   docker-compose up -d
+   ```
 
-### Docker Secrets (Production)
-```yaml
-secrets:
-  influx_token:
-    external: true
-    
-services:
-  car-to-influx:
-    secrets:
-      - influx_token
-    environment:
-      INFLUXDB_TOKEN_FILE: /run/secrets/influx_token
-```
+4. **Restore data** (if backed up):
+   ```bash
+   docker cp ./influx-backup influxdb2:/tmp/backup
+   docker exec influxdb2 influx restore /tmp/backup -t your-chosen-token
+   ```
 
----
+## Benefits of This Approach
 
-## Files Reference
+✅ **Simpler**: No shell scripts needed, pure docker-compose  
+✅ **Reproducible**: Same token across all environments  
+✅ **Faster**: No waiting for token extraction  
+✅ **Predictable**: Token known before services start  
+✅ **Portable**: Works on any platform with Docker  
+✅ **CI/CD Friendly**: Easy to inject tokens via environment
 
-- 📄 `docker-compose.yml` - Main configuration (updated with preset token)
-- 📄 `.env.example` - Template with INFLUXDB_ADMIN_TOKEN
-- 📄 `SIMPLIFIED_SETUP.md` - Full documentation
-- 📄 `MIGRATION_SUMMARY.md` - Complete change log
-- 🔧 `scripts/migrate-to-preset-token.sh` - Migration helper
-- 🔧 `scripts/start-daq-system.sh` - Simplified startup (no token extraction)
+## Reference
 
----
-
-## Need Help?
-
-1. **Check logs**: `docker-compose logs -f`
-2. **Validate config**: `docker-compose config`
-3. **See running services**: `docker ps`
-4. **Read full docs**: `SIMPLIFIED_SETUP.md`
-5. **Migration guide**: `MIGRATION_SUMMARY.md`
-
----
-
-**That's it! No more shell scripts, no more token extraction, just pure Docker Compose goodness! 🚀**
+- Docker Compose file: `docker-compose.yml`
+- Environment template: `.env.example`
+- Startup script: `scripts/start-daq-system.sh`
