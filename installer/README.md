@@ -78,12 +78,6 @@ INFLUXDB_ADMIN_TOKEN=your-secure-random-token-here
 - Token validation steps removed from startup script
 
 ### Simplified Startup Process
-The `start-daq-system.sh` script now:
-1. Starts all services with `docker-compose up -d`
-2. Waits for services to stabilize
-3. Optionally loads startup data
-4. Shows service status
-
 No more:
 - Starting InfluxDB separately
 - Running token extraction scripts
@@ -117,7 +111,7 @@ All services use the same admin token configured in `.env`:
 If you change the token after initial setup:
 ```bash
 # Remove all volumes to reset InfluxDB
-docker-compose down -v
+docker compose down --rmi local --volumes --remove-orphans
 
 # Start fresh with new token
 docker-compose up -d
@@ -134,34 +128,6 @@ docker-compose up -d
 docker-compose config
 ```
 
-## Migration from Old Setup
-
-If you're migrating from the token extraction method:
-
-1. **Backup your data** (optional):
-   ```bash
-   docker exec influxdb2 influx backup /tmp/backup -t $(grep INFLUXDB_TOKEN .env | cut -d= -f2)
-   docker cp influxdb2:/tmp/backup ./influx-backup
-   ```
-
-2. **Update your .env file**:
-   ```bash
-   # Remove old INFLUXDB_TOKEN line if present
-   # Add new INFLUXDB_ADMIN_TOKEN
-   echo "INFLUXDB_ADMIN_TOKEN=your-chosen-token" >> .env
-   ```
-
-3. **Reset and restart**:
-   ```bash
-   docker-compose down -v
-   docker-compose up -d
-   ```
-
-4. **Restore data** (if backed up):
-   ```bash
-   docker cp ./influx-backup influxdb2:/tmp/backup
-   docker exec influxdb2 influx restore /tmp/backup -t your-chosen-token
-   ```
 
 ## Benefits of This Approach
 
@@ -176,4 +142,3 @@ If you're migrating from the token extraction method:
 
 - Docker Compose file: `docker-compose.yml`
 - Environment template: `.env.example`
-- Startup script: `scripts/start-daq-system.sh`
