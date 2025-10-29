@@ -52,6 +52,9 @@ services:
       --object-store file
       --data-dir /var/lib/influxdb3
       --admin-token-file /influxdb3-admin-token.json
+      --wal-snapshot-size 100
+      --snapshotted-wal-files-to-keep 10
+
     restart: unless-stopped
     ports:
       - "9000:8181"
