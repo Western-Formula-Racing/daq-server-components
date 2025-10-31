@@ -153,30 +153,6 @@ services:
           #memory: 512m
           #cpus: "0.5"
 
-  car-to-influx:
-    build: ./car-to-influx   # put Dockerfile + listener.py here
-    container_name: car-to-influx
-    restart: unless-stopped
-    ports:
-      - "8085:8085"
-    working_dir: /app
-    volumes:
-      - ./car-to-influx:/app
-    command: python listener.py
-    environment:
-      INFLUXDB_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-wfr-admin-token-change-in-production}"
-      INFLUXDB_URL: "http://influxdb2:8086"
-      INFLUXDB_ORG: "WFR"
-      INFLUXDB_BUCKET: "ourCar"
-      WEBHOOK_URL: "${WEBHOOK_URL:-}"
-      DBC_FILE: "WFR25-6389976.dbc"
-    networks:
-      - datalink
-    #deploy:
-      #resources:
-        #limits:
-          #memory: 512m
-          #cpus: "0.5"
 
   slackbot:
     build: ./slackbot   # put Dockerfile + slack_bot.py here
