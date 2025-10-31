@@ -1,1 +1,0 @@
-The data-ingest method is deprecated. It is replaced by the drag-and drop method.
