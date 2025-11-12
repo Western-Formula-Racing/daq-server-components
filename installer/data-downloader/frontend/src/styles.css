@@ -1,0 +1,136 @@
+:root {
+  font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  color: #111827;
+  background-color: #f9fafb;
+}
+
+body {
+  margin: 0;
+  background: #f3f4f6;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.app-shell {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 2rem 1rem 3rem;
+}
+
+.card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 20px 25px -20px rgba(15, 23, 42, 0.25);
+}
+
+.card + .card {
+  margin-top: 1.25rem;
+}
+
+.card h2 {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+  font-size: 1.25rem;
+}
+
+.subtitle {
+  margin: 0;
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+
+.runs-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+}
+
+.runs-table th,
+.runs-table td {
+  padding: 0.65rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 0.9rem;
+}
+
+.runs-table th {
+  font-weight: 600;
+  color: #374151;
+  background: #f9fafb;
+}
+
+.tag {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+.note-input {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.9rem;
+  resize: vertical;
+}
+
+.button {
+  border: none;
+  border-radius: 8px;
+  padding: 0.55rem 0.9rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  color: #fff;
+  background: #2563eb;
+  transition: background 0.2s ease;
+}
+
+.button.secondary {
+  background: #6b7280;
+}
+
+.button:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+}
+
+.sensor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.4rem;
+  margin-top: 1rem;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.sensor-chip {
+  background: #f3f4f6;
+  border-radius: 8px;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.85rem;
+  color: #374151;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.status-pill {
+  padding: 0.4rem 0.8rem;
+  border-radius: 999px;
+  background: #ecfccb;
+  color: #3f6212;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
