@@ -20,3 +20,17 @@ export interface SensorsResponse {
   updated_at: string | null;
   sensors: string[];
 }
+
+export interface SensorDataPoint {
+  time: string;
+  value: number;
+}
+
+export interface SensorDataResponse {
+  signal: string;
+  start: string;
+  end: string;
+  row_count: number;
+  limit: number;
+  points: SensorDataPoint[];
+}
