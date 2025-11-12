@@ -20,6 +20,8 @@ class SensorQueryConfig:
     table: str
     window_days: int = 7
     lookback_days: int = 30
+    fallback_start: datetime | None = None
+    fallback_end: datetime | None = None
 
     @property
     def table_ref(self) -> str:
@@ -34,28 +36,39 @@ def fetch_unique_sensors(config: SensorQueryConfig) -> List[str]:
     unique: Set[str] = set()
 
     with InfluxDBClient3(host=config.host, token=config.token, database=config.database) as client:
-        cur = start
-        while cur < end:
-            nxt = min(cur + timedelta(days=config.window_days), end)
-            sql = f"""
-                SELECT DISTINCT "signalName"
-                FROM {config.table_ref}
-                WHERE time >= TIMESTAMP '{cur.isoformat()}'
-                  AND time <  TIMESTAMP '{nxt.isoformat()}'
-                LIMIT 5000
-            """
-            try:
-                tbl = client.query(sql)
-                if tbl.num_rows == 0:
-                    cur = nxt
-                    continue
-                for row in tbl.column("signalName"):
-                    unique.add(row.as_py())
-            except Exception:
-                # keep the process resilient by skipping the failing window
-                pass
-            cur = nxt
+        unique.update(
+            _collect_range(client, config, start, end)
+        )
+        if not unique and config.fallback_start and config.fallback_end:
+            unique.update(
+                _collect_range(client, config, config.fallback_start, config.fallback_end)
+            )
     return sorted(unique)
+
+
+def _collect_range(client: InfluxDBClient3, config: SensorQueryConfig, start: datetime, end: datetime) -> Set[str]:
+    cur = start
+    found: Set[str] = set()
+    while cur < end:
+        nxt = min(cur + timedelta(days=config.window_days), end)
+        sql = f"""
+            SELECT DISTINCT "signalName"
+            FROM {config.table_ref}
+            WHERE time >= TIMESTAMP '{cur.isoformat()}'
+              AND time <  TIMESTAMP '{nxt.isoformat()}'
+            LIMIT 5000
+        """
+        try:
+            tbl = client.query(sql)
+            if tbl.num_rows == 0:
+                cur = nxt
+                continue
+            for row in tbl.column("signalName"):
+                found.add(row.as_py())
+        except Exception:
+            pass
+        cur = nxt
+    return found
 
 
 if __name__ == "__main__":  # pragma: no cover

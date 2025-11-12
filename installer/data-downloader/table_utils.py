@@ -13,3 +13,8 @@ def quote_table(identifier: str) -> str:
     if not parts:
         raise ValueError("Empty identifier")
     return ".".join(quote_identifier(part) for part in parts)
+
+
+def quote_literal(value: str) -> str:
+    escaped = value.replace("'", "''")
+    return f"'{escaped}'"

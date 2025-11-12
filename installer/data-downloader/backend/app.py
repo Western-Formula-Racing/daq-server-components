@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -10,6 +12,13 @@ from backend.services import DataDownloaderService
 
 class NotePayload(BaseModel):
     note: str
+
+
+class DataQueryPayload(BaseModel):
+    signal: str
+    start: datetime
+    end: datetime
+    limit: int | None = 2000
 
 
 settings = get_settings()
@@ -52,3 +61,9 @@ def save_note(key: str, payload: NotePayload) -> dict:
 def trigger_scan(background_tasks: BackgroundTasks) -> dict:
     background_tasks.add_task(service.run_full_scan)
     return {"status": "scheduled"}
+
+
+@app.post("/api/data/query")
+def query_data(payload: DataQueryPayload) -> dict:
+    limit = payload.limit or 2000
+    return service.query_signal_series(payload.signal, payload.start, payload.end, limit)
