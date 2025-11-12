@@ -6,7 +6,7 @@ from typing import List, Set
 
 from influxdb_client_3 import InfluxDBClient3
 
-from table_utils import quote_table
+from backend.table_utils import quote_table
 
 UTC = timezone.utc
 

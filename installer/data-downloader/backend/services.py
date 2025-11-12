@@ -7,8 +7,8 @@ from typing import Dict, Optional
 from backend.config import Settings
 from backend.storage import RunsRepository, SensorsRepository
 from backend.influx_queries import fetch_signal_series
-from server_scanner import ScannerConfig, scan_runs
-from sql import SensorQueryConfig, fetch_unique_sensors
+from backend.server_scanner import ScannerConfig, scan_runs
+from backend.sql import SensorQueryConfig, fetch_unique_sensors
 
 
 def _parse_iso(value: str | None) -> Optional[datetime]:

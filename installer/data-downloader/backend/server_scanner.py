@@ -8,7 +8,7 @@ from typing import Iterable, List, Sequence, Tuple
 from influxdb_client_3 import InfluxDBClient3
 from zoneinfo import ZoneInfo
 
-from table_utils import quote_table
+from backend.table_utils import quote_table
 
 UTC = timezone.utc
 
