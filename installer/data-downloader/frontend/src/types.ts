@@ -35,3 +35,13 @@ export interface SensorDataResponse {
   points: SensorDataPoint[];
   sql: string;
 }
+
+export interface ScannerStatus {
+  scanning: boolean;
+  started_at: string | null;
+  finished_at: string | null;
+  source: string | null;
+  last_result?: "success" | "error" | null;
+  error?: string | null;
+  updated_at: string | null;
+}

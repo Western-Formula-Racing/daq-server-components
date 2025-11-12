@@ -56,22 +56,33 @@ export function DataDownload({ runs, sensors, externalSelection }: Props) {
   useEffect(() => {
     if (!externalSelection) return;
     const { sensor, runKey, startUtc, endUtc } = externalSelection;
-    if (sensor) {
+    if (sensor && sensor !== selectedSensor) {
       setSelectedSensor(sensor);
     }
     if (runKey) {
-      setSelectedRunKey(runKey);
-      const matchedRun = runs.find((run) => run.key === runKey);
-      const derivedStart = startUtc ?? matchedRun?.start_utc;
-      const derivedEnd = endUtc ?? matchedRun?.end_utc;
-      if (derivedStart) {
-        setStartInput(formatInputValue(derivedStart));
-      }
-      if (derivedEnd) {
-        setEndInput(formatInputValue(derivedEnd));
+      if (runKey !== selectedRunKey) {
+        setSelectedRunKey(runKey);
+        const matchedRun = runs.find((run) => run.key === runKey);
+        const derivedStart = startUtc ?? matchedRun?.start_utc;
+        const derivedEnd = endUtc ?? matchedRun?.end_utc;
+        if (derivedStart) {
+          setStartInput(formatInputValue(derivedStart));
+        }
+        if (derivedEnd) {
+          setEndInput(formatInputValue(derivedEnd));
+        }
+      } else {
+        if (startUtc) {
+          setStartInput(formatInputValue(startUtc));
+        }
+        if (endUtc) {
+          setEndInput(formatInputValue(endUtc));
+        }
       }
     } else {
-      setSelectedRunKey("");
+      if (selectedRunKey) {
+        setSelectedRunKey("");
+      }
       if (startUtc) {
         setStartInput(formatInputValue(startUtc));
       }
@@ -79,7 +90,7 @@ export function DataDownload({ runs, sensors, externalSelection }: Props) {
         setEndInput(formatInputValue(endUtc));
       }
     }
-  }, [externalSelection, runs]);
+  }, [externalSelection, runs, selectedRunKey, selectedSensor]);
 
   const handleRunSelect = (runKey: string) => {
     setSelectedRunKey(runKey);

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from backend.config import Settings
-from backend.storage import RunsRepository, SensorsRepository
+from backend.storage import RunsRepository, SensorsRepository, ScannerStatusRepository
 from backend.influx_queries import fetch_signal_series
 from backend.server_scanner import ScannerConfig, scan_runs
 from backend.sql import SensorQueryConfig, fetch_unique_sensors
@@ -32,6 +32,7 @@ class DataDownloaderService:
         data_dir.mkdir(parents=True, exist_ok=True)
         self.runs_repo = RunsRepository(data_dir)
         self.sensors_repo = SensorsRepository(data_dir)
+        self.status_repo = ScannerStatusRepository(data_dir)
 
     def get_runs(self) -> dict:
         return self.runs_repo.list_runs()
@@ -42,40 +43,50 @@ class DataDownloaderService:
     def update_note(self, key: str, note: str) -> dict | None:
         return self.runs_repo.update_note(key, note)
 
-    def run_full_scan(self) -> Dict[str, dict]:
-        runs = scan_runs(
-            ScannerConfig(
-                host=self.settings.influx_host,
-                token=self.settings.influx_token,
-                database=self.settings.influx_database,
-                table=f"{self.settings.influx_schema}.{self.settings.influx_table}",
-                year=self.settings.scanner_year,
-                bin_size=self.settings.scanner_bin,
-                include_counts=self.settings.scanner_include_counts,
-                initial_chunk_days=self.settings.scanner_initial_chunk_days,
-            )
-        )
-        runs_payload = self.runs_repo.merge_scanned_runs(runs)
+    def get_scanner_status(self) -> dict:
+        return self.status_repo.get_status()
 
-        sensors = fetch_unique_sensors(
-            SensorQueryConfig(
-                host=self.settings.influx_host,
-                token=self.settings.influx_token,
-                database=self.settings.influx_database,
-                schema=self.settings.influx_schema,
-                table=self.settings.influx_table,
-                window_days=self.settings.sensor_window_days,
-                lookback_days=self.settings.sensor_lookback_days,
-                fallback_start=_parse_iso(self.settings.sensor_fallback_start),
-                fallback_end=_parse_iso(self.settings.sensor_fallback_end),
+    def run_full_scan(self, source: str = "manual") -> Dict[str, dict]:
+        self.status_repo.mark_start(source)
+        try:
+            runs = scan_runs(
+                ScannerConfig(
+                    host=self.settings.influx_host,
+                    token=self.settings.influx_token,
+                    database=self.settings.influx_database,
+                    table=f"{self.settings.influx_schema}.{self.settings.influx_table}",
+                    year=self.settings.scanner_year,
+                    bin_size=self.settings.scanner_bin,
+                    include_counts=self.settings.scanner_include_counts,
+                    initial_chunk_days=self.settings.scanner_initial_chunk_days,
+                )
             )
-        )
-        sensors_payload = self.sensors_repo.write_sensors(sensors)
+            runs_payload = self.runs_repo.merge_scanned_runs(runs)
 
-        return {
-            "runs": runs_payload,
-            "sensors": sensors_payload,
-        }
+            sensors = fetch_unique_sensors(
+                SensorQueryConfig(
+                    host=self.settings.influx_host,
+                    token=self.settings.influx_token,
+                    database=self.settings.influx_database,
+                    schema=self.settings.influx_schema,
+                    table=self.settings.influx_table,
+                    window_days=self.settings.sensor_window_days,
+                    lookback_days=self.settings.sensor_lookback_days,
+                    fallback_start=_parse_iso(self.settings.sensor_fallback_start),
+                    fallback_end=_parse_iso(self.settings.sensor_fallback_end),
+                )
+            )
+            sensors_payload = self.sensors_repo.write_sensors(sensors)
+
+            self.status_repo.mark_finish(success=True)
+
+            return {
+                "runs": runs_payload,
+                "sensors": sensors_payload,
+            }
+        except Exception as exc:
+            self.status_repo.mark_finish(success=False, error=str(exc))
+            raise
 
     def query_signal_series(self, signal: str, start: datetime, end: datetime, limit: Optional[int]) -> dict:
         return fetch_signal_series(self.settings, signal, start, end, limit)

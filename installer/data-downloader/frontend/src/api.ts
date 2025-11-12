@@ -1,4 +1,10 @@
-import { RunRecord, RunsResponse, SensorDataResponse, SensorsResponse } from "./types";
+import {
+  RunRecord,
+  RunsResponse,
+  ScannerStatus,
+  SensorDataResponse,
+  SensorsResponse
+} from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") || "";
 
@@ -26,6 +32,10 @@ export function fetchRuns(): Promise<RunsResponse> {
 
 export function fetchSensors(): Promise<SensorsResponse> {
   return request("/api/sensors");
+}
+
+export function fetchScannerStatus(): Promise<ScannerStatus> {
+  return request("/api/scanner-status");
 }
 
 export function triggerScan(): Promise<{ status: string }> {
