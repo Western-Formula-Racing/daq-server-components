@@ -31,7 +31,7 @@ export interface SensorDataResponse {
   start: string;
   end: string;
   row_count: number;
-  limit: number;
+  limit: number | null;
   points: SensorDataPoint[];
   sql: string;
 }

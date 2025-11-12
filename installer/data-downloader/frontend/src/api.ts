@@ -44,6 +44,7 @@ export interface DataQueryPayload {
   start: string;
   end: string;
   limit?: number;
+  no_limit?: boolean;
 }
 
 export function querySensorData(payload: DataQueryPayload): Promise<SensorDataResponse> {
