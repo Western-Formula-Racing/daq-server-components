@@ -50,6 +50,11 @@ def list_sensors() -> dict:
     return service.get_sensors()
 
 
+@app.get("/api/scanner-status")
+def scanner_status() -> dict:
+    return service.get_scanner_status()
+
+
 @app.post("/api/runs/{key}/note")
 def save_note(key: str, payload: NotePayload) -> dict:
     run = service.update_note(key, payload.note.strip())
@@ -60,7 +65,7 @@ def save_note(key: str, payload: NotePayload) -> dict:
 
 @app.post("/api/scan")
 def trigger_scan(background_tasks: BackgroundTasks) -> dict:
-    background_tasks.add_task(service.run_full_scan)
+    background_tasks.add_task(service.run_full_scan, "manual")
     return {"status": "scheduled"}
 
 

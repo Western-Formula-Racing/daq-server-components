@@ -139,6 +139,11 @@ body {
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease, border 0.15s ease;
   text-align: left;
+  width: 100%;
+  display: block;
+  font: inherit;
+  line-height: 1.2;
+  appearance: none;
 }
 
 .sensor-chip:hover {

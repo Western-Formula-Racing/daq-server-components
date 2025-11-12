@@ -110,3 +110,51 @@ class SensorsRepository:
         }
         self.store.write(payload)
         return payload
+
+
+class ScannerStatusRepository:
+    def __init__(self, data_dir: Path):
+        default = {
+            "updated_at": None,
+            "scanning": False,
+            "started_at": None,
+            "finished_at": None,
+            "source": None,
+            "last_result": None,
+            "error": None,
+        }
+        self.store = JSONStore(data_dir / "scanner_status.json", default)
+
+    def get_status(self) -> dict:
+        return self.store.read()
+
+    def mark_start(self, source: str) -> dict:
+        payload = self.store.read()
+        payload.update(
+            {
+                "scanning": True,
+                "source": source,
+                "started_at": now_iso(),
+            }
+        )
+        payload.pop("error", None)
+        payload["updated_at"] = now_iso()
+        self.store.write(payload)
+        return payload
+
+    def mark_finish(self, success: bool, error: str | None = None) -> dict:
+        payload = self.store.read()
+        payload.update(
+            {
+                "scanning": False,
+                "finished_at": now_iso(),
+                "last_result": "success" if success else "error",
+            }
+        )
+        if success:
+            payload.pop("error", None)
+        else:
+            payload["error"] = error or "scan failed"
+        payload["updated_at"] = now_iso()
+        self.store.write(payload)
+        return payload

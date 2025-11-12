@@ -9,9 +9,15 @@ interface Props {
   onPickRun?: (run: RunRecord) => void;
 }
 
-const formatDateTime = (iso: string) =>
+const formatLocalDateTime = (iso: string) =>
   new Date(iso).toLocaleString(undefined, {
     hour12: false
+  });
+
+const formatUtcDateTime = (iso: string) =>
+  new Date(iso).toLocaleString(undefined, {
+    hour12: false,
+    timeZone: "UTC"
   });
 
 export function RunTable({ runs, drafts, onChange, onSave, savingKey, onPickRun }: Props) {
@@ -47,12 +53,14 @@ export function RunTable({ runs, drafts, onChange, onSave, savingKey, onPickRun 
                 }}
               >
                 <td>
-                  <div>{formatDateTime(run.start_local)}</div>
-                  <div className="subtitle">{formatDateTime(run.end_local)}</div>
+                  <div>{formatLocalDateTime(run.start_local)}</div>
+                  <div className="subtitle">
+                    {formatLocalDateTime(run.end_local)} ({run.timezone ?? "local"})
+                  </div>
                 </td>
                 <td>
-                  <div>{formatDateTime(run.start_utc)}</div>
-                  <div className="subtitle">{run.timezone ?? "UTC"}</div>
+                  <div>{formatUtcDateTime(run.start_utc)}</div>
+                  <div className="subtitle">UTC</div>
                 </td>
                 <td>
                   <span className="tag">{run.bins}</span>
@@ -67,7 +75,7 @@ export function RunTable({ runs, drafts, onChange, onSave, savingKey, onPickRun 
                   />
                   {run.note_updated_at && (
                     <div className="subtitle">
-                      Updated {formatDateTime(run.note_updated_at)}
+                      Updated {formatLocalDateTime(run.note_updated_at)}
                     </div>
                   )}
                 </td>

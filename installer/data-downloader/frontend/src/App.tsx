@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchRuns, fetchSensors, triggerScan, updateNote } from "./api";
-import { RunRecord, RunsResponse, SensorsResponse } from "./types";
+import { fetchRuns, fetchSensors, fetchScannerStatus, triggerScan, updateNote } from "./api";
+import { RunRecord, RunsResponse, ScannerStatus, SensorsResponse } from "./types";
 import { RunTable } from "./components/RunTable";
 import { DataDownload } from "./components/data-download";
 
@@ -23,10 +23,12 @@ export default function App() {
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [scanState, setScanState] = useState<ScanState>("idle");
   const [downloaderSelection, setDownloaderSelection] = useState<DownloaderSelection | null>(null);
-  const [scanBannerVisible, setScanBannerVisible] = useState(false);
-  const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [scannerStatus, setScannerStatus] = useState<ScannerStatus | null>(null);
+  const sensorsSectionRef = useRef<HTMLElement | null>(null);
+  const downloaderSectionRef = useRef<HTMLElement | null>(null);
+  const statusFinishedRef = useRef<string | null>(null);
 
-  const refresh = useCallback(async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       const [runsData, sensorsData] = await Promise.all([fetchRuns(), fetchSensors()]);
@@ -40,39 +42,91 @@ export default function App() {
     }
   }, []);
 
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  useEffect(() => {
-    return () => {
-      if (bannerTimerRef.current) {
-        clearTimeout(bannerTimerRef.current);
+  const loadStatus = useCallback(
+    async (syncOnFinishChange: boolean) => {
+      try {
+        const status = await fetchScannerStatus();
+        setScannerStatus(status);
+        const finished = status.finished_at ?? null;
+        const prevFinished = statusFinishedRef.current;
+        statusFinishedRef.current = finished;
+        if (
+          syncOnFinishChange &&
+          !status.scanning &&
+          finished &&
+          finished !== prevFinished
+        ) {
+          await loadData();
+        }
+      } catch (err) {
+        console.error("Failed to load scanner status", err);
       }
-    };
-  }, []);
+    },
+    [loadData]
+  );
 
-  const showScanBanner = () => {
-    setScanBannerVisible(true);
-    if (bannerTimerRef.current) {
-      clearTimeout(bannerTimerRef.current);
+  useEffect(() => {
+    void loadData();
+    void loadStatus(false);
+  }, [loadData, loadStatus]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
     }
-    bannerTimerRef.current = setTimeout(() => setScanBannerVisible(false), 10000);
-  };
+    const id = window.setInterval(() => {
+      void loadStatus(true);
+    }, 5000);
+    return () => window.clearInterval(id);
+  }, [loadStatus]);
 
   const handleScan = async () => {
-    showScanBanner();
     setScanState("running");
+    setScannerStatus((prev) => ({
+      scanning: true,
+      started_at: new Date().toISOString(),
+      finished_at: prev?.finished_at ?? null,
+      source: "manual",
+      last_result: prev?.last_result ?? null,
+      error: null,
+      updated_at: new Date().toISOString()
+    }));
     try {
       await triggerScan();
       setScanState("success");
-      await refresh();
+      if (typeof window !== "undefined") {
+        window.setTimeout(() => {
+          void loadStatus(false);
+        }, 1500);
+      } else {
+        void loadStatus(false);
+      }
     } catch (err) {
       console.error(err);
       setScanState("error");
+      setError(err instanceof Error ? err.message : "Failed to start scan");
+      const message = err instanceof Error ? err.message : "Scan failed";
+      setScannerStatus((prev) =>
+        prev
+          ? { ...prev, scanning: false, last_result: "error", error: message }
+          : {
+              scanning: false,
+              started_at: null,
+              finished_at: null,
+              source: null,
+              last_result: "error",
+              error: message,
+              updated_at: new Date().toISOString()
+            }
+      );
     } finally {
       setTimeout(() => setScanState("idle"), 5000);
     }
+  };
+
+  const handleRefreshClick = async () => {
+    await loadData();
+    await loadStatus(false);
   };
 
   const handleNoteChange = (key: string, value: string) => {
@@ -109,19 +163,23 @@ export default function App() {
       sensor: prev?.sensor,
       version: (prev?.version ?? 0) + 1
     }));
+    sensorsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const handleSensorPick = (sensor: string) => {
     setDownloaderSelection((prev) => ({
       runKey: prev?.runKey,
-      startUtc: prev?.startUtc,
-      endUtc: prev?.endUtc,
       sensor,
       version: (prev?.version ?? 0) + 1
     }));
+    downloaderSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const sensorsPreview = useMemo(() => sensors?.sensors ?? [], [sensors]);
+  const scanningActive = scannerStatus?.scanning ?? false;
+  const scanButtonDisabled = scanningActive || scanState === "running";
+  const scanButtonLabel =
+    scanState === "running" ? "Scanning..." : scanningActive ? "Scan Running..." : "Trigger Scan";
 
   const lastRunsRefresh = runs?.updated_at
     ? new Date(runs.updated_at).toLocaleString()
@@ -139,17 +197,17 @@ export default function App() {
         </p>
       </header>
 
-      {scanBannerVisible && (
+      {scanningActive && (
         <div className="scan-banner" role="alert">
           Scanning database. Do not click again.
         </div>
       )}
 
       <div className="actions">
-        <button className="button" onClick={handleScan} disabled={scanState === "running"}>
-          {scanState === "running" ? "Scanning..." : "Trigger Scan"}
+        <button className="button" onClick={handleScan} disabled={scanButtonDisabled}>
+          {scanButtonLabel}
         </button>
-        <button className="button secondary" onClick={() => refresh()} disabled={loading}>
+        <button className="button secondary" onClick={() => void handleRefreshClick()} disabled={loading}>
           {loading ? "Refreshing..." : "Refresh Data"}
         </button>
         {scanState !== "idle" && (
@@ -194,7 +252,7 @@ export default function App() {
         )}
       </section>
 
-      <section className="card">
+      <section className="card" ref={sensorsSectionRef}>
         <h2>Unique Sensors</h2>
         <p className="subtitle">Last refresh: {lastSensorRefresh}</p>
         {loading && !sensors ? (
@@ -216,7 +274,7 @@ export default function App() {
         )}
       </section>
 
-      <section className="card">
+      <section className="card" ref={downloaderSectionRef}>
         <DataDownload
           runs={runs?.runs ?? []}
           sensors={sensorsPreview}
