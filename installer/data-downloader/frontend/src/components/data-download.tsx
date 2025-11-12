@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Papa from "papaparse";
 import { Download } from "lucide-react";
 import Plot from "react-plotly.js";
@@ -46,6 +46,9 @@ export function DataDownload({ runs, sensors, externalSelection }: Props) {
   const [queryMeta, setQueryMeta] = useState<Omit<SensorDataResponse, "points"> | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const lastSelectionVersionRef = useRef<number | null>(null);
+  const lastSelectionIdentityRef = useRef<ExternalSelection | null>(null);
+  const lastAppliedRunKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!selectedSensor && sensors.length > 0) {
@@ -54,17 +57,39 @@ export function DataDownload({ runs, sensors, externalSelection }: Props) {
   }, [sensors, selectedSensor]);
 
   useEffect(() => {
-    if (!externalSelection) return;
+    if (!externalSelection) {
+      lastSelectionVersionRef.current = null;
+      lastSelectionIdentityRef.current = null;
+      return;
+    }
+
+    const currentVersion = externalSelection.version ?? null;
+    const isSameSelection =
+      currentVersion !== null
+        ? lastSelectionVersionRef.current === currentVersion
+        : lastSelectionIdentityRef.current === externalSelection;
+
+    if (isSameSelection) {
+      return;
+    }
+
+    lastSelectionVersionRef.current = currentVersion;
+    lastSelectionIdentityRef.current = externalSelection;
+
     const { sensor, runKey, startUtc, endUtc } = externalSelection;
-    if (sensor && sensor !== selectedSensor) {
+
+    if (sensor) {
       setSelectedSensor(sensor);
     }
+
     if (runKey) {
-      if (runKey !== selectedRunKey) {
-        setSelectedRunKey(runKey);
-        const matchedRun = runs.find((run) => run.key === runKey);
-        const derivedStart = startUtc ?? matchedRun?.start_utc;
-        const derivedEnd = endUtc ?? matchedRun?.end_utc;
+      setSelectedRunKey(runKey);
+      const runChanged = runKey !== lastAppliedRunKeyRef.current;
+      const matchedRun = runs.find((run) => run.key === runKey);
+      const derivedStart = startUtc ?? matchedRun?.start_utc;
+      const derivedEnd = endUtc ?? matchedRun?.end_utc;
+
+      if (runChanged) {
         if (derivedStart) {
           setStartInput(formatInputValue(derivedStart));
         }
@@ -79,10 +104,11 @@ export function DataDownload({ runs, sensors, externalSelection }: Props) {
           setEndInput(formatInputValue(endUtc));
         }
       }
+
+      lastAppliedRunKeyRef.current = runKey;
     } else {
-      if (selectedRunKey) {
-        setSelectedRunKey("");
-      }
+      setSelectedRunKey("");
+      lastAppliedRunKeyRef.current = null;
       if (startUtc) {
         setStartInput(formatInputValue(startUtc));
       }
@@ -90,7 +116,7 @@ export function DataDownload({ runs, sensors, externalSelection }: Props) {
         setEndInput(formatInputValue(endUtc));
       }
     }
-  }, [externalSelection, runs, selectedRunKey, selectedSensor]);
+  }, [externalSelection, runs]);
 
   const handleRunSelect = (runKey: string) => {
     setSelectedRunKey(runKey);
