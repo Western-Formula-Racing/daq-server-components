@@ -30,6 +30,8 @@ class Settings(BaseModel):
 
     sensor_window_days: int = Field(default_factory=lambda: int(os.getenv("SENSOR_WINDOW_DAYS", "7")))
     sensor_lookback_days: int = Field(default_factory=lambda: int(os.getenv("SENSOR_LOOKBACK_DAYS", "30")))
+    sensor_fallback_start: str | None = Field(default_factory=lambda: os.getenv("SENSOR_FALLBACK_START", "2025-06-19T00:00:00"))
+    sensor_fallback_end: str | None = Field(default_factory=lambda: os.getenv("SENSOR_FALLBACK_END", "2025-07-10T00:00:00"))
 
     periodic_interval_seconds: int = Field(default_factory=lambda: int(os.getenv("SCAN_INTERVAL_SECONDS", "3600")))
 

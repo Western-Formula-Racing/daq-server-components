@@ -1,4 +1,4 @@
-import { RunRecord, RunsResponse, SensorsResponse } from "./types";
+import { RunRecord, RunsResponse, SensorDataResponse, SensorsResponse } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") || "";
 
@@ -36,5 +36,19 @@ export function updateNote(key: string, note: string): Promise<RunRecord> {
   return request(`/api/runs/${encodeURIComponent(key)}/note`, {
     method: "POST",
     body: JSON.stringify({ note })
+  });
+}
+
+export interface DataQueryPayload {
+  signal: string;
+  start: string;
+  end: string;
+  limit?: number;
+}
+
+export function querySensorData(payload: DataQueryPayload): Promise<SensorDataResponse> {
+  return request("/api/data/query", {
+    method: "POST",
+    body: JSON.stringify(payload)
   });
 }

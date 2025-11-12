@@ -1,12 +1,28 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 
 from backend.config import Settings
 from backend.storage import RunsRepository, SensorsRepository
+from backend.influx_queries import fetch_signal_series
 from server_scanner import ScannerConfig, scan_runs
 from sql import SensorQueryConfig, fetch_unique_sensors
+
+
+def _parse_iso(value: str | None) -> Optional[datetime]:
+    if not value:
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    dt = datetime.fromisoformat(text)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 class DataDownloaderService:
@@ -32,7 +48,7 @@ class DataDownloaderService:
                 host=self.settings.influx_host,
                 token=self.settings.influx_token,
                 database=self.settings.influx_database,
-                table=self.settings.influx_table,
+                table=f"{self.settings.influx_schema}.{self.settings.influx_table}",
                 year=self.settings.scanner_year,
                 bin_size=self.settings.scanner_bin,
                 include_counts=self.settings.scanner_include_counts,
@@ -50,6 +66,8 @@ class DataDownloaderService:
                 table=self.settings.influx_table,
                 window_days=self.settings.sensor_window_days,
                 lookback_days=self.settings.sensor_lookback_days,
+                fallback_start=_parse_iso(self.settings.sensor_fallback_start),
+                fallback_end=_parse_iso(self.settings.sensor_fallback_end),
             )
         )
         sensors_payload = self.sensors_repo.write_sensors(sensors)
@@ -58,3 +76,6 @@ class DataDownloaderService:
             "runs": runs_payload,
             "sensors": sensors_payload,
         }
+
+    def query_signal_series(self, signal: str, start: datetime, end: datetime, limit: int) -> dict:
+        return fetch_signal_series(self.settings, signal, start, end, limit)

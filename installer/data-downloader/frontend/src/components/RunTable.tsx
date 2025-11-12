@@ -67,7 +67,7 @@ export function RunTable({ runs, drafts, onChange, onSave, savingKey }: Props) {
                     disabled={savingKey === run.key}
                     onClick={() => onSave(run.key)}
                   >
-                    {savingKey === run.key ? "Saving…" : "Save"}
+                    {savingKey === run.key ? "Saving..." : "Save"}
                   </button>
                 </td>
               </tr>

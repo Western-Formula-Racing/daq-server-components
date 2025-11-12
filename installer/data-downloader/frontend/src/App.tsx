@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchRuns, fetchSensors, triggerScan, updateNote } from "./api";
-import { RunRecord, RunsResponse, SensorsResponse } from "./types";
+import { RunsResponse, SensorsResponse } from "./types";
 import { RunTable } from "./components/RunTable";
+import { DataDownload } from "./components/data-download";
 
 type ScanState = "idle" | "running" | "success" | "error";
 
@@ -92,10 +93,10 @@ export default function App() {
 
       <div className="actions">
         <button className="button" onClick={handleScan} disabled={scanState === "running"}>
-          {scanState === "running" ? "Scanning…" : "Trigger Scan"}
+          {scanState === "running" ? "Scanning..." : "Trigger Scan"}
         </button>
         <button className="button secondary" onClick={() => refresh()} disabled={loading}>
-          {loading ? "Refreshing…" : "Refresh Data"}
+          {loading ? "Refreshing..." : "Refresh Data"}
         </button>
         {scanState !== "idle" && (
           <span
@@ -107,7 +108,7 @@ export default function App() {
                 scanState === "success" ? "#15803d" : scanState === "error" ? "#b91c1c" : "#a16207"
             }}
           >
-            {scanState === "running" && "Scan in progress…"}
+            {scanState === "running" && "Scan in progress..."}
             {scanState === "success" && "Scan queued and data refreshed"}
             {scanState === "error" && "Scan failed"}
           </span>
@@ -124,7 +125,7 @@ export default function App() {
         <h2>Past Runs</h2>
         <p className="subtitle">Last refresh: {lastRunsRefresh}</p>
         {loading && !runs ? (
-          <p className="subtitle">Loading runs…</p>
+          <p className="subtitle">Loading runs...</p>
         ) : runs ? (
           <RunTable
             runs={runs.runs}
@@ -142,7 +143,7 @@ export default function App() {
         <h2>Unique Sensors</h2>
         <p className="subtitle">Last refresh: {lastSensorRefresh}</p>
         {loading && !sensors ? (
-          <p className="subtitle">Loading sensors…</p>
+          <p className="subtitle">Loading sensors...</p>
         ) : (
           <div className="sensor-grid">
             {sensorsPreview.length === 0 && <p className="subtitle">No sensors captured.</p>}
@@ -153,6 +154,10 @@ export default function App() {
             ))}
           </div>
         )}
+      </section>
+
+      <section className="card">
+        <DataDownload runs={runs?.runs ?? []} sensors={sensorsPreview} />
       </section>
     </div>
   );

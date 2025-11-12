@@ -16,7 +16,7 @@ async def run_worker():
     logging.info("Starting periodic scanner loop (interval=%ss)", interval)
     while True:
         try:
-            logging.info("Running scheduled scan…")
+            logging.info("Running scheduled scan...")
             service.run_full_scan()
             logging.info("Finished scheduled scan.")
         except Exception:

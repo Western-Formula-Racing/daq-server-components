@@ -195,10 +195,13 @@ if __name__ == "__main__":  # pragma: no cover
     import json
     import os
 
+    schema = os.getenv("INFLUX_SCHEMA", "iox")
+    table = os.getenv("INFLUX_TABLE", "WFR25")
+
     cfg = ScannerConfig(
         host=os.getenv("INFLUX_HOST", "http://localhost:9000"),
         token=os.getenv("INFLUX_TOKEN", ""),
         database=os.getenv("INFLUX_DATABASE", "WFR25"),
-        table=os.getenv("INFLUX_TABLE", "WFR25"),
+        table=f"{schema}.{table}",
     )
     print(json.dumps(scan_runs(cfg), indent=2))
