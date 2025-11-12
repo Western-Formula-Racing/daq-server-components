@@ -1,15 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Papa from "papaparse";
 import { Download } from "lucide-react";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  CartesianGrid
-} from "recharts";
+import Plot from "react-plotly.js";
 
 import { RunRecord, SensorDataPoint, SensorDataResponse } from "../types";
 import { querySensorData } from "../api";
@@ -90,14 +82,51 @@ export function DataDownload({ runs, sensors }: Props) {
     }
   };
 
-  const chartData = useMemo(
+  const plotData = useMemo(
     () =>
-      series.map((point) => ({
-        iso: point.time,
-        label: toLocaleTimestamp(point.time),
-        value: point.value
-      })),
-    [series]
+      series.length === 0
+        ? []
+        : [
+            {
+              x: series.map((point) => point.time),
+              y: series.map((point) => point.value),
+              type: "scatter",
+              mode: "lines",
+              line: { color: "#2563eb", width: 2 },
+              hovertemplate: "%{y}<br>%{x|%Y-%m-%d %H:%M:%S}<extra></extra>",
+              name: selectedSensor || "Sensor"
+            }
+          ],
+    [series, selectedSensor]
+  );
+
+  const plotLayout = useMemo(
+    () => ({
+      autosize: true,
+      margin: { t: 10, r: 20, b: 40, l: 50, pad: 4 },
+      hovermode: "x unified",
+      xaxis: {
+        title: "Time",
+        type: "date",
+        tickformat: "%H:%M\n%b %d"
+      },
+      yaxis: {
+        title: selectedSensor || "Value",
+        zeroline: false
+      },
+      paper_bgcolor: "rgba(0,0,0,0)",
+      plot_bgcolor: "rgba(0,0,0,0)"
+    }),
+    [selectedSensor]
+  );
+
+  const plotConfig = useMemo(
+    () => ({
+      responsive: true,
+      displaylogo: false,
+      modeBarButtonsToRemove: ["select2d", "lasso2d"]
+    }),
+    []
   );
 
   const handleDownload = () => {
@@ -243,18 +272,14 @@ export function DataDownload({ runs, sensors }: Props) {
             ) : series.length === 0 ? (
               <div className="chart-placeholder">No data loaded yet.</div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="label" minTickGap={30} />
-                  <YAxis />
-                  <Tooltip
-                    formatter={(value: number) => [`${value}`, selectedSensor]}
-                    labelFormatter={(label: string) => label}
-                  />
-                  <Line type="monotone" dataKey="value" stroke="#2563eb" dot={false} strokeWidth={2} />
-                </LineChart>
-              </ResponsiveContainer>
+              <Plot
+                data={plotData}
+                layout={plotLayout}
+                config={plotConfig}
+                className="plotly-chart"
+                style={{ width: "100%", height: "100%" }}
+                useResizeHandler
+              />
             )}
           </div>
         </div>
