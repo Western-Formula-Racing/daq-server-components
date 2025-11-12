@@ -43,10 +43,19 @@ body {
   font-size: 0.9rem;
 }
 
+.runs-table-wrapper {
+  margin-top: 1rem;
+  max-height: 360px;
+  overflow-y: auto;
+  overflow-x: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+}
+
 .runs-table {
   width: 100%;
   border-collapse: collapse;
-  margin-top: 1rem;
 }
 
 .runs-table th,
@@ -61,6 +70,15 @@ body {
   font-weight: 600;
   color: #374151;
   background: #f9fafb;
+}
+
+.runs-table-row {
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.runs-table-row:hover td {
+  background: #eef2ff;
 }
 
 .tag {
@@ -112,11 +130,26 @@ body {
 }
 
 .sensor-chip {
+  border: 1px solid #e5e7eb;
   background: #f3f4f6;
   border-radius: 8px;
   padding: 0.4rem 0.55rem;
   font-size: 0.85rem;
   color: #374151;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border 0.15s ease;
+  text-align: left;
+}
+
+.sensor-chip:hover {
+  background: #e0e7ff;
+  border-color: #c7d2fe;
+  color: #1d4ed8;
+}
+
+.sensor-chip:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
 }
 
 .actions {
@@ -216,6 +249,38 @@ body {
   color: #0f172a;
 }
 
+.query-alert {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid #fcd34d;
+  background: #fef9c3;
+  color: #854d0e;
+  font-size: 0.9rem;
+}
+
+.query-alert-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #facc15;
+  border-top-color: transparent;
+  animation: query-spin 0.8s linear infinite;
+}
+
+.plotly-chart {
+  width: 100%;
+  height: 100%;
+}
+
+@keyframes query-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .chart-panel {
   background: #fff;
   border-radius: 12px;
@@ -247,7 +312,13 @@ body {
   background: #f9fafb;
 }
 
-.plotly-chart {
-  width: 100%;
-  height: 100%;
+.scan-banner {
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  color: #92400e;
+  padding: 0.9rem 1rem;
+  border-radius: 10px;
+  margin-bottom: 1rem;
+  font-weight: 600;
+  box-shadow: 0 6px 20px -12px rgba(148, 107, 33, 0.6);
 }

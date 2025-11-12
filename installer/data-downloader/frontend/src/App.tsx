@@ -1,10 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchRuns, fetchSensors, triggerScan, updateNote } from "./api";
-import { RunsResponse, SensorsResponse } from "./types";
+import { RunRecord, RunsResponse, SensorsResponse } from "./types";
 import { RunTable } from "./components/RunTable";
 import { DataDownload } from "./components/data-download";
 
 type ScanState = "idle" | "running" | "success" | "error";
+
+interface DownloaderSelection {
+  runKey?: string;
+  startUtc?: string;
+  endUtc?: string;
+  sensor?: string;
+  version: number;
+}
 
 export default function App() {
   const [runs, setRuns] = useState<RunsResponse | null>(null);
@@ -14,6 +22,9 @@ export default function App() {
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [scanState, setScanState] = useState<ScanState>("idle");
+  const [downloaderSelection, setDownloaderSelection] = useState<DownloaderSelection | null>(null);
+  const [scanBannerVisible, setScanBannerVisible] = useState(false);
+  const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -33,7 +44,24 @@ export default function App() {
     void refresh();
   }, [refresh]);
 
+  useEffect(() => {
+    return () => {
+      if (bannerTimerRef.current) {
+        clearTimeout(bannerTimerRef.current);
+      }
+    };
+  }, []);
+
+  const showScanBanner = () => {
+    setScanBannerVisible(true);
+    if (bannerTimerRef.current) {
+      clearTimeout(bannerTimerRef.current);
+    }
+    bannerTimerRef.current = setTimeout(() => setScanBannerVisible(false), 10000);
+  };
+
   const handleScan = async () => {
+    showScanBanner();
     setScanState("running");
     try {
       await triggerScan();
@@ -73,6 +101,26 @@ export default function App() {
     }
   };
 
+  const handleRunPick = (run: RunRecord) => {
+    setDownloaderSelection((prev) => ({
+      runKey: run.key,
+      startUtc: run.start_utc,
+      endUtc: run.end_utc,
+      sensor: prev?.sensor,
+      version: (prev?.version ?? 0) + 1
+    }));
+  };
+
+  const handleSensorPick = (sensor: string) => {
+    setDownloaderSelection((prev) => ({
+      runKey: prev?.runKey,
+      startUtc: prev?.startUtc,
+      endUtc: prev?.endUtc,
+      sensor,
+      version: (prev?.version ?? 0) + 1
+    }));
+  };
+
   const sensorsPreview = useMemo(() => sensors?.sensors ?? [], [sensors]);
 
   const lastRunsRefresh = runs?.updated_at
@@ -90,6 +138,12 @@ export default function App() {
           Inspect historical scans, refresh availability, and capture run notes.
         </p>
       </header>
+
+      {scanBannerVisible && (
+        <div className="scan-banner" role="alert">
+          Scanning database. Do not click again.
+        </div>
+      )}
 
       <div className="actions">
         <button className="button" onClick={handleScan} disabled={scanState === "running"}>
@@ -133,6 +187,7 @@ export default function App() {
             onChange={handleNoteChange}
             onSave={handleSaveNote}
             savingKey={savingKey}
+            onPickRun={handleRunPick}
           />
         ) : (
           <p className="subtitle">No data yet.</p>
@@ -148,16 +203,25 @@ export default function App() {
           <div className="sensor-grid">
             {sensorsPreview.length === 0 && <p className="subtitle">No sensors captured.</p>}
             {sensorsPreview.map((sensor) => (
-              <div key={sensor} className="sensor-chip">
+              <button
+                key={sensor}
+                type="button"
+                className="sensor-chip"
+                onClick={() => handleSensorPick(sensor)}
+              >
                 {sensor}
-              </div>
+              </button>
             ))}
           </div>
         )}
       </section>
 
       <section className="card">
-        <DataDownload runs={runs?.runs ?? []} sensors={sensorsPreview} />
+        <DataDownload
+          runs={runs?.runs ?? []}
+          sensors={sensorsPreview}
+          externalSelection={downloaderSelection ?? undefined}
+        />
       </section>
     </div>
   );

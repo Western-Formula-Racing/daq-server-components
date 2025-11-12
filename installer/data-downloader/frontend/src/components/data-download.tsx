@@ -6,9 +6,18 @@ import Plot from "react-plotly.js";
 import { RunRecord, SensorDataPoint, SensorDataResponse } from "../types";
 import { querySensorData } from "../api";
 
+interface ExternalSelection {
+  runKey?: string;
+  startUtc?: string;
+  endUtc?: string;
+  sensor?: string;
+  version?: number;
+}
+
 interface Props {
   runs: RunRecord[];
   sensors: string[];
+  externalSelection?: ExternalSelection;
 }
 
 const formatInputValue = (value: string) => {
@@ -26,7 +35,7 @@ const toIsoString = (value: string) => {
 const toLocaleTimestamp = (value: string) =>
   new Date(value).toLocaleString(undefined, { hour12: false });
 
-export function DataDownload({ runs, sensors }: Props) {
+export function DataDownload({ runs, sensors, externalSelection }: Props) {
   const [selectedRunKey, setSelectedRunKey] = useState<string>("");
   const [selectedSensor, setSelectedSensor] = useState<string>("");
   const [startInput, setStartInput] = useState<string>("");
@@ -43,6 +52,34 @@ export function DataDownload({ runs, sensors }: Props) {
       setSelectedSensor(sensors[0]);
     }
   }, [sensors, selectedSensor]);
+
+  useEffect(() => {
+    if (!externalSelection) return;
+    const { sensor, runKey, startUtc, endUtc } = externalSelection;
+    if (sensor) {
+      setSelectedSensor(sensor);
+    }
+    if (runKey) {
+      setSelectedRunKey(runKey);
+      const matchedRun = runs.find((run) => run.key === runKey);
+      const derivedStart = startUtc ?? matchedRun?.start_utc;
+      const derivedEnd = endUtc ?? matchedRun?.end_utc;
+      if (derivedStart) {
+        setStartInput(formatInputValue(derivedStart));
+      }
+      if (derivedEnd) {
+        setEndInput(formatInputValue(derivedEnd));
+      }
+    } else {
+      setSelectedRunKey("");
+      if (startUtc) {
+        setStartInput(formatInputValue(startUtc));
+      }
+      if (endUtc) {
+        setEndInput(formatInputValue(endUtc));
+      }
+    }
+  }, [externalSelection, runs]);
 
   const handleRunSelect = (runKey: string) => {
     setSelectedRunKey(runKey);
@@ -155,6 +192,12 @@ export function DataDownload({ runs, sensors }: Props) {
 
       <div className="data-download-grid">
         <div className="selector-panel">
+          {loading && (
+            <div className="query-alert" role="status">
+              <span className="query-alert-spinner" aria-hidden="true" />
+              <span>Fetching sensor data…</span>
+            </div>
+          )}
           <label className="selector-label">Pick a run window</label>
           <select
             className="selector-input"
