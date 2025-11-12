@@ -4,45 +4,11 @@ networks:
 
 volumes:
   grafana-storage:
-  influxdb2-data:
-  influxdb2-config:
   influxdb3-data:
   influxdb3-explorer-db:
   telegraf-data:
 
-# in previous testings, we used influxdb2 as the container name for influxdb2
-# changing it to influxdb2 now to be more standard
 services:
-  influxdb2:
-    image: influxdb:2
-    container_name: influxdb2
-    restart: unless-stopped
-    ports:
-      - "8086:8086"
-    environment:
-      DOCKER_INFLUXDB_INIT_MODE: setup
-      DOCKER_INFLUXDB_INIT_USERNAME: admin
-      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_INIT_PASSWORD:-admin}
-      DOCKER_INFLUXDB_INIT_ORG: WFR
-      DOCKER_INFLUXDB_INIT_BUCKET: ourCar
-      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_ADMIN_TOKEN:-wfr-admin-token-change-in-production}
-    volumes:
-      - influxdb2-data:/var/lib/influxdb2
-      - influxdb2-config:/etc/influxdb2
-    networks:
-      - datalink
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8086/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    #deploy:
-      #resources:
-        #limits:
-          #memory: 1g
-          #cpus: "1.0"
-
   influxdb3:
     image: influxdb:3.5.0-core
     container_name: influxdb3
@@ -54,7 +20,6 @@ services:
       --admin-token-file /influxdb3-admin-token.json
       --wal-snapshot-size 100
       --snapshotted-wal-files-to-keep 10
-
     restart: unless-stopped
     ports:
       - "9000:8181"
@@ -72,7 +37,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
-
 
   influxdb3-explorer:
     image: influxdata/influxdb3-ui:1.3.0
@@ -121,7 +85,6 @@ services:
       GF_AUTH_BASIC_ENABLED: "true"
       GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
       GF_PATHS_PROVISIONING: /etc/grafana/provisioning
-      INFLUXDB_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-wfr-admin-token-change-in-production}"
       GF_DASHBOARDS_MIN_REFRESH_INTERVAL: 100ms
     volumes:
       - grafana-storage:/var/lib/grafana
@@ -129,13 +92,6 @@ services:
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     networks:
       - datalink
-    depends_on:
-      - influxdb2
-    #deploy:
-      #resources:
-        #limits:
-          #memory: 1g
-          #cpus: "1.0"
 
   frontend:
     image: nginx:alpine
@@ -147,24 +103,16 @@ services:
       - ./frontend-build:/usr/share/nginx/html:ro
     networks:
       - datalink
-    #deploy:
-      #resources:
-        #limits:
-          #memory: 512m
-          #cpus: "0.5"
-
 
   slackbot:
-    build: ./slackbot   # put Dockerfile + slack_bot.py here
+    build: ./slackbot
     container_name: slackbot
     restart: always
     environment:
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-your-slack-bot-token-here}
       SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-your-slack-app-token-here}
       INFLUXDB_ADMIN_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-wfr-admin-token-change-in-production}"
-      INFLUXDB_URL: "http://influxdb2:8086"
-      INFLUXDB_ORG: "WFR"
-      INFLUXDB_BUCKET: "ourCar"
+      INFLUXDB_URL: "http://influxdb3:8181"
       SLACK_WEBHOOK_URL: "${SLACK_WEBHOOK_URL:-}"
     volumes:
       - ./slackbot:/app
@@ -172,13 +120,9 @@ services:
     command: python slack_bot.py
     networks:
       - datalink
-    #deploy:
-      #resources:
-        #limits:
-          #cpus: "0.25"
 
   lappy:
-    build: ./lappy  # folder with lap.py and requirements.txt
+    build: ./lappy
     container_name: lappy
     restart: unless-stopped
     ports:
@@ -189,42 +133,29 @@ services:
     command: python lap.py
     networks:
       - datalink
-    #deploy:
-      #resources:
-        #limits:
-          #memory: 256m
-          #cpus: "0.5"
 
   startup-data-loader:
     build: ./startup-data-loader
     container_name: startup-data-loader
-    restart: "no"  # Run once only
+    restart: "no"
     environment:
       INFLUXDB_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-wfr-admin-token-change-in-production}"
-      BACKFILL: "1"  # Enable backfill mode for direct InfluxDB writing
+      BACKFILL: "1"
     volumes:
-      - ./startup-data-loader/data:/data:ro  # Mount startup-data-loader/data as read-only
-      - telegraf-data:/var/lib/telegraf  # Shared volume with telegraf
-      - ./startup-data-loader:/app  # Mount the app directory
+      - ./startup-data-loader/data:/data:ro
+      - telegraf-data:/var/lib/telegraf
+      - ./startup-data-loader:/app
     working_dir: /app
     networks:
       - datalink
     depends_on:
-      influxdb2:
-        condition: service_healthy
+      - influxdb3
     command: >
-      sh -c "echo 'Waiting additional 5 seconds for InfluxDB to stabilize...' &&
+      sh -c "echo 'Waiting additional 5 seconds for InfluxDB 3 to stabilize...' &&
              sleep 5 &&
-             echo 'Creating telegraf input file (this may take a while for large files)...' &&
+             echo 'Creating telegraf input file...' &&
              python load_data_telegraf.py &&
              echo 'Telegraf input file created successfully'"
-
-    # python load_data_influxdb2.py & python load_data_telegraf.py & wait"
-    #deploy:
-      #resources:
-        #imits:
-          #memory: 512m
-          #cpus: "1.0"
 
   file-uploader:
     build: ./file-uploader
@@ -244,17 +175,3 @@ services:
         limits:
           cpus: "1"
           memory: 1024M
-
-#  artifact-viewer:
-#    image: artifact-viewer-dev
-#    container_name: artifact-viewer
-#    restart: unless-stopped
-#    ports:
-#      - "2990:2990"
-#    networks:
-#      - datalink
-#    deploy:
-#      resources:
-#        limits:
-#          memory: 512m
-#          cpus: "0.5"
