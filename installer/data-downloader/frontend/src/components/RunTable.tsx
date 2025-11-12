@@ -6,6 +6,7 @@ interface Props {
   onChange: (key: string, value: string) => void;
   onSave: (key: string) => void;
   savingKey: string | null;
+  onPickRun?: (run: RunRecord) => void;
 }
 
 const formatDateTime = (iso: string) =>
@@ -13,13 +14,13 @@ const formatDateTime = (iso: string) =>
     hour12: false
   });
 
-export function RunTable({ runs, drafts, onChange, onSave, savingKey }: Props) {
+export function RunTable({ runs, drafts, onChange, onSave, savingKey, onPickRun }: Props) {
   if (runs.length === 0) {
     return <p className="subtitle">No runs found yet.</p>;
   }
 
   return (
-    <div style={{ overflowX: "auto" }}>
+    <div className="runs-table-wrapper">
       <table className="runs-table">
         <thead>
           <tr>
@@ -35,7 +36,16 @@ export function RunTable({ runs, drafts, onChange, onSave, savingKey }: Props) {
           {runs.map((run) => {
             const draft = drafts[run.key] ?? run.note ?? "";
             return (
-              <tr key={run.key}>
+              <tr
+                key={run.key}
+                className={onPickRun ? "runs-table-row" : undefined}
+                onClick={(event) => {
+                  if (!onPickRun) return;
+                  const target = event.target as HTMLElement;
+                  if (target.closest("textarea, button")) return;
+                  onPickRun(run);
+                }}
+              >
                 <td>
                   <div>{formatDateTime(run.start_local)}</div>
                   <div className="subtitle">{formatDateTime(run.end_local)}</div>
