@@ -19,6 +19,7 @@ class DataQueryPayload(BaseModel):
     start: datetime
     end: datetime
     limit: int | None = 2000
+    no_limit: bool = False
 
 
 settings = get_settings()
@@ -65,5 +66,5 @@ def trigger_scan(background_tasks: BackgroundTasks) -> dict:
 
 @app.post("/api/data/query")
 def query_data(payload: DataQueryPayload) -> dict:
-    limit = payload.limit or 2000
+    limit = None if payload.no_limit else (payload.limit or 2000)
     return service.query_signal_series(payload.signal, payload.start, payload.end, limit)

@@ -77,5 +77,5 @@ class DataDownloaderService:
             "sensors": sensors_payload,
         }
 
-    def query_signal_series(self, signal: str, start: datetime, end: datetime, limit: int) -> dict:
+    def query_signal_series(self, signal: str, start: datetime, end: datetime, limit: Optional[int]) -> dict:
         return fetch_signal_series(self.settings, signal, start, end, limit)
