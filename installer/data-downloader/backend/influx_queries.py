@@ -14,12 +14,15 @@ def _normalize(dt: datetime) -> datetime:
     return dt.astimezone(timezone.utc)
 
 
-def fetch_signal_series(settings: Settings, signal: str, start: datetime, end: datetime, limit: int) -> dict:
+def fetch_signal_series(settings: Settings, signal: str, start: datetime, end: datetime, limit: int | None) -> dict:
     start_dt = _normalize(start)
     end_dt = _normalize(end)
     if start_dt >= end_dt:
         raise ValueError("start must be before end")
-    limit = max(10, min(limit, 20000))
+    limit_clause = ""
+    if limit is not None:
+        limit = max(10, min(limit, 20000))
+        limit_clause = f" LIMIT {limit}"
 
     table_ref = quote_table(f"{settings.influx_schema}.{settings.influx_table}")
     signal_literal = quote_literal(signal)
@@ -30,8 +33,7 @@ def fetch_signal_series(settings: Settings, signal: str, start: datetime, end: d
         WHERE "signalName" = {signal_literal}
           AND time >= TIMESTAMP '{start_dt.isoformat()}'
           AND time <= TIMESTAMP '{end_dt.isoformat()}'
-        ORDER BY time
-        LIMIT {limit}
+        ORDER BY time{limit_clause}
     """
 
     with InfluxDBClient3(host=settings.influx_host, token=settings.influx_token, database=settings.influx_database) as client:

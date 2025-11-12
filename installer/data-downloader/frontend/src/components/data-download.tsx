@@ -39,6 +39,8 @@ export function DataDownload({ runs, sensors }: Props) {
   const [selectedSensor, setSelectedSensor] = useState<string>("");
   const [startInput, setStartInput] = useState<string>("");
   const [endInput, setEndInput] = useState<string>("");
+  const [limitInput, setLimitInput] = useState<string>("5000");
+  const [noLimit, setNoLimit] = useState<boolean>(false);
   const [series, setSeries] = useState<SensorDataPoint[]>([]);
   const [queryMeta, setQueryMeta] = useState<Omit<SensorDataResponse, "points"> | null>(null);
   const [loading, setLoading] = useState(false);
@@ -67,11 +69,13 @@ export function DataDownload({ runs, sensors }: Props) {
     setLoading(true);
     setError(null);
     try {
+      const parsedLimit = noLimit ? undefined : Number(limitInput) || undefined;
       const payload = {
         signal: selectedSensor,
         start: toIsoString(startInput),
         end: toIsoString(endInput),
-        limit: 5000
+        limit: parsedLimit,
+        no_limit: noLimit || undefined
       };
       const response = await querySensorData(payload);
       setSeries(response.points);
@@ -146,6 +150,26 @@ export function DataDownload({ runs, sensors }: Props) {
             />
           </div>
           <div className="selector-field">
+            <label className="selector-label">Limit (rows)</label>
+            <input
+              type="number"
+              className="selector-input"
+              min={10}
+              step={10}
+              disabled={noLimit}
+              value={limitInput}
+              onChange={(event) => setLimitInput(event.target.value)}
+            />
+            <label className="selector-checkbox">
+              <input
+                type="checkbox"
+                checked={noLimit}
+                onChange={(event) => setNoLimit(event.target.checked)}
+              />
+              <span>Run without LIMIT (may be slow)</span>
+            </label>
+          </div>
+          <div className="selector-field">
             <label className="selector-label">End (UTC)</label>
             <input
               type="datetime-local"
@@ -193,6 +217,8 @@ export function DataDownload({ runs, sensors }: Props) {
               <p className="selector-meta">
                 {queryMeta.row_count} points retrieved between{" "}
                 {toLocaleTimestamp(queryMeta.start)} and {toLocaleTimestamp(queryMeta.end)}.
+                {" "}
+                {queryMeta.limit !== null ? `Limit ${queryMeta.limit}` : "No LIMIT clause"}
               </p>
               <div className="selector-sql">
                 <p className="selector-label">SQL</p>
