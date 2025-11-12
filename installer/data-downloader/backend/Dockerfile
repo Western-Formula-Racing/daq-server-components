@@ -9,9 +9,6 @@ COPY backend/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 COPY backend /app/backend
-COPY server_scanner.py /app/server_scanner.py
-COPY sql.py /app/sql.py
-COPY table_utils.py /app/table_utils.py
 
 EXPOSE 8000
 

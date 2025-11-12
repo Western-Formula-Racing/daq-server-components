@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from influxdb_client_3 import InfluxDBClient3
 
 from backend.config import Settings
-from table_utils import quote_literal, quote_table
+from backend.table_utils import quote_literal, quote_table
 
 
 def _normalize(dt: datetime) -> datetime:
