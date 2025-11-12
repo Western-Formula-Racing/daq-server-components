@@ -188,6 +188,21 @@ body {
   font-size: 0.85rem;
 }
 
+.selector-sql {
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  padding: 0.5rem;
+}
+
+.selector-sql pre {
+  margin: 0;
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #0f172a;
+}
+
 .chart-panel {
   background: #fff;
   border-radius: 12px;

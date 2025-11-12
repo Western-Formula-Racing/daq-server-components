@@ -38,12 +38,10 @@ def fetch_signal_series(settings: Settings, signal: str, start: datetime, end: d
         tbl = client.query(sql)
         points = []
         for idx in range(tbl.num_rows):
-            ts = tbl.column("time")[idx].as_py()
-            value = tbl.column("sensorReading")[idx].as_py()
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
-            else:
-                ts = ts.astimezone(timezone.utc)
+            ts_scalar = tbl.column("time")[idx]
+            value_scalar = tbl.column("sensorReading")[idx]
+            ts = _timestamp_scalar_to_datetime(ts_scalar)
+            value = value_scalar.as_py()
             points.append(
                 {
                     "time": ts.isoformat(),
@@ -58,4 +56,23 @@ def fetch_signal_series(settings: Settings, signal: str, start: datetime, end: d
         "limit": limit,
         "row_count": len(points),
         "points": points,
+        "sql": " ".join(line.strip() for line in sql.strip().splitlines()),
     }
+
+
+def _timestamp_scalar_to_datetime(scalar) -> datetime:
+    """Convert PyArrow TimestampScalar to timezone-aware datetime."""
+    try:
+        ts = scalar.as_py()
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        else:
+            ts = ts.astimezone(timezone.utc)
+        return ts
+    except ValueError:
+        # Fallback for nanosecond precision timestamps that can't fit in datetime micros
+        ts_ns = getattr(scalar, "value", None)
+        if ts_ns is None:
+            raise
+        ts = datetime.fromtimestamp(ts_ns / 1_000_000_000, tz=timezone.utc)
+        return ts

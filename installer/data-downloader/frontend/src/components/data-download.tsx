@@ -189,10 +189,16 @@ export function DataDownload({ runs, sensors }: Props) {
           </div>
           {error && <p className="selector-error">{error}</p>}
           {queryMeta && (
-            <p className="selector-meta">
-              {queryMeta.row_count} points retrieved between{" "}
-              {toLocaleTimestamp(queryMeta.start)} and {toLocaleTimestamp(queryMeta.end)}.
-            </p>
+            <>
+              <p className="selector-meta">
+                {queryMeta.row_count} points retrieved between{" "}
+                {toLocaleTimestamp(queryMeta.start)} and {toLocaleTimestamp(queryMeta.end)}.
+              </p>
+              <div className="selector-sql">
+                <p className="selector-label">SQL</p>
+                <pre>{queryMeta.sql}</pre>
+              </div>
+            </>
           )}
         </div>
 
