@@ -27,7 +27,7 @@ Both JSON files are shared through the `./data` directory so every service (fron
   - `GET /api/runs` and `GET /api/sensors`
   - `POST /api/runs/{key}/note` to persist notes per run
   - `POST /api/scan` to fire an on-demand scan that refreshes both JSON files in the background
-  - `POST /api/data/query` to request a timeseries slice for a given `signalName` between two timestamps
+  - `POST /api/data/query` to request a timeseries slice for a given `signalName` between two timestamps; the response echoes the exact SQL (matching `sql.py`) so the frontend can display the query being executed.
 - `scanner` reuses the same backend image but runs `python -m backend.periodic_worker` so the scan + unique sensor collection happens at the interval defined by `SCAN_INTERVAL_SECONDS`.
 
 Set `INFLUX_SCHEMA`/`INFLUX_TABLE` to the same values used in the legacy scripts (e.g. `iox` + `WFR25`) so the SQL sent from `server_scanner.py` and `sql.py` matches the proven queries.
