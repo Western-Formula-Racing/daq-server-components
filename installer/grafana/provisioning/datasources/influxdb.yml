@@ -4,12 +4,12 @@ datasources:
   - name: InfluxDB-WFR
     type: influxdb
     access: proxy
-    url: http://influxdb2:8086
-    database: ourCar
+    url: ${INFLUXDB_URL:-http://influxdb3:8181}
+    database: WFR25
     jsonData:
       version: Flux
       organization: WFR
-      defaultBucket: ourCar
+      defaultBucket: WFR25
       tlsSkipVerify: true
       httpMode: POST
     secureJsonData:

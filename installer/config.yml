@@ -16,8 +16,8 @@ ingress:
       headers:
         Host: localhost
 
-  - hostname: influxdb2.0001200.xyz
-    service: http://127.0.0.1:8086
+  - hostname: influxdb3-data.0001200.xyz
+    service: http://127.0.0.1:8181
     originRequest:
       noTLSVerify: true
       headers:
