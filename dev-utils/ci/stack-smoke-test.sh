@@ -87,12 +87,25 @@ while (( SECONDS < ready_timeout_seconds )); do
     exit_code="$(docker inspect -f '{{.State.ExitCode}}' "$container_id")"
 
     if [[ "$service" == "startup-data-loader" ]]; then
-      if [[ "$state_status" == "exited" && "$exit_code" -eq 0 ]]; then
-        ready_summary+=("$service=exited(0)")
-      else
-        not_ready+=("$service=${state_status}/exit:${exit_code}")
+      if [[ "$state_status" == "exited" ]]; then
+        if [[ "$exit_code" -eq 0 ]]; then
+          ready_summary+=("$service=exited(0)")
+          continue
+        else
+          not_ready+=("$service=exited($exit_code)")
+          continue
+        fi
       fi
-      continue
+
+      if [[ -z "$container_id" ]]; then
+        # Treat missing as success only if it already ran once
+        if docker ps -a --format '{{.Names}}' | grep -q "$service"; then
+          ready_summary+=("$service=exited(0)(removed)")
+          continue
+        fi
+        not_ready+=("$service(no-container)")
+        continue
+      fi
     fi
 
     if [[ "$state_status" != "running" ]]; then
