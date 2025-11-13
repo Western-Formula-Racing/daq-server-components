@@ -1,0 +1,29 @@
+name: Installer Stack Smoke Test
+
+on:
+  push:
+    branches: [ main, deploy ]
+  pull_request:
+    branches: [ main, deploy ]
+  workflow_dispatch:
+
+jobs:
+  stack-smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Show Docker versions
+      run: |
+        docker version
+        docker compose version
+
+    - name: Run installer smoke test
+      env:
+        DOCKER_BUILDKIT: "1"
+        COMPOSE_DOCKER_CLI_BUILD: "1"
+      run: ./dev-utils/ci/stack-smoke-test.sh
