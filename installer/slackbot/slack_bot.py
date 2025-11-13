@@ -52,7 +52,7 @@ def send_slack_image(channel: str, file_path: str, **kwargs):
 # Not currently used: handle_location
 def handle_location(user):
     try:
-        response = requests.get("http://lappy-server:8050/api/track?type=location", timeout=5)
+        response = requests.get("http://lap-detector-server:8050/api/track?type=location", timeout=5)
         response.raise_for_status()
         loc = response.json().get("location", {})
         lat, lon = loc.get("lat"), loc.get("lon")
