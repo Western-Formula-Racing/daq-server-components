@@ -161,7 +161,7 @@ services:
       sh -c "echo 'Waiting additional 5 seconds for InfluxDB 3 to stabilize...' &&
              sleep 5 &&
              echo 'Creating telegraf input file...' &&
-             python load_data_telegraf.py &&
+             python load_data.py &&
              echo 'Telegraf input file created successfully'"
 
   file-uploader:
