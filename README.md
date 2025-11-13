@@ -20,7 +20,61 @@ MangoDB: 3000 (not in this repo)
 
 ## No Port Assigned
 
-Slackbot
+### Slackbot
+
+The Slackbot service that lives in `installer/slackbot/slackbot.py` provides real-time monitoring and data exploration commands for the team Slack channel. It connects via Socket Mode, listens for slash-style commands, and sends rich image and CSV responses back to the channel.
+
+#### Features
+
+- Real-time command processing for location updates, sensor plots, timelines, and run listings.
+- Helper functions `send_slack_message` and `send_slack_image` for reuse in other Python modules.
+- `!agent` workflow that serializes user instructions to disk and triggers an external command hook.
+
+#### Running the bot
+
+```bash
+cd installer
+docker compose up slackbot
+```
+
+The Docker image installs dependencies from `installer/slackbot/requirements.txt` and runs `python slackbot.py` as defined in the Dockerfile.
+
+#### Environment variables
+
+| Variable | Description |
+| --- | --- |
+| `SLACK_APP_TOKEN` | Socket Mode App Level Token (starts with `xapp-`). |
+| `SLACK_BOT_TOKEN` | Bot User OAuth Token (starts with `xoxb-`). |
+| `SLACK_WEBHOOK_URL` | Optional webhook notified when the bot comes online. |
+| `SLACK_DEFAULT_CHANNEL` | Channel ID monitored by the bot. Defaults to `C08NTG6CXL5`. |
+| `SLACK_AGENT_COMMAND_FILE` | Optional override for the path that stores `!agent` instructions. |
+| `INFLUXDB_ADMIN_TOKEN` | Token used for querying InfluxDB data. |
+
+#### Available commands
+
+- `!location` – Show the most recent vehicle location update.
+- `!testimage` – Upload the sample diagnostics image stored in the container.
+- `!agent <instructions>` – Persist the supplied text to the agent command file and run the placeholder external hook.
+- `!sensors` – List unique sensor names seen in the last 24 hours.
+- `!list_runs [PERIOD]` – Display cached run hashes for the configured sensor.
+- `!sensor plot NAME ...` – Plot sensor data or download raw CSV across duration, range, or run hash.
+- `!sensor timeline [NAME]` – Render a 24-hour data availability timeline.
+- `!help` – Display the in-channel help message.
+
+#### Agent workflow
+
+`!agent` writes the provided text into `agent_command.txt` (or the configured override) and then runs a placeholder `echo` command. The saved file allows downstream automation to load and execute the instructions in a separate process.
+
+#### Programmatic helpers
+
+Other services can reuse the messaging helpers directly:
+
+```python
+from installer.slackbot.slackbot import send_slack_image, send_slack_message
+
+send_slack_message("C1234567890", "Deployment finished")
+send_slack_image("C1234567890", "/tmp/plot.png", title="Latest plot")
+```
 
 
 

@@ -1,11 +1,15 @@
-import os
-import requests
 import csv
-from io import StringIO
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
 import datetime
+import os
+import subprocess
+from io import StringIO
+from pathlib import Path
+from typing import Optional
+
+import matplotlib.dates as mdates
+import matplotlib.pyplot as plt
 import pytz
+import requests
 
 # Removed load_dotenv() - using Docker Compose environment variables instead
 from slack_sdk.web import WebClient
@@ -16,6 +20,9 @@ from threading import Event
 
 processed_messages = set()
 
+DEFAULT_CHANNEL_ID = os.environ.get("SLACK_DEFAULT_CHANNEL", "C08NTG6CXL5")
+AGENT_COMMAND_FILE = Path(os.environ.get("SLACK_AGENT_COMMAND_FILE", Path(__file__).with_name("agent_command.txt")))
+
 # --- Slack App Configuration ---
 app_token = os.environ["SLACK_APP_TOKEN"]
 bot_token = os.environ["SLACK_BOT_TOKEN"]
@@ -24,6 +31,32 @@ web_client = WebClient(token=bot_token)
 socket_client = SocketModeClient(app_token=app_token, web_client=web_client)
 
 WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL")
+
+
+def send_slack_message(channel: str, text: str, client: Optional[WebClient] = None) -> None:
+    """Send a simple text message to a Slack channel."""
+
+    target_client = client or web_client
+    target_client.chat_postMessage(channel=channel, text=text)
+
+
+def send_slack_image(
+    channel: str,
+    file_path: Path | str,
+    title: Optional[str] = None,
+    client: Optional[WebClient] = None,
+) -> None:
+    """Upload an image file to a Slack channel."""
+
+    target_client = client or web_client
+    file_path = Path(file_path)
+    with file_path.open("rb") as image_fp:
+        target_client.files_upload_v2(
+            channel=channel,
+            file=image_fp,
+            filename=file_path.name,
+            title=title or file_path.name,
+        )
 
 # --- InfluxDB Configuration ---
 INFLUX_URL = "http://influxdb2:8086"
@@ -197,7 +230,7 @@ def _plot_or_download_sensor_data_for_range(user, web_client_instance, sensor_na
 
         if not times or not values:
             web_client_instance.chat_postMessage(
-                channel="C08NTG6CXL5",
+                channel=DEFAULT_CHANNEL_ID,
                 text=f"⚠️ <@{user}> No data found for `{sensor_name}` for {title_suffix} to plot."
             )
             return
@@ -217,7 +250,7 @@ def _plot_or_download_sensor_data_for_range(user, web_client_instance, sensor_na
 
         # Upload and then remove the local file
         web_client_instance.files_upload_v2(
-            channel="C08NTG6CXL5",
+            channel=DEFAULT_CHANNEL_ID,
             file=plot_filename,
             filename=plot_filename,
             title=f"{sensor_name} - {title_suffix}",
@@ -231,7 +264,7 @@ def _plot_or_download_sensor_data_for_range(user, web_client_instance, sensor_na
     except Exception as e:
         print(f"Error plotting sensor {sensor_name} for {title_suffix}:", e)
         web_client_instance.chat_postMessage(
-            channel="C08NTG6CXL5",
+            channel=DEFAULT_CHANNEL_ID,
             text=f"❌ <@{user}> Failed to generate plot for `{sensor_name}` ({title_suffix}). Error: {e}"
         )
 
@@ -245,20 +278,20 @@ def handle_location(user, client):
         lat, lon = loc.get("lat"), loc.get("lon")
         map_url = f"https://www.google.com/maps/@{lat},{lon},17z"  # Standard Google Maps URL
         client.web_client.chat_postMessage(
-            channel="C08NTG6CXL5",
+            channel=DEFAULT_CHANNEL_ID,
             text=f"📍 <@{user}> Current :daqcar: location:\n<{map_url}|View on Map>\nLatitude: {lat}\nLongitude: {lon}"
         )
     except Exception as e:
         print("Error fetching location:", e)
         client.web_client.chat_postMessage(
-            channel="C08NTG6CXL5", text=f"❌ <@{user}> Failed to retrieve car location. Error: {e}"
+            channel=DEFAULT_CHANNEL_ID, text=f"❌ <@{user}> Failed to retrieve car location. Error: {e}"
         )
 
 
 def handle_testimage(user):
     try:
         web_client.files_upload_v2(
-            channel="C08NTG6CXL5",
+            channel=DEFAULT_CHANNEL_ID,
             file="lappy_test_image.png",
             filename="lappy_test_image.png",
             title="Lappy Test Image",
@@ -266,7 +299,7 @@ def handle_testimage(user):
         )
     except Exception as e:
         print("Error uploading image:", e)
-        web_client.chat_postMessage(channel="C08NTG6CXL5", text=f"❌ <@{user}> Failed to upload image. Error: {e}")
+        web_client.chat_postMessage(channel=DEFAULT_CHANNEL_ID, text=f"❌ <@{user}> Failed to upload image. Error: {e}")
 
 
 def handle_sensors(user):
@@ -289,18 +322,18 @@ def handle_sensors(user):
         if signal_names:
             sensor_list = "\n".join(f"- `{s}`" for s in signal_names)
             web_client.chat_postMessage(
-                channel="C08NTG6CXL5",
+                channel=DEFAULT_CHANNEL_ID,
                 text=f"🧪 <@{user}> Unique sensors in past day:\n{sensor_list}"
             )
         else:
             web_client.chat_postMessage(
-                channel="C08NTG6CXL5",
+                channel=DEFAULT_CHANNEL_ID,
                 text=f"⚠️ <@{user}> No sensors found in the past day."
             )
     except Exception as e:
         print("Error fetching sensors:", e)
         web_client.chat_postMessage(
-            channel="C08NTG6CXL5",
+            channel=DEFAULT_CHANNEL_ID,
             text=f"❌ <@{user}> Failed to fetch sensors. Error: {e}"
         )
 
@@ -318,13 +351,13 @@ def download_raw_sensor_data(user, web_client_instance, sensor_name, flux_query_
         csv_content = response.text
         if not csv_content.strip() or len(csv_content.splitlines()) < 5:  # Basic check for empty data
             web_client_instance.chat_postMessage(
-                channel="C08NTG6CXL5",
+                channel=DEFAULT_CHANNEL_ID,
                 text=f"⚠️ <@{user}> No raw data for `{sensor_name}` (suffix `{filename_suffix_tag}`)."
             )
             return
         csv_filename = f"raw_data_{sensor_name.replace('/', '_')}_{filename_suffix_tag.replace(':', '').replace('-', '')}.csv"
         web_client_instance.files_upload_v2(
-            channel="C08NTG6CXL5",
+            channel=DEFAULT_CHANNEL_ID,
             content=csv_content.encode('utf-8'),
             filename=csv_filename,
             title=f"Raw data: {sensor_name} ({filename_suffix_tag})",
@@ -333,7 +366,7 @@ def download_raw_sensor_data(user, web_client_instance, sensor_name, flux_query_
     except Exception as e:
         print(f"Error downloading raw sensor data for {sensor_name}:", e)
         web_client_instance.chat_postMessage(
-            channel="C08NTG6CXL5",
+            channel=DEFAULT_CHANNEL_ID,
             text=f"❌ <@{user}> Failed to download raw CSV for `{sensor_name}`. Error: {e}"
         )
 
@@ -346,7 +379,7 @@ def handle_sensor_plot(user, text):  # text is command_full
     parts = text.strip().split()
     if len(parts) != 4 or parts[0] != "sensor" or parts[1] != "plot":
         web_client.chat_postMessage(
-            channel="C08NTG6CXL5",
+            channel=DEFAULT_CHANNEL_ID,
             text=f"⚠️ <@{user}> Usage: `sensor plot SENSORNAME SECONDS [-d]`"
         )
         return
@@ -357,7 +390,7 @@ def handle_sensor_plot(user, text):  # text is command_full
             raise ValueError("Seconds must be positive.")
     except ValueError:
         web_client.chat_postMessage(
-            channel="C08NTG6CXL5",
+            channel=DEFAULT_CHANNEL_ID,
             text=f"⚠️ <@{user}> Invalid time: `{seconds_str}`. Must be positive int."
         )
         return
@@ -383,7 +416,7 @@ def handle_sensor_plot_range(user, text):  # text is command_full
     parts = text.strip().split()
     if len(parts) != 6 or parts[0] != "sensor" or parts[1] != "plot" or parts[3] != "range":
         web_client.chat_postMessage(
-            channel="C08NTG6CXL5",
+            channel=DEFAULT_CHANNEL_ID,
             text=f"⚠️ <@{user}> Usage: `sensor plot SENSORNAME range START END [-d]` (Time: `YYYYMMDDHHMMZ` or `L`)"
         )
         return
@@ -398,13 +431,13 @@ def handle_sensor_plot_range(user, text):  # text is command_full
         start_dt_utc, end_dt_utc = parse_time(start_raw), parse_time(end_raw)
         if start_dt_utc >= end_dt_utc:
             web_client.chat_postMessage(
-                channel="C08NTG6CXL5",
+                channel=DEFAULT_CHANNEL_ID,
                 text=f"⚠️ <@{user}> Start time must be before end time."
             )
             return
     except ValueError as e:
         web_client.chat_postMessage(
-            channel="C08NTG6CXL5",
+            channel=DEFAULT_CHANNEL_ID,
             text=f"⚠️ <@{user}> Invalid time format. Use `YYYYMMDDHHMMZ` (UTC) or `L` (Local). Error: {e}"
         )
         return
@@ -427,14 +460,14 @@ def handle_list_runs(user, text):  # text is command_full
         time_range_str = parts[1]  # e.g. list_runs 7d
     elif len(parts) > 2:
         web_client.chat_postMessage(
-            channel="C08NTG6CXL5",
+            channel=DEFAULT_CHANNEL_ID,
             text=f"⚠️ <@{user}> Usage: `!list_runs [PERIOD]` (e.g., `7d`, `24h`)"
         )
         return
     runs_data = get_runs(time_range_str)  # Populates cache and returns list
     if not runs_data:
         web_client.chat_postMessage(
-            channel="C08NTG6CXL5",
+            channel=DEFAULT_CHANNEL_ID,
             text=f"🤷 <@{user}> No runs found for `{DEFAULT_RUN_DEFINING_SENSOR}` in last `{time_range_str}`."
         )
         return
@@ -460,7 +493,7 @@ def handle_list_runs(user, text):  # text is command_full
     if len(runs_data) > display_limit:
         md_table += f"... and {len(runs_data) - display_limit} more runs.\n"
     web_client.chat_postMessage(
-        channel="C08NTG6CXL5",
+        channel=DEFAULT_CHANNEL_ID,
         text=f"{message}```md\n{md_table}```"
     )
 
@@ -472,7 +505,7 @@ def handle_sensor_plot_run(user, text):  # text is command_full
     parts = text_for_parsing.split()
     if not (len(parts) == 5 and parts[0] == "sensor" and parts[1] == "plot" and parts[3] == "run"):
         web_client.chat_postMessage(
-            channel="C08NTG6CXL5",
+            channel=DEFAULT_CHANNEL_ID,
             text=f"⚠️ <@{user}> Usage: `sensor plot SENSORNAME run RUN_HASH [-d]`"
         )
         return
@@ -481,7 +514,7 @@ def handle_sensor_plot_run(user, text):  # text is command_full
     scan_performed = False
     if not found_run_details:
         web_client.chat_postMessage(
-            channel="C08NTG6CXL5",
+            channel=DEFAULT_CHANNEL_ID,
             text=(
                 f"ℹ️ <@{user}> Hash `{run_hash_to_find}` not in cache. "
                 "Scanning up to 90 days of "
@@ -512,7 +545,7 @@ def handle_sensor_plot_run(user, text):  # text is command_full
             message += " Searched up to 90 days of history."
         else:
             message += " Try `!list_runs`."
-        web_client.chat_postMessage(channel="C08NTG6CXL5", text=message)
+        web_client.chat_postMessage(channel=DEFAULT_CHANNEL_ID, text=message)
 
 
 def handle_sensor_timeline(user, text):  # text is command_full
@@ -521,7 +554,7 @@ def handle_sensor_timeline(user, text):  # text is command_full
     default_sensor_message = f"⚠️ No sensor specified. Defaulting to `{sensor_name_filter}`.\n"
     if not (parts[0] == "sensor" and parts[1] == "timeline" and (len(parts) == 2 or len(parts) == 3)):
         web_client.chat_postMessage(
-            channel="C08NTG6CXL5",
+            channel=DEFAULT_CHANNEL_ID,
             text=f"⚠️ <@{user}> Usage: `sensor timeline [SENSORNAME]`"
         )
         return
@@ -548,7 +581,7 @@ def handle_sensor_timeline(user, text):  # text is command_full
         times = [datetime.datetime.fromisoformat(row["_time"].replace("Z", "+00:00")) for row in reader if "_time" in row]
         if not times:
             web_client.chat_postMessage(
-                channel="C08NTG6CXL5",
+                channel=DEFAULT_CHANNEL_ID,
                 text=(
                     f"{default_sensor_message}⚠️ <@{user}> No data for `{sensor_display_name}` "
                     "(past 24h) for timeline."
@@ -589,7 +622,7 @@ def handle_sensor_timeline(user, text):  # text is command_full
         )
 
         web_client.files_upload_v2(
-            channel="C08NTG6CXL5",
+            channel=DEFAULT_CHANNEL_ID,
             file=timeline_fn,
             filename=timeline_fn,
             title=f"{sensor_display_name} Timeline (24h)",
@@ -608,9 +641,50 @@ def handle_sensor_timeline(user, text):  # text is command_full
         import traceback
         traceback.print_exc()
         web_client.chat_postMessage(
-            channel="C08NTG6CXL5",
+            channel=DEFAULT_CHANNEL_ID,
             text=f"❌ <@{user}> Failed timeline for `{sensor_display_name}`. Error: {e}"
         )
+
+
+def handle_agent(user, text):
+    command_body = text.partition(" ")[2].strip()
+    if not command_body:
+        send_slack_message(
+            DEFAULT_CHANNEL_ID,
+            f"⚠️ <@{user}> Usage: `!agent <instructions>`",
+        )
+        return
+
+    try:
+        AGENT_COMMAND_FILE.parent.mkdir(parents=True, exist_ok=True)
+        AGENT_COMMAND_FILE.write_text(command_body, encoding="utf-8")
+    except OSError as exc:
+        send_slack_message(
+            DEFAULT_CHANNEL_ID,
+            f"❌ <@{user}> Could not write agent instructions. Error: {exc}",
+        )
+        return
+
+    try:
+        completed = subprocess.run(
+            ["echo", "Agent placeholder command executed"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        output = completed.stdout.strip()
+    except subprocess.CalledProcessError as exc:
+        send_slack_message(
+            DEFAULT_CHANNEL_ID,
+            f"❌ <@{user}> Failed to trigger agent command. Error: {exc}",
+        )
+        return
+
+    confirmation = (
+        f"✅ <@{user}> Agent instructions saved to `{AGENT_COMMAND_FILE.name}`."
+        + (f" Command output: {output}" if output else "")
+    )
+    send_slack_message(DEFAULT_CHANNEL_ID, confirmation)
 
 
 def handle_help(user):
@@ -619,6 +693,7 @@ def handle_help(user):
         "```\n"
         "!location                     - Show current car location.\n"
         "!testimage                    - Upload a test image.\n"
+        "!agent <instructions>         - Save instructions to file and trigger the agent hook.\n"
         "!sensors                      - List unique sensors (past 24h).\n"
         "\n"
         f"!list_runs [PERIOD]           - List data runs based on '{DEFAULT_RUN_DEFINING_SENSOR}' activity.\n"
@@ -641,7 +716,7 @@ def handle_help(user):
         "!help                         - Show this help message.\n"
         "```"
     )
-    web_client.chat_postMessage(channel="C08NTG6CXL5", text=help_text)
+    web_client.chat_postMessage(channel=DEFAULT_CHANNEL_ID, text=help_text)
 
 
 # --- Event Processing Logic ---
@@ -650,7 +725,7 @@ def process_events(client: SocketModeClient, req: SocketModeRequest):
         client.send_socket_mode_response(SocketModeResponse(envelope_id=req.envelope_id))
         event = req.payload.get("event", {})
         if (event.get("type") == "message" and event.get("subtype") is None and
-                event.get("channel") == "C08NTG6CXL5"):
+                event.get("channel") == DEFAULT_CHANNEL_ID):
             msg_ts = event.get("ts")
             if msg_ts in processed_messages:
                 print(f"Skipping already processed message: {msg_ts}")
@@ -698,19 +773,21 @@ def process_events(client: SocketModeClient, req: SocketModeRequest):
                         handle_sensor_timeline(user, command_full)
                     else:
                         web_client.chat_postMessage(
-                            channel="C08NTG6CXL5",
+                            channel=DEFAULT_CHANNEL_ID,
                             text=f"❓ <@{user}> Unknown 'sensor' subcommand. Try `!help`."
                         )
                 else:
                     web_client.chat_postMessage(
-                        channel="C08NTG6CXL5",
+                        channel=DEFAULT_CHANNEL_ID,
                         text=f"❓ <@{user}> Incomplete 'sensor' command. Try `!help`."
                     )
+            elif main_command == "agent":
+                handle_agent(user, command_full)
             elif main_command == "help":
                 handle_help(user)
             else:
                 web_client.chat_postMessage(
-                    channel="C08NTG6CXL5",
+                    channel=DEFAULT_CHANNEL_ID,
                     text=f"❓ <@{user}> Unknown command: `{text}`. Try `!help`."
                 )
 

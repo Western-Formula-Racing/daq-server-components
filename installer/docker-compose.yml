@@ -117,7 +117,7 @@ services:
     volumes:
       - ./slackbot:/app
     working_dir: /app
-    command: python slack_bot.py
+    command: python slackbot.py
     networks:
       - datalink
 

@@ -105,7 +105,7 @@ services:
 
 
   slackbot:
-    build: ./slackbot   # put Dockerfile + slack_bot.py here
+    build: ./slackbot   # put Dockerfile + slackbot.py here
     container_name: slackbot
     restart: always
     environment:
@@ -119,7 +119,7 @@ services:
     volumes:
       - ./slackbot:/app
     working_dir: /app
-    command: python slack_bot.py
+    command: python slackbot.py
     networks:
       - datalink
     deploy:

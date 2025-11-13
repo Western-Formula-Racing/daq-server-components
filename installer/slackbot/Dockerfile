@@ -8,4 +8,4 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Set default command
-CMD ["python", "slack_bot.py"]
+CMD ["python", "slackbot.py"]
