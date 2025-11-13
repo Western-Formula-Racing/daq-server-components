@@ -35,8 +35,8 @@ class CANInfluxStreamer:
         self.org = "WFR"
         self.tz_toronto = ZoneInfo("America/Toronto")
         
-        # Use Docker internal network URL
-        self.url = "http://influxdb2:8086"
+        # Use Docker internal network URL (configurable for development)
+        self.url = os.getenv("INFLUXDB_URL", "http://influxdb3:8181")
         
         # Find DBC file in current directory
         dbc_files = [f for f in os.listdir(".") if f.endswith(".dbc")]
@@ -47,10 +47,10 @@ class CANInfluxStreamer:
         print(f"📁 Loaded DBC file: {dbc_files[0]}")
         
         self.client = InfluxDBClient(
-            url=self.url, 
-            token=os.getenv("INFLUXDB_TOKEN"), 
-            org=self.org, 
-            enable_gzip=True
+            url=self.url,
+            token=os.getenv("INFLUXDB_TOKEN") or "",
+            org=self.org,
+            enable_gzip=True,
         )
         self.write_api = self.client.write_api(
             write_options=WriteOptions(batch_size=batch_size, flush_interval=10_000)
@@ -235,7 +235,11 @@ async def load_startup_data():
     for i in range(max_retries):
         try:
             # Test connection
-            client = InfluxDBClient(url="http://influxdb2:8086", token=os.getenv("INFLUXDB_TOKEN"), org="WFR")
+            client = InfluxDBClient(
+                url=os.getenv("INFLUXDB_URL", "http://influxdb3:8181"),
+                token=os.getenv("INFLUXDB_TOKEN") or "",
+                org="WFR",
+            )
             client.ping()
             client.close()
             print("✅ InfluxDB is ready!")

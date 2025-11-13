@@ -19,9 +19,14 @@ error_logger = logging.getLogger(__name__)
 ALLOWED_EXTENSIONS = {"csv"}
 PROGRESS = {}
 CURRENT_FILE = {"name": "", "task_id": "", "bucket": ""}
-WEBHOOK_URL = os.getenv("WEBHOOK_URL") or ""
+WEBHOOK_URL = (
+    os.getenv("FILE_UPLOADER_WEBHOOK_URL")
+    or os.getenv("SLACK_WEBHOOK_URL")
+    or ""
+)
 DEBUG: bool = bool(int(os.getenv("DEBUG") or 0))
 INFLUXDB_TOKEN = os.getenv("INFLUXDB_TOKEN")
+INFLUXDB_URL = os.getenv("INFLUXDB_URL", "http://influxdb3:8181")
 app = Flask(__name__)
 
 
@@ -30,23 +35,22 @@ def allowed_file(filename):
 
 
 def getBuckets() -> list[str]:
-    #TODO: DEBUG mode will be changed to AWS/Local mode
-    if DEBUG:
-        res = requests.get(
-            "http://3.98.181.12:8086/api/v2/buckets",
-            headers={"Authorization": f"Token {INFLUXDB_TOKEN}"},
-        ).json()
-    else:
-        res = requests.get(
-            "http://influxdb2:8086/api/v2/buckets",
-            headers={"Authorization": f"Token {INFLUXDB_TOKEN}"},
-        ).json()
-    names: list[str] = [bucket["name"] for bucket in res["buckets"]]
+    api_url = f"{INFLUXDB_URL.rstrip('/')}/api/v2/buckets"
+    res = requests.get(
+        api_url,
+        headers={"Authorization": f"Token {INFLUXDB_TOKEN}"},
+        timeout=10,
+    )
+    res.raise_for_status()
+    payload = res.json()
+    names: list[str] = [bucket["name"] for bucket in payload.get("buckets", [])]
     return names
 
 
 # This function can send Slack messages to a channel
 def send_webhook_notification(payload_text=None):
+    if not WEBHOOK_URL:
+        return
     try:
         payload = {"text": payload_text}
         response = requests.post(WEBHOOK_URL, json=payload, timeout=10)

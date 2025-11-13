@@ -18,8 +18,8 @@ COPY . .
 RUN mkdir -p /var/lib/telegraf
 
 # Make the script executable
-RUN chmod +x load_data_influxdb2.py
+RUN chmod +x load_data_influxdb.py
 RUN chmod +x load_data_telegraf.py
 
 # Run both data loaders in parallel
-CMD ["sh", "-c", "python load_data_influxdb2.py & python load_data_telegraf.py & wait"]
+CMD ["sh", "-c", "python load_data_influxdb.py & python load_data_telegraf.py & wait"]

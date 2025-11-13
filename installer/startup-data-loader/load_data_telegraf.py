@@ -37,8 +37,8 @@ OUTPUT_FILE = "can_metrics.out" if not os.path.exists("/var/lib/telegraf") else 
 # Progress state file
 PROGRESS_FILE = "load_data_progress.json"
 # InfluxDB direct write config
-INFLUX_URL = "http://influxdb3:8181"
-INFLUX_TOKEN = "apiv3_wfr_admin_token_change_in_production"
+INFLUX_URL = os.getenv("INFLUXDB_URL", "http://influxdb3:8181")
+INFLUX_TOKEN = os.getenv("INFLUXDB_TOKEN", "dev-influxdb-admin-token")
 INFLUX_ORG = "WFR"
 INFLUX_BUCKET = "WFR25"
 
