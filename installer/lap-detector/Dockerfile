@@ -1,4 +1,4 @@
-# Dockerfile for lappy server
+# Dockerfile for lap-detector server
 
 # 1. Base image
 FROM python:3.12-slim
@@ -17,4 +17,4 @@ COPY . .
 EXPOSE 8050
 
 # 6. Default command
-CMD ["python", "lap.py"]
+CMD ["python", "lap-detector.py"]

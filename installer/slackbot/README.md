@@ -66,7 +66,7 @@ Slack Commands
   Display the list of supported commands and short descriptions.
 
 - `!location`  
-  Fetch the current vehicle location from `http://lappy-server:8050/api/track?type=location` and post a Google Maps link plus raw coordinates.
+  Fetch the current vehicle location from `http://lap-detector-server:8050/api/track?type=location` and post a Google Maps link plus raw coordinates.
 
 - `!testimage`  
   Upload the bundled `lappy_test_image.png` to confirm file upload functionality.

@@ -69,7 +69,7 @@ All secrets and tokens are defined in `.env`. The defaults provided in `.env.exa
 | `grafana` | `8087` | Visualises telemetry with pre-provisioned dashboards. |
 | `frontend` | `8060` | Static build of the team’s dashboard landing page. |
 | `slackbot` | n/a | Socket-mode Slack bot for notifications and automation (optional). |
-| `lappy` | `8050` | Dash-based lap analysis web application. |
+| `lap-detector` | `8050` | Dash-based lap analysis web application. |
 | `startup-data-loader` | n/a | Seeds InfluxDB with sample CAN frames on first boot. |
 | `file-uploader` | `8084` | Web UI for uploading CAN CSV archives and streaming them into InfluxDB. |
 

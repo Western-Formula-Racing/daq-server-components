@@ -126,16 +126,16 @@ services:
     networks:
       - datalink
 
-  lappy:
-    build: ./lappy
-    container_name: lappy
+  lap-detector:
+    build: ./lap-detector
+    container_name: lap-detector
     restart: unless-stopped
     ports:
       - "8050:8050"
     working_dir: /app
     volumes:
-      - ./lappy:/app
-    command: python lap.py
+      - ./lap-detector:/app
+    command: python lap-detector.py
     networks:
       - datalink
 
