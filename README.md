@@ -8,10 +8,7 @@ This repository hosts the Docker-based telemetry stack that powers Western Formu
 | --- | --- |
 | `installer/` | Docker Compose deployment, container sources, and environment templates. |
 | `docs/` | Public-facing documentation for each service and the compose stack. |
-| `learn-sql/` | Jupyter notebooks for learning SQL concepts with the team’s datasets. |
-| `docker-error-logger-setup.md` | Notes on configuring Docker’s logging for troubleshooting. |
-| `daq-qrh-checklist.tsx` | Internal checklist component used in the frontend. |
-
+| `dev-utils` | Development utility scripts (not for production use). |
 ## Quick start
 
 1. Install Docker Desktop (macOS/Windows) or Docker Engine + Compose V2 (Linux).
@@ -41,17 +38,18 @@ The compose stack deploys nine cooperating containers:
 2. **InfluxDB 3 Explorer** – Web UI for browsing and querying telemetry.
 3. **Telegraf** – Reads the importer’s line protocol output and forwards metrics to InfluxDB.
 4. **Grafana** – Pre-provisioned dashboards that visualise the stored telemetry.
-5. **Static frontend** – Lightweight landing page for the driver station.
-6. **Slack bot** – Optional automation/notification bot for race ops.
-7. **Lap analysis app (“lappy”)** – Dash-based exploration tool.
+5. **Sandbox** - Connecting InfluxDB3 with LLM for natural language queries and analysis.
+6. **Slack bot d.b.a. Lappy** – Optional automation/notification bot for race ops.
+7. **Lap analysis app** – Dash-based location data visualiser and lap timer. (Useful if GPS data is available.)
 8. **Startup data loader** – Seeds the database on boot with sample CAN frames.
 9. **File uploader** – Streams uploaded CSV logs into InfluxDB using the shared DBC file.
+10. **Data downloader** - Scans InfluxDB periodically, visual SQL query builder, and CSV export service.
 
 Detailed documentation for each service is available in `docs/containers/`.
 
 ## Sample data & DBC files
 
-The repository ships with `example.dbc` (a minimal CAN database) and a markdown-wrapped sample dataset (`2024-01-01-00-00-00.csv.md`) containing four rows of synthetic telemetry. Copy the code block into a `.csv` file before running the stack. Replace both assets with production data when working with real vehicles.
+The repository ships with `example.dbc` (a minimal CAN database) and a markdown-wrapped sample dataset (`2025-01-01-00-00-00.csv.md`) containing four rows of synthetic telemetry. Copy the code block into a `.csv` file before running the stack. Replace both assets with production data when working with real vehicles.
 
 ## Working with environment variables
 
@@ -66,9 +64,10 @@ Every container reads its credentials from the `.env` file co-located with `dock
 
 ## Contributing
 
-1. Fork the repository and clone your fork.
-2. Create a feature branch and commit your changes.
-3. Run `docker compose up -d` inside `installer/` to verify the stack.
-4. Submit a pull request with links to relevant documentation updates.
+TBD
 
-Please include documentation updates whenever you change behaviour or expose new configuration options.
+## Acknowledgements
+TBD
+
+## License
+TBD
