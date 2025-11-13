@@ -21,7 +21,7 @@ jobs:
       run: |
         cd installer
         docker compose config
-        docker compose -f docker-compose.no-slack.yml config
+        docker compose -f docker-compose.yml config
 
   build-and-push:
     runs-on: ubuntu-latest
@@ -32,7 +32,7 @@ jobs:
 
     strategy:
       matrix:
-        service: [car-to-influx, slackbot, lappy, startup-data-loader, file-uploader]
+        service: [slackbot, lappy, startup-data-loader, file-uploader]
 
     steps:
     - name: Checkout code
@@ -82,12 +82,14 @@ jobs:
     - name: Create .env file for testing
       run: |
         cd installer
-        echo "INFLUXDB_TOKEN=test-token-for-ci" > .env
+        cp .env.example .env
 
     - name: Pull pre-built images
       run: |
-        docker pull influxdb:2
+        docker pull influxdb:3.5.0-core
+        docker pull influxdata/influxdb3-ui:1.3.0
         docker pull grafana/grafana
+        docker pull telegraf:1.30
         docker pull nginx:alpine
 
     - name: Build test images
@@ -103,8 +105,8 @@ jobs:
     - name: Test container startup (quick smoke test)
       run: |
         cd installer
-        # Start only the core services for a quick test
-        timeout 30s docker compose up influxdb2 grafana frontend || true
+        # Start core monitoring stack to ensure compose wiring is valid
+        timeout 60s docker compose up influxdb3 influxdb3-explorer grafana frontend || true
         # Check if containers started (even if they exit quickly)
         docker compose ps
 
