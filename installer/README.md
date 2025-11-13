@@ -1,144 +1,96 @@
-# Simplified Docker Compose Setup (No Shell Scripts)
+# DAQ Installer
 
-## Overview
-This DAQ system now uses a **preset InfluxDB admin token** instead of dynamically extracting tokens via shell scripts. This simplifies deployment and makes it fully `docker-compose` based.
+This directory contains the Docker Compose deployment used to run the full telemetry pipeline for the Western Formula Racing data acquisition (DAQ) system. It is safe to publish publicly—sensitive credentials are injected at runtime from a local `.env` file and the sample datasets are intentionally anonymised.
 
-## Key Changes
+## Contents
 
-### 1. Preset Admin Token
-- InfluxDB is initialized with a preset admin token specified in the `.env` file
-- All services use the same `INFLUXDB_ADMIN_TOKEN` environment variable
-- No need for token extraction scripts
+- `docker-compose.yml` – Orchestrates all runtime containers.
+- `.env.example` – Template for environment variables required by the stack.
+- `influxdb3-admin-token.json` – Development token consumed by the InfluxDB 3 server on first start.
+- `influxdb3-explorer-config/` – Configuration for the optional InfluxDB web explorer container.
+- Service folders (for example `file-uploader/`, `startup-data-loader/`, `slackbot/`) – Each contains the Docker context and service-specific source code.
 
-### 2. Environment Variable
-Add this to your `.env` file:
-```bash
-# InfluxDB Admin Token (preset for all services to use)
-# IMPORTANT: Change this in production for security!
-INFLUXDB_ADMIN_TOKEN=wfr-admin-token-change-in-production
-```
+## Prerequisites
 
-### 3. Services Using the Token
-The following services now reference `INFLUXDB_ADMIN_TOKEN`:
-- `influxdb2` - Sets the admin token during initialization via `DOCKER_INFLUXDB_INIT_ADMIN_TOKEN`
-- `influxdb3` - Uses the token for API access
-- `grafana` - Uses the token to connect to InfluxDB datasource
-- `car-to-influx` - Uses the token to write CAN data
-- `startup-data-loader` - Uses the token to load initial data
-- `file-uploader` - Uses the token to upload files
+- Docker Desktop 4.0+ or Docker Engine 24+
+- Docker Compose V2 (bundled with recent Docker releases)
 
-## Quick Start
+## Quick start
 
-### 1. Set Up Environment
-```bash
-cd installer
-cp .env.example .env
-# Edit .env and set INFLUXDB_ADMIN_TOKEN to a secure value
-```
+1. Copy the environment template and adjust the values for your environment:
+   ```bash
+   cd installer
+   cp .env.example .env
+   # Update tokens/passwords before deploying to production
+   ```
+2. Launch the stack:
+   ```bash
+   docker compose up -d
+   ```
+3. Verify the services:
+   ```bash
+   docker compose ps
+   docker compose logs influxdb3 | tail
+   ```
+4. Tear the stack down when you are finished:
+   ```bash
+   docker compose down -v
+   ```
 
-### 2. Start All Services
-```bash
-docker-compose up -d
-```
+The first boot seeds InfluxDB 3 with the sample CAN data in `startup-data-loader/data/`. Subsequent restarts skip the import unless you remove the volumes.
 
-### 3. Verify Services
-```bash
-# Check all containers are running
-docker ps
+## Environment variables
 
-# Check InfluxDB health
-curl http://localhost:8086/health
+All secrets and tokens are defined in `.env`. The defaults provided in `.env.example` are development-safe placeholders and **must** be replaced for production deployments.
 
-# Check Grafana health
-curl http://localhost:8087/api/health
-```
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `INFLUXDB_URL` | Internal URL used by services to talk to InfluxDB 3 | `http://influxdb3:8181` |
+| `INFLUXDB_INIT_USERNAME` / `INFLUXDB_INIT_PASSWORD` | Bootstraps the initial admin user | `admin` / `dev-influxdb-password` |
+| `INFLUXDB_ADMIN_TOKEN` | API token shared by all services | `dev-influxdb-admin-token` |
+| `GRAFANA_ADMIN_PASSWORD` | Grafana administrator password | `dev-grafana-password` |
+| `EXPLORER_SESSION_SECRET` | Secret for the InfluxDB 3 Explorer UI | `dev-explorer-session-key` |
+| `ENABLE_SLACK` | Gate to disable Slack-specific services | `false` |
+| `SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN` | Credentials for the Slack bot (optional) | empty |
+| `SLACK_WEBHOOK_URL` | Incoming webhook for notifications (optional) | empty |
+| `SLACK_DEFAULT_CHANNEL` | Default Slack channel ID for outbound messages | `C0123456789` |
+| `FILE_UPLOADER_WEBHOOK_URL` | Webhook invoked after uploads complete | inherits `SLACK_WEBHOOK_URL` |
+| `DEBUG` | Enables verbose logging for selected services | `0` |
 
-## Production Security
+> **Security reminder:** Replace every default value when deploying outside of a local development environment. Generate secure tokens with `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`.
 
-⚠️ **Important**: The default token `wfr-admin-token-change-in-production` should be changed for production deployments!
+## Service catalogue
 
-### Generate a Secure Token
-```bash
-# Generate a random secure token
-openssl rand -base64 32
+| Service | Ports | Description |
+| --- | --- | --- |
+| `influxdb3` | `9000` (mapped to `8181` internally) | Core time-series database. Initialised with the admin token from `.env`. |
+| `influxdb3-explorer` | `8888` | Lightweight UI for browsing data in InfluxDB 3. |
+| `telegraf` | n/a | Collects CAN metrics produced by the importer and forwards them to InfluxDB. |
+| `grafana` | `8087` | Visualises telemetry with pre-provisioned dashboards. |
+| `frontend` | `8060` | Static build of the team’s dashboard landing page. |
+| `slackbot` | n/a | Socket-mode Slack bot for notifications and automation (optional). |
+| `lappy` | `8050` | Dash-based lap analysis web application. |
+| `startup-data-loader` | n/a | Seeds InfluxDB with sample CAN frames on first boot. |
+| `file-uploader` | `8084` | Web UI for uploading CAN CSV archives and streaming them into InfluxDB. |
 
-# Or use Python
-python3 -c "import secrets; print(secrets.token_urlsafe(32))"
-```
+## Data and DBC files
 
-Update your `.env` file:
-```bash
-INFLUXDB_ADMIN_TOKEN=your-secure-random-token-here
-```
+- `startup-data-loader/data/` ships with `2024-01-01-00-00-00.csv.md`, a markdown-wrapped sample you can copy into a `.csv` file to exercise the import pipeline without exposing production telemetry.
+- Both the loader and the uploader share `example.dbc`, a minimal CAN database that defines two demo messages. Replace this file with your team’s CAN definition when working with real data.
 
-## Removed Files/Features
+## Observability
 
-### Shell Scripts No Longer Needed
-- `extract-influx-token.sh` - Token extraction logic removed
-- Token validation steps removed from startup script
+- Grafana dashboards are provisioned automatically from `grafana/dashboards/` and use the datasource in `grafana/provisioning/datasources/`.
+- Telegraf writes processed metrics to `/var/lib/telegraf/can_metrics.out` before forwarding them to InfluxDB. Inspect this file inside the container for debugging (`docker compose exec telegraf tail -f /var/lib/telegraf/can_metrics.out`).
 
-### Simplified Startup Process
-No more:
-- Starting InfluxDB separately
-- Running token extraction scripts
-- Restarting services with new tokens
+## Troubleshooting tips
 
-## Accessing Services
+- **Service fails to connect to InfluxDB** – Confirm the token in `.env` matches `influxdb3-admin-token.json`. Regenerate the volumes with `docker compose down -v` if you rotate credentials.
+- **Re-import sample data** – Remove the `telegraf-data` volume and rerun the stack.
+- **Slack services are optional** – Leave Slack variables empty or set `ENABLE_SLACK=false` to skip starting the bot during development.
 
-All services use the same admin token configured in `.env`:
+## Next steps
 
-### InfluxDB Web UI
-- URL: http://localhost:8086
-- Username: `admin`
-- Password: `${INFLUXDB_INIT_PASSWORD}` (from .env)
-- API Token: `${INFLUXDB_ADMIN_TOKEN}` (from .env)
-
-### Grafana
-- URL: http://localhost:8087
-- Username: `admin`
-- Password: `${GRAFANA_ADMIN_PASSWORD}` (from .env)
-- InfluxDB datasource is auto-configured with the admin token
-
-### Other Services
-- Frontend: http://localhost:8060
-- CAN Data Receiver: http://localhost:8085
-- Lap Timing: http://localhost:8050
-- File Uploader: http://localhost:8084
-
-## Troubleshooting
-
-### Token Not Working
-If you change the token after initial setup:
-```bash
-# Remove all volumes to reset InfluxDB
-docker compose down --rmi local --volumes --remove-orphans
-
-# Start fresh with new token
-docker-compose up -d
-```
-
-### Service Can't Connect to InfluxDB
-1. Check the token matches in `.env`
-2. Verify InfluxDB is running: `docker ps | grep influxdb2`
-3. Check InfluxDB logs: `docker logs influxdb2`
-4. Restart the service: `docker-compose restart <service-name>`
-
-### View All Environment Variables
-```bash
-docker-compose config
-```
-
-
-## Benefits of This Approach
-
-✅ **Simpler**: No shell scripts needed, pure docker-compose  
-✅ **Reproducible**: Same token across all environments  
-✅ **Faster**: No waiting for token extraction  
-✅ **Predictable**: Token known before services start  
-✅ **Portable**: Works on any platform with Docker  
-✅ **CI/CD Friendly**: Easy to inject tokens via environment
-
-## Reference
-
-- Docker Compose file: `docker-compose.yml`
-- Environment template: `.env.example`
+- Replace the example dataset and `example.dbc` file with production equivalents once you are ready to ingest real telemetry.
+- Update the Grafana dashboards under `grafana/dashboards/` to match your data model.
+- Review each service’s README in its respective directory for implementation details.

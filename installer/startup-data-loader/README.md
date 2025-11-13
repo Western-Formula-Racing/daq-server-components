@@ -1,49 +1,43 @@
-# Startup Data Loader
+# Startup data loader
 
-This Docker container automatically loads CSV telemetry data into InfluxDB during system startup.
+This container pre-loads InfluxDB 3 with small CAN datasets whenever the compose stack starts. It is safe to publish: the bundled data and DBC file are synthetic examples designed for development.
 
-## How it works
+## Workflow
 
-1. **Data Source**: Reads CSV files from `/data` directory (mounted from `../startup-data/`)
-2. **DBC File**: Uses `WFR25.dbc` file included in the container to decode CAN messages
-3. **Processing**: Parses CSV files with timestamp format `YYYY-MM-DD-HH-MM-SS.csv`
-4. **Upload**: Streams data to InfluxDB bucket `ourCar` in organization `WFR`
-5. **Completion**: Container exits after processing all files
+1. Waits for InfluxDB 3 to pass its health check.
+2. Reads CSV files from the mounted `/data` directory (copy `2024-01-01-00-00-00.csv.md` to `2024-01-01-00-00-00.csv` for the sample dataset).
+3. Uses `example.dbc` to decode each CAN frame into human-readable signals.
+4. Writes the decoded metrics to InfluxDB 3 (`WFR25` bucket, `WFR` organisation) and emits line protocol for Telegraf.
+5. Exits once all files finish processing.
 
-## CSV Format Expected
+## CSV format
 
 ```
 relative_ms,protocol,can_id,byte0,byte1,byte2,byte3,byte4,byte5,byte6,byte7
-506,CAN,176,0,0,6,0,0,0,2,0
-507,CAN,2048,0,0,0,0,0,0,0,0
-...
+0,CAN,256,32,3,64,80,0,0,0,0
+50,CAN,512,200,1,50,0,100,70,0,0
 ```
 
-## Environment Variables
+## Environment variables
 
-- `INFLUXDB_TOKEN`: InfluxDB authentication token (automatically provided)
+| Variable | Description |
+| --- | --- |
+| `INFLUXDB_TOKEN` | Token used for direct writes when `BACKFILL=1` (injected from `.env`). |
+| `INFLUXDB_URL` | URL for the InfluxDB 3 instance (defaults to `http://influxdb3:8181`). |
+| `BACKFILL` | Set to `1` to stream directly into InfluxDB; set to `0` to only generate line protocol for Telegraf. |
 
-## Files
+## Adding real data
 
-- `Dockerfile`: Container definition
-- `requirements.txt`: Python dependencies
-- `load_data.py`: Main data loading script
-- `WFR25.dbc`: CAN database file for message decoding
-
-## Usage
-
-This container is automatically started as part of the DAQ system startup process. It will:
-
-1. Wait for InfluxDB to be ready
-2. Process all CSV files in the startup-data directory
-3. Upload decoded CAN data to InfluxDB
-4. Exit when complete
+1. Drop additional CSV files into `data/` using the naming convention `YYYY-MM-DD-HH-MM-SS.csv`.
+2. Replace `example.dbc` with your production CAN database.
+3. Rebuild the image (`docker compose build startup-data-loader`) and restart the stack.
 
 ## Monitoring
 
-Check container logs:
+Check progress with:
+
 ```bash
-docker logs startup-data-loader
+docker compose logs -f startup-data-loader
 ```
 
-The container will show progress and completion status for each CSV file processed.
+The loader also tracks its state in `load_data_progress.json` inside the container so that it can resume large imports after interruptions.
