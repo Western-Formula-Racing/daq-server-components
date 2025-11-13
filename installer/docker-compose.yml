@@ -24,8 +24,9 @@ services:
     ports:
       - "9000:8181"
     environment:
-      INFLUX_URL: "http://influxdb3:8181"
-      INFLUXDB_INIT_ADMIN_TOKEN: "wfr-admin-token-change-in-production"
+      INFLUX_URL: "${INFLUXDB_URL:-http://influxdb3:8181}"
+      INFLUXDB_INIT_USERNAME: "${INFLUXDB_INIT_USERNAME:-admin}"
+      INFLUXDB_INIT_PASSWORD: "${INFLUXDB_INIT_PASSWORD:-dev-influxdb-password}"
     volumes:
       - influxdb3-data:/var/lib/influxdb3
       - ./influxdb3-admin-token.json:/influxdb3-admin-token.json:ro
@@ -46,7 +47,7 @@ services:
     ports:
       - "8888:80"
     environment:
-      SESSION_SECRET_KEY: "${EXPLORER_SESSION_SECRET:-wfr-explorer-session-key-change-in-production}"
+      SESSION_SECRET_KEY: "${EXPLORER_SESSION_SECRET:-dev-explorer-session-key}"
     volumes:
       - influxdb3-explorer-db:/db:rw
       - ./influxdb3-explorer-config:/app-root/config:ro
@@ -62,6 +63,9 @@ services:
     restart: unless-stopped
     depends_on:
       - influxdb3
+    environment:
+      INFLUXDB_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-apiv3_dev-influxdb-admin-token}"
+      INFLUXDB_URL: "${INFLUXDB_URL:-http://influxdb3:8181}"
     volumes:
       - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro
       - telegraf-data:/var/lib/telegraf
@@ -109,11 +113,12 @@ services:
     container_name: slackbot
     restart: always
     environment:
-      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-your-slack-bot-token-here}
-      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-your-slack-app-token-here}
-      INFLUXDB_ADMIN_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-wfr-admin-token-change-in-production}"
-      INFLUXDB_URL: "http://influxdb3:8181"
-      SLACK_WEBHOOK_URL: "${SLACK_WEBHOOK_URL:-}"
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      SLACK_DEFAULT_CHANNEL: ${SLACK_DEFAULT_CHANNEL:-C0123456789}
+      INFLUXDB_ADMIN_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-apiv3_dev-influxdb-admin-token}"
+      INFLUXDB_URL: "${INFLUXDB_URL:-http://influxdb3:8181}"
     volumes:
       - ./slackbot:/app
     working_dir: /app
@@ -139,7 +144,8 @@ services:
     container_name: startup-data-loader
     restart: "no"
     environment:
-      INFLUXDB_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-wfr-admin-token-change-in-production}"
+      INFLUXDB_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-apiv3_dev-influxdb-admin-token}"
+      INFLUXDB_URL: "${INFLUXDB_URL:-http://influxdb3:8181}"
       BACKFILL: "1"
     volumes:
       - ./startup-data-loader/data:/data:ro
@@ -154,7 +160,7 @@ services:
       sh -c "echo 'Waiting additional 5 seconds for InfluxDB 3 to stabilize...' &&
              sleep 5 &&
              echo 'Creating telegraf input file...' &&
-             python load_data_telegraf.py &&
+             python load_data.py &&
              echo 'Telegraf input file created successfully'"
 
   file-uploader:
@@ -168,8 +174,9 @@ services:
     networks:
       - datalink
     environment:
-      - INFLUXDB_TOKEN=${INFLUXDB_ADMIN_TOKEN:-wfr-admin-token-change-in-production}
-      - WEBHOOK_URL=https://hooks.slack.com/services/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
+      - INFLUXDB_TOKEN=${INFLUXDB_ADMIN_TOKEN:-apiv3_dev-influxdb-admin-token}
+      - INFLUXDB_URL=${INFLUXDB_URL:-http://influxdb3:8181}
+      - FILE_UPLOADER_WEBHOOK_URL=${FILE_UPLOADER_WEBHOOK_URL:-}
     deploy:
       resources:
         limits:

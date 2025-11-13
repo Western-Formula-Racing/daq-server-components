@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 
-# To run locally: BACKFILL=1 python3 load_data_telegraf.py
+# To run locally: BACKFILL=1 python3 load_data.py
 # Options
 
 # Add 5 second pause between files
-# INTER_FILE_DELAY=5 python3 load_data_telegraf.py
+# INTER_FILE_DELAY=5 python3 load_data.py
 
 # Combine both delays
-# BACKFILL=1 BATCH_DELAY=0.05 INTER_FILE_DELAY=10 python3 load_data_telegraf.py
+# BACKFILL=1 BATCH_DELAY=0.05 INTER_FILE_DELAY=10 python3 load_data.py
 
 """
 WFR DAQ System - Startup Data Loader
@@ -37,8 +37,8 @@ OUTPUT_FILE = "can_metrics.out" if not os.path.exists("/var/lib/telegraf") else 
 # Progress state file
 PROGRESS_FILE = "load_data_progress.json"
 # InfluxDB direct write config
-INFLUX_URL = "http://influxdb3:8181"
-INFLUX_TOKEN = "apiv3_wfr_admin_token_change_in_production"
+INFLUX_URL = os.getenv("INFLUXDB_URL", "http://influxdb3:8181")
+INFLUX_TOKEN = os.getenv("INFLUXDB_TOKEN", "apiv3_dev-influxdb-admin-token")
 INFLUX_ORG = "WFR"
 INFLUX_BUCKET = "WFR25"
 

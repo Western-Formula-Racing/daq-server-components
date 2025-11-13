@@ -1,1 +1,0 @@
-```sudo docker run -d --name influxwfr -p 8086:8086 -v ~/influxdb/data:/var/lib/influxdb2 -v ~/influxdb/config:/etc/influxdb2 -e DOCKER_INFLUXDB_INIT_MODE=setup -e DOCKER_INFLUXDB_INIT_USERNAME=admin -e DOCKER_INFLUXDB_INIT_PASSWORD=YOUR_INFLUXDB_PASSWORD -e DOCKER_INFLUXDB_INIT_ORG=WFR -e DOCKER_INFLUXDB_INIT_BUCKET=ourCar influxdb:2```

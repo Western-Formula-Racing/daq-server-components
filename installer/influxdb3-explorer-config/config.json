@@ -1,6 +1,7 @@
 {
   "DEFAULT_INFLUX_SERVER": "http://influxdb3:8181",
   "DEFAULT_INFLUX_DATABASE": "WFR25",
-  "DEFAULT_API_TOKEN": "apiv3_wfr_admin_token_change_in_production",
+  "DEFAULT_API_TOKEN": "apiv3_dev-influxdb-admin-token",
+  "_comment": "Make sure the token matches the token in influxdb3-admin-token.json",
   "DEFAULT_SERVER_NAME": "WFR InfluxDB3"
 }
