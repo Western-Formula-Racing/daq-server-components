@@ -18,13 +18,9 @@ if [[ ! -f "$ENV_TEMPLATE" ]]; then
 fi
 
 if [[ "${CI:-}" == "true" ]]; then
-  echo "[ci] Copying $ENV_TEMPLATE -> $ENV_FILE"
   cp "$ENV_TEMPLATE" "$ENV_FILE"
 elif [[ ! -f "$ENV_FILE" ]]; then
-  echo "Local .env not found; copying template for convenience."
   cp "$ENV_TEMPLATE" "$ENV_FILE"
-else
-  echo "Using existing $ENV_FILE"
 fi
 
 pushd "$INSTALLER_DIR" >/dev/null
@@ -39,17 +35,16 @@ cleanup() {
   local exit_code=$1
   trap - EXIT
   set +e
-  echo "----- docker compose ps -----"
+
   compose ps || true
   if [[ $exit_code -ne 0 ]]; then
-    echo "----- docker compose logs (tail) -----"
     compose logs --tail 200 || true
   fi
+
   if [[ "${KEEP_DAQ_STACK:-0}" != "1" ]]; then
     compose down -v --remove-orphans || true
-  else
-    echo "KEEP_DAQ_STACK=1 set; containers left running for inspection."
   fi
+
   popd >/dev/null || true
   exit "$exit_code"
 }
@@ -66,59 +61,56 @@ ENABLED_SERVICES=(
   file-uploader
 )
 
-echo "Launching stack services: ${ENABLED_SERVICES[*]}"
 compose up --detach --build --remove-orphans "${ENABLED_SERVICES[@]}"
+
+inspect_container() {
+  local name="$1"
+  docker ps -a --filter "name=${name}" \
+    --format '{{.ID}} {{.State.Status}} {{.State.ExitCode}}' \
+    | head -n 1
+}
 
 ready_timeout_seconds=$((SECONDS + 600))
 
 while (( SECONDS < ready_timeout_seconds )); do
   not_ready=()
   ready_summary=()
+
   for service in "${ENABLED_SERVICES[@]}"; do
-    container_id="$(compose ps -q "$service")"
-    if [[ -z "$container_id" ]]; then
-      not_ready+=("$service(no-container)")
+    container_info="$(inspect_container "$service")"
+
+    if [[ -z "$container_info" ]]; then
+      not_ready+=("$service(no-container-yet)")
       continue
     fi
 
-    state_status="$(docker inspect -f '{{.State.Status}}' "$container_id")"
-    health_required="$(docker inspect -f '{{if .State.Health}}true{{else}}false{{end}}' "$container_id")"
-    health_status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container_id")"
-    exit_code="$(docker inspect -f '{{.State.ExitCode}}' "$container_id")"
+    container_id=$(echo "$container_info" | awk '{print $1}')
+    status=$(echo "$container_info" | awk '{print $2}')
+    code=$(echo "$container_info" | awk '{print $3}')
 
     if [[ "$service" == "startup-data-loader" ]]; then
-      if [[ "$state_status" == "exited" ]]; then
-        if [[ "$exit_code" -eq 0 ]]; then
-          ready_summary+=("$service=exited(0)")
-          continue
-        else
-          not_ready+=("$service=exited($exit_code)")
-          continue
-        fi
+      if [[ "$status" == "exited" && "$code" -eq 0 ]]; then
+        ready_summary+=("$service=exited(0)")
+      else
+        not_ready+=("$service=$status/$code")
       fi
-
-      if [[ -z "$container_id" ]]; then
-        # Treat missing as success only if it already ran once
-        if docker ps -a --format '{{.Names}}' | grep -q "$service"; then
-          ready_summary+=("$service=exited(0)(removed)")
-          continue
-        fi
-        not_ready+=("$service(no-container)")
-        continue
-      fi
-    fi
-
-    if [[ "$state_status" != "running" ]]; then
-      not_ready+=("$service=$state_status")
       continue
     fi
 
-    if [[ "$health_required" == "true" && "$health_status" != "healthy" ]]; then
+    if [[ "$status" != "running" ]]; then
+      not_ready+=("$service=$status")
+      continue
+    fi
+
+    has_health="$(docker inspect -f '{{if .State.Health}}true{{else}}false{{end}}' "$container_id")"
+    health_status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container_id")"
+
+    if [[ "$has_health" == "true" && "$health_status" != "healthy" ]]; then
       not_ready+=("$service=health:$health_status")
       continue
     fi
 
-    if [[ "$health_required" == "true" ]]; then
+    if [[ "$has_health" == "true" ]]; then
       ready_summary+=("$service=running/$health_status")
     else
       ready_summary+=("$service=running")
@@ -127,7 +119,6 @@ while (( SECONDS < ready_timeout_seconds )); do
 
   if [[ ${#not_ready[@]} -eq 0 ]]; then
     echo "All services ready: ${ready_summary[*]}"
-    echo "Stack is healthy; proceeding to teardown."
     exit 0
   fi
 
