@@ -27,7 +27,6 @@ services:
       INFLUX_URL: "${INFLUXDB_URL:-http://influxdb3:8181}"
       INFLUXDB_INIT_USERNAME: "${INFLUXDB_INIT_USERNAME:-admin}"
       INFLUXDB_INIT_PASSWORD: "${INFLUXDB_INIT_PASSWORD:-dev-influxdb-password}"
-      INFLUXDB_INIT_ADMIN_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-dev-influxdb-admin-token}"
     volumes:
       - influxdb3-data:/var/lib/influxdb3
       - ./influxdb3-admin-token.json:/influxdb3-admin-token.json:ro
@@ -65,7 +64,7 @@ services:
     depends_on:
       - influxdb3
     environment:
-      INFLUXDB_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-dev-influxdb-admin-token}"
+      INFLUXDB_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-apiv3_dev-influxdb-admin-token}"
       INFLUXDB_URL: "${INFLUXDB_URL:-http://influxdb3:8181}"
     volumes:
       - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro
@@ -118,7 +117,7 @@ services:
       SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
       SLACK_DEFAULT_CHANNEL: ${SLACK_DEFAULT_CHANNEL:-C0123456789}
-      INFLUXDB_ADMIN_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-dev-influxdb-admin-token}"
+      INFLUXDB_ADMIN_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-apiv3_dev-influxdb-admin-token}"
       INFLUXDB_URL: "${INFLUXDB_URL:-http://influxdb3:8181}"
     volumes:
       - ./slackbot:/app
@@ -145,7 +144,7 @@ services:
     container_name: startup-data-loader
     restart: "no"
     environment:
-      INFLUXDB_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-dev-influxdb-admin-token}"
+      INFLUXDB_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-apiv3_dev-influxdb-admin-token}"
       INFLUXDB_URL: "${INFLUXDB_URL:-http://influxdb3:8181}"
       BACKFILL: "1"
     volumes:
@@ -175,7 +174,7 @@ services:
     networks:
       - datalink
     environment:
-      - INFLUXDB_TOKEN=${INFLUXDB_ADMIN_TOKEN:-dev-influxdb-admin-token}
+      - INFLUXDB_TOKEN=${INFLUXDB_ADMIN_TOKEN:-apiv3_dev-influxdb-admin-token}
       - INFLUXDB_URL=${INFLUXDB_URL:-http://influxdb3:8181}
       - FILE_UPLOADER_WEBHOOK_URL=${FILE_UPLOADER_WEBHOOK_URL:-}
     deploy:
