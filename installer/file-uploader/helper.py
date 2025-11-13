@@ -76,9 +76,7 @@ class CANInfluxStreamer:
         self._callback_lock = asyncio.Lock()
         self.org = "WFR"
         self.tz_toronto = ZoneInfo("America/Toronto")
-        self.url = (
-            "http://influxdb2:8086"
-        )
+        self.url = os.getenv("INFLUXDB_URL", "http://influxdb3:8181")
 
         # finding dbc file in the current directory
         self.db = cantools.database.load_file(
@@ -90,7 +88,10 @@ class CANInfluxStreamer:
         )
 
         self.client = InfluxDBClient(
-            url=self.url, token=os.getenv("INFLUXDB_TOKEN") or "", org=self.org, enable_gzip=True
+            url=self.url,
+            token=os.getenv("INFLUXDB_TOKEN") or "",
+            org=self.org,
+            enable_gzip=True,
         )
         # Setup async write API with success/error callbacks
         def success_callback(conf, data):
