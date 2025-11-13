@@ -5,7 +5,7 @@
 If you need to spin up an old InfluxDB 2 instance (for example to migrate historical data) you can use the following command as a starting point:
 
 ```bash
-docker run -d --name influxwfr \
+docker run -d --name influxdb2 \
   -p 8086:8086 \
   -v ~/influxdb/data:/var/lib/influxdb2 \
   -v ~/influxdb/config:/etc/influxdb2 \
