@@ -1,0 +1,9 @@
+services:
+  terrarium:
+    image: ghcr.io/cohere-ai/terrarium:latest
+    container_name: terrarium
+    ports:
+      - "8090:8080"   # host:container
+    environment:
+      TERRARIUM_MAX_RUNTIME: 30
+      TERRARIUM_MAX_MEMORY_MB: 1024
