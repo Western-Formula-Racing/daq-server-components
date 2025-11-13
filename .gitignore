@@ -178,12 +178,19 @@ cython_debug/
 car-to-influx/testing_data/cleaned_can.csv
 
 /.vscode
-# CSV samples and generated telemetry
-*.csv
-# /installer/startup-data-loader/data
-/installer/startup-data-loader/data/*
-!/installer/startup-data-loader/data/2024-01-01-00-00-00.csv.md
+
+# Ignore everything inside the data folder
+installer/startup-data-loader/data/*
+
+# keep README.md
+!installer/startup-data-loader/data/README.md
+
+# Keep only the specific CSVs (example files)
+!installer/startup-data-loader/data/2025-01-01-00-00-00.csv
+!installer/startup-data-loader/data/2025-01-01-00-07-00.csv
+!installer/startup-data-loader/data/2025-01-02-00-05-00.csv
+!installer/startup-data-loader/data/2025-01-03-00-13-00.csv
+
 !/installer/startup-data-loader/data/README.md
-/data
 installer/startup-data-loader/can_metrics.out
 installer/startup-data-loader/load_data_progress.json
