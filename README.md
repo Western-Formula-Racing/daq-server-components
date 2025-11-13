@@ -66,8 +66,33 @@ Every container reads its credentials from the `.env` file co-located with `dock
 
 TBD
 
+## Hardware Dependencies
+https://github.com/Western-Formula-Racing/ECU_25
+
+
 ## Acknowledgements
-TBD
+This project was developed in 2024 and maintained by the Western Formula Racing Data Acquisition team, inspired by the team's prior work on telemetry systems for our Formula SAE vehicles.
+https://github.com/Western-Formula-Racing/RaspberryPi-CAN-DAQ-MVP
+https://github.com/Western-Formula-Racing/daq-2023
+
+
+We also want to acknowledge the open-source tools and libraries that make this project possible. Key components include:
+* Docker / Docker Compose for containerisation
+* InfluxDB 3 and Telegraf for time-series storage and ingestion
+* Grafana for visualisation
+* Python open-source packages (NumPy, Pandas, Requests, etc.) used throughout the stack
+
+### Explore more work from Western Formula Racing
+
+If you’re interested in our team’s broader engineering projects, here are some of the hardware systems developed alongside this DAQ stack:
+* https://github.com/Western-Formula-Racing/ECU_25
+* https://github.com/Western-Formula-Racing/Custom-BMS_25
+* https://github.com/Western-Formula-Racing/mobo-25
+
+## Under Active Development
+1. Data downloader UI and connection to InfluxDB 3
+2. Slack bot improvements + sandbox
+
 
 ## License
-TBD
+AGPL-3.0 License. See LICENSE file for details.
