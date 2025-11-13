@@ -50,6 +50,7 @@ class RunsRepository:
 
     def merge_scanned_runs(self, scanned: List[dict]) -> dict:
         current = self.store.read()
+        current_updated_at = current.get("updated_at")
         existing: Dict[str, dict] = {r["key"]: r for r in current.get("runs", [])}
         merged: Dict[str, dict] = {}
 
@@ -77,6 +78,7 @@ class RunsRepository:
             "updated_at": now_iso(),
             "runs": runs_list,
         }
+        payload = self._preserve_concurrent_note_updates(payload, current_updated_at)
         self.store.write(payload)
         return payload
 
@@ -93,6 +95,36 @@ class RunsRepository:
             payload["updated_at"] = now_iso()
             self.store.write(payload)
         return updated_run
+
+    def _preserve_concurrent_note_updates(self, payload: dict, baseline_updated_at: Optional[str]) -> dict:
+        """Re-read the store to keep newer notes written while a scan was running."""
+        latest = self.store.read()
+        latest_updated_at = latest.get("updated_at")
+        if not latest_updated_at or latest_updated_at == baseline_updated_at:
+            return payload
+
+        latest_runs = {r["key"]: r for r in latest.get("runs", [])}
+        for run in payload.get("runs", []):
+            latest_run = latest_runs.get(run["key"])
+            if latest_run and self._note_is_newer(latest_run, run):
+                run["note"] = latest_run.get("note", "")
+                run["note_updated_at"] = latest_run.get("note_updated_at")
+        return payload
+
+    @staticmethod
+    def _note_is_newer(candidate: dict, current: dict) -> bool:
+        candidate_ts = RunsRepository._parse_timestamp(candidate.get("note_updated_at"))
+        current_ts = RunsRepository._parse_timestamp(current.get("note_updated_at"))
+        return candidate_ts > current_ts
+
+    @staticmethod
+    def _parse_timestamp(value: Optional[str]) -> datetime:
+        if not value:
+            return datetime.min.replace(tzinfo=timezone.utc)
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return datetime.min.replace(tzinfo=timezone.utc)
 
 
 class SensorsRepository:
