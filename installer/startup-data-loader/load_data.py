@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 
-# To run locally: BACKFILL=1 python3 load_data_telegraf.py
+# To run locally: BACKFILL=1 python3 load_data.py
 # Options
 
 # Add 5 second pause between files
-# INTER_FILE_DELAY=5 python3 load_data_telegraf.py
+# INTER_FILE_DELAY=5 python3 load_data.py
 
 # Combine both delays
-# BACKFILL=1 BATCH_DELAY=0.05 INTER_FILE_DELAY=10 python3 load_data_telegraf.py
+# BACKFILL=1 BATCH_DELAY=0.05 INTER_FILE_DELAY=10 python3 load_data.py
 
 """
 WFR DAQ System - Startup Data Loader
