@@ -97,16 +97,6 @@ services:
     networks:
       - datalink
 
-  frontend:
-    image: nginx:alpine
-    container_name: frontend
-    restart: unless-stopped
-    ports:
-      - "8060:80"
-    volumes:
-      - ./frontend-build:/usr/share/nginx/html:ro
-    networks:
-      - datalink
 
   slackbot:
     build: ./slackbot

@@ -45,6 +45,7 @@ All secrets and tokens are defined in `.env`. The defaults provided in `.env.exa
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
+| `DBC_FILE_PATH` | Path to the CAN DBC file used by startup-data-loader and file-uploader and other services | `example.dbc` |
 | `INFLUXDB_URL` | Internal URL used by services to talk to InfluxDB 3 | `http://influxdb3:8181` |
 | `INFLUXDB_INIT_USERNAME` / `INFLUXDB_INIT_PASSWORD` | Bootstraps the initial admin user | `admin` / `dev-influxdb-password` |
 | `INFLUXDB_ADMIN_TOKEN` | API token shared by all services | `dev-influxdb-admin-token` |
@@ -65,9 +66,9 @@ All secrets and tokens are defined in `.env`. The defaults provided in `.env.exa
 | --- | --- | --- |
 | `influxdb3` | `9000` (mapped to `8181` internally) | Core time-series database. Initialised with the admin token from `.env`. |
 | `influxdb3-explorer` | `8888` | Lightweight UI for browsing data in InfluxDB 3. |
+| `data-downloader` | `3000` | Periodically downloads CAN CSV archives from the DAQ server. Visual SQL query builder included. |
 | `telegraf` | n/a | Collects CAN metrics produced by the importer and forwards them to InfluxDB. |
 | `grafana` | `8087` | Visualises telemetry with pre-provisioned dashboards. |
-| `frontend` | `8060` | Static build of the team’s dashboard landing page. |
 | `slackbot` | n/a | Socket-mode Slack bot for notifications and automation (optional). |
 | `lap-detector` | `8050` | Dash-based lap analysis web application. |
 | `startup-data-loader` | n/a | Seeds InfluxDB with sample CAN frames on first boot. |
@@ -75,7 +76,7 @@ All secrets and tokens are defined in `.env`. The defaults provided in `.env.exa
 
 ## Data and DBC files
 
-- `startup-data-loader/data/` ships with `2024-01-01-00-00-00.csv.md`, a markdown-wrapped sample you can copy into a `.csv` file to exercise the import pipeline without exposing production telemetry.
+- `startup-data-loader/data/` ships with `2025-01-01-00-00-00.csv`, a csv file to exercise the import pipeline without exposing production telemetry.
 - Both the loader and the uploader share `example.dbc`, a minimal CAN database that defines two demo messages. Replace this file with your team’s CAN definition when working with real data.
 
 ## Observability
