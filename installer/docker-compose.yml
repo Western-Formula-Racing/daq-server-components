@@ -150,6 +150,7 @@ services:
     networks:
       - datalink
 
+
   startup-data-loader:
     build: ./startup-data-loader
     container_name: startup-data-loader
@@ -159,7 +160,11 @@ services:
       INFLUXDB_URL: "${INFLUXDB_URL:-http://influxdb3:8181}"
       BACKFILL: "1"
       CSV_RESTART_INTERVAL: "${CSV_RESTART_INTERVAL:-10}"
+      # Fixed container path, host path remains flexible
+      DBC_FILE_PATH: "/installer/example.dbc"
     volumes:
+      # Host can name DBC file anything they want
+      - ./${DBC_FILE_PATH:-example.dbc}:/installer/example.dbc:ro
       - ./startup-data-loader/data:/data:ro
       - telegraf-data:/var/lib/telegraf
     working_dir: /app
@@ -174,6 +179,7 @@ services:
              python load_data.py &&
              echo 'Telegraf input file created successfully'"
 
+
   file-uploader:
     build: ./file-uploader
     container_name: file-uploader
@@ -181,6 +187,8 @@ services:
       - "8084:8084"
     volumes:
       - ./file-uploader:/app
+      # Host DBC file → fixed container location
+      - ./${DBC_FILE_PATH:-example.dbc}:/installer/example.dbc:ro
     restart: unless-stopped
     networks:
       - datalink
@@ -188,12 +196,15 @@ services:
       - INFLUXDB_TOKEN=${INFLUXDB_ADMIN_TOKEN:-apiv3_dev-influxdb-admin-token}
       - INFLUXDB_URL=${INFLUXDB_URL:-http://influxdb3:8181}
       - FILE_UPLOADER_WEBHOOK_URL=${FILE_UPLOADER_WEBHOOK_URL:-}
+      # Fixed container path only
+      - DBC_FILE_PATH=/installer/example.dbc
     deploy:
       resources:
         limits:
           cpus: "1"
           memory: 1024M
 
+          
   data-downloader-api:
     build:
       context: ./data-downloader
