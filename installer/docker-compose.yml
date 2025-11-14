@@ -182,3 +182,58 @@ services:
         limits:
           cpus: "1"
           memory: 1024M
+
+  data-downloader-api:
+    build:
+      context: ./data-downloader
+      dockerfile: backend/Dockerfile
+    container_name: data-downloader-api
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data-downloader/data:/app/data
+    restart: unless-stopped
+    networks:
+      - datalink
+    depends_on:
+      startup-data-loader:
+        condition: service_completed_successfully
+
+  data-downloader-scanner:
+    build:
+      context: ./data-downloader
+      dockerfile: backend/Dockerfile
+    container_name: data-downloader-scanner
+    env_file:
+      - .env
+    command: ["python", "-m", "backend.periodic_worker"]
+    volumes:
+      - ./data-downloader/data:/app/data
+    restart: unless-stopped
+    networks:
+      - datalink
+    depends_on:
+      data-downloader-api:
+        condition: service_started
+      startup-data-loader:
+        condition: service_completed_successfully
+
+  data-downloader-frontend:
+    build:
+      context: ./data-downloader
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+    container_name: data-downloader-frontend
+    ports:
+      - "3000:80"
+    restart: unless-stopped
+    networks:
+      - datalink
+    depends_on:
+      data-downloader-api:
+        condition: service_started
+      startup-data-loader:
+        condition: service_completed_successfully
