@@ -158,6 +158,7 @@ services:
       INFLUXDB_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-apiv3_dev-influxdb-admin-token}"
       INFLUXDB_URL: "${INFLUXDB_URL:-http://influxdb3:8181}"
       BACKFILL: "1"
+      CSV_RESTART_INTERVAL: "${CSV_RESTART_INTERVAL:-10}"
     volumes:
       - ./startup-data-loader/data:/data:ro
       - telegraf-data:/var/lib/telegraf

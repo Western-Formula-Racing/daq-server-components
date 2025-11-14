@@ -25,6 +25,7 @@ relative_ms,protocol,can_id,byte0,byte1,byte2,byte3,byte4,byte5,byte6,byte7
 | `INFLUXDB_TOKEN` | Token used for direct writes when `BACKFILL=1` (injected from `.env`). |
 | `INFLUXDB_URL` | URL for the InfluxDB 3 instance (defaults to `http://influxdb3:8181`). |
 | `BACKFILL` | Set to `1` to stream directly into InfluxDB; set to `0` to only generate line protocol for Telegraf. |
+| `CSV_RESTART_INTERVAL` | Number of CSV files to process before the loader re-execs itself (defaults to `10`; set to `0` to disable). |
 
 ## Adding real data
 

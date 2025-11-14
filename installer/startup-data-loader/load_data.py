@@ -31,6 +31,18 @@ from dataclasses import dataclass, asdict
 import cantools
 from influxdb_client import InfluxDBClient, WriteOptions
 
+
+def _env_int(var_name: str, default: int) -> int:
+    """Parse an integer environment variable with a fallback."""
+    raw_value = os.getenv(var_name)
+    if raw_value is None:
+        return default
+    try:
+        return int(raw_value)
+    except ValueError:
+        print(f"⚠️  Invalid value '{raw_value}' for {var_name}; using default {default}")
+        return default
+
 # Output file - use local file if telegraf directory doesn't exist
 OUTPUT_FILE = "can_metrics.out" if not os.path.exists("/var/lib/telegraf") else "/var/lib/telegraf/can_metrics.out"
 
@@ -48,6 +60,7 @@ BACKFILL_MODE = os.getenv("BACKFILL", "0") == "1"
 # Performance tuning - delays to reduce server load
 BATCH_DELAY = float(os.getenv("BATCH_DELAY", "0.0"))  # Delay after each batch write (seconds)
 INTER_FILE_DELAY = float(os.getenv("INTER_FILE_DELAY", "0.0"))  # Delay between files (seconds)
+CSV_RESTART_INTERVAL = _env_int("CSV_RESTART_INTERVAL", 10)  # Restart loader after N CSV files
 
 
 @dataclass
@@ -402,9 +415,13 @@ async def load_startup_data():
     mode_str = "InfluxDB Direct (BACKFILL)" if BACKFILL_MODE else "Telegraf File"
     print(f"🚀 WFR DAQ System - Startup Data Loader [{mode_str}]")
     print("=" * 60)
+    restart_interval = CSV_RESTART_INTERVAL if CSV_RESTART_INTERVAL > 0 else None
+    if restart_interval:
+        print(f"♻️  Loader will restart after every {restart_interval} CSV file(s)")
 
     # Load or initialize progress state
     progress_state = ProgressState.load()
+    files_processed_since_restart = 0
 
     # Check for local data directory first, then container path
     data_dir = "data" if os.path.exists("data") else "/data"
@@ -454,6 +471,7 @@ async def load_startup_data():
             rel_path = os.path.relpath(csv_path, data_dir)
             print(f"📊 Processing file {i}/{len(files_to_process)}: {rel_path}")
 
+            file_processed = False
             try:
                 with open(csv_path, 'rb') as f:
                     await writer.stream_csv(
@@ -463,11 +481,15 @@ async def load_startup_data():
                         on_progress=make_progress_callback(csv_path)
                     )
                 print(f"\n✅ Successfully wrote metrics for {rel_path}")
+                file_processed = True
             except Exception as e:
                 print(f"\n❌ Failed to process {rel_path}: {e}")
                 # Save progress even on error
                 progress_state.save()
                 continue
+
+            if file_processed:
+                files_processed_since_restart += 1
 
             # Delay between files to reduce server load
             if INTER_FILE_DELAY > 0 and i < len(files_to_process):
@@ -475,6 +497,18 @@ async def load_startup_data():
                 await asyncio.sleep(INTER_FILE_DELAY)
             
             print()
+
+            should_restart = (
+                restart_interval is not None
+                and files_processed_since_restart >= restart_interval
+                and i < len(files_to_process)
+            )
+            if should_restart:
+                remaining = len(files_to_process) - i
+                print(f"♻️  Processed {files_processed_since_restart} CSV file(s); restarting to continue with {remaining} remaining...")
+                progress_state.save()
+                sys.stdout.flush()
+                os.execv(sys.executable, [sys.executable] + sys.argv)
 
         print("🎉 Startup data writing completed!")
         
