@@ -6,7 +6,14 @@ import {
   SensorsResponse
 } from "./types";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") || "";
+const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL?.trim() ?? "";
+const SANITIZED_API_BASE = RAW_API_BASE.replace(/\/$/, "");
+const LOCAL_BASE_PATTERN = /:\/\/(localhost|127\.0\.0\.1|\[?::1]?)/i;
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+const runningOnLocalhost = typeof window !== "undefined" && LOCAL_HOSTS.has(window.location.hostname);
+const preferRelativeBase =
+  SANITIZED_API_BASE === "" || (!runningOnLocalhost && LOCAL_BASE_PATTERN.test(SANITIZED_API_BASE));
+const API_BASE = preferRelativeBase ? "" : SANITIZED_API_BASE;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
