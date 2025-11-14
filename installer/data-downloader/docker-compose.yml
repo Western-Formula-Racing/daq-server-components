@@ -9,6 +9,8 @@ services:
     volumes:
       - ./data:/app/data
     restart: unless-stopped
+    networks: 
+      - datalink
 
   scanner:
     build:
@@ -21,6 +23,8 @@ services:
     volumes:
       - ./data:/app/data
     restart: unless-stopped
+    networks: 
+      - datalink
 
   frontend:
     build:
@@ -32,3 +36,5 @@ services:
       - "3000:80"
     depends_on:
       - api
+    networks:
+      - datalink
