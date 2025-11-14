@@ -11,8 +11,11 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application files
-COPY . .
+# Copy application files (exclude the runtime `data/` directory)
+# Keep the build context small by only copying the files needed to run the loader.
+COPY load_data.py requirements.txt ./
+# Copy any .dbc files found at the build context root into the image
+COPY *.dbc ./
 
 # Create Telegraf output directory
 RUN mkdir -p /var/lib/telegraf
