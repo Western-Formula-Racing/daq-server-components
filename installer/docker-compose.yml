@@ -162,7 +162,6 @@ services:
     volumes:
       - ./startup-data-loader/data:/data:ro
       - telegraf-data:/var/lib/telegraf
-      - ./startup-data-loader:/app
     working_dir: /app
     networks:
       - datalink
