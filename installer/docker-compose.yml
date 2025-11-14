@@ -210,8 +210,9 @@ services:
     networks:
       - datalink
     depends_on:
-      startup-data-loader:
-        condition: service_completed_successfully
+      influxdb3:
+        condition: service_healthy
+
 
   data-downloader-scanner:
     build:
@@ -229,8 +230,6 @@ services:
     depends_on:
       data-downloader-api:
         condition: service_started
-      startup-data-loader:
-        condition: service_completed_successfully
 
   data-downloader-frontend:
     build:
@@ -247,5 +246,3 @@ services:
     depends_on:
       data-downloader-api:
         condition: service_started
-      startup-data-loader:
-        condition: service_completed_successfully
