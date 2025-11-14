@@ -194,3 +194,6 @@ installer/startup-data-loader/data/*
 !/installer/startup-data-loader/data/README.md
 installer/startup-data-loader/can_metrics.out
 installer/startup-data-loader/load_data_progress.json
+installer/data-downloader/data/scanner_status.json
+installer/data-downloader/data/runs.json
+installer/data-downloader/data/sensors.json
