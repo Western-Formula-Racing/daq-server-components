@@ -55,6 +55,11 @@ const toIsoString = (value: string, timeZone?: string | null) => {
 const toLocaleTimestamp = (value: string) =>
   new Date(value).toLocaleString(undefined, { hour12: false });
 
+const toUtcTooltip = (value: string) => {
+  const dt = DateTime.fromISO(value, { zone: "utc", setZone: true });
+  return dt.isValid ? `${dt.toFormat("yyyy-LL-dd HH:mm:ss")} UTC` : value;
+};
+
 export function DataDownload({ runs, sensors, externalSelection }: Props) {
   const [selectedRunKey, setSelectedRunKey] = useState<string>("");
   const [selectedRunTimezone, setSelectedRunTimezone] = useState<string | null>(null);
@@ -70,6 +75,12 @@ export function DataDownload({ runs, sensors, externalSelection }: Props) {
   const lastSelectionVersionRef = useRef<number | null>(null);
   const lastSelectionIdentityRef = useRef<ExternalSelection | null>(null);
   const lastAppliedRunKeyRef = useRef<string | null>(null);
+  const systemTimeZone = useMemo(() => getLocalTimeZone(), []);
+  const manualInputLabel = `Local time - ${systemTimeZone}`;
+  const timeInputLabelSuffix = selectedRunTimezone ?? manualInputLabel;
+  const timeMetaText = selectedRunTimezone
+    ? `Times interpreted as ${selectedRunTimezone}.`
+    : `Times interpreted as ${systemTimeZone} (local system time).`;
 
   useEffect(() => {
     if (!selectedSensor && sensors.length > 0) {
@@ -215,10 +226,11 @@ export function DataDownload({ runs, sensors, externalSelection }: Props) {
             {
               x: series.map((point) => point.time),
               y: series.map((point) => point.value),
+              customdata: series.map((point) => toUtcTooltip(point.time)),
               type: "scatter",
               mode: "lines",
               line: { color: "#2563eb", width: 2 },
-              hovertemplate: "%{y}<br>%{x|%Y-%m-%d %H:%M:%S}<extra></extra>",
+              hovertemplate: "%{y}<br>%{customdata}<extra></extra>",
               name: selectedSensor || "Sensor"
             }
           ],
@@ -231,7 +243,7 @@ export function DataDownload({ runs, sensors, externalSelection }: Props) {
       margin: { t: 10, r: 20, b: 40, l: 50, pad: 4 },
       hovermode: "x unified",
       xaxis: {
-        title: "Time",
+        title: "Time (UTC)",
         type: "date",
         tickformat: "%H:%M\n%b %d"
       },
@@ -299,12 +311,10 @@ export function DataDownload({ runs, sensors, externalSelection }: Props) {
               </option>
             ))}
           </select>
-          {selectedRunTimezone && (
-            <p className="selector-meta">Times interpreted as {selectedRunTimezone}.</p>
-          )}
+          <p className="selector-meta">{timeMetaText}</p>
 
           <div className="selector-field">
-            <label className="selector-label">Start (UTC)</label>
+            <label className="selector-label">{`Start (${timeInputLabelSuffix})`}</label>
             <input
               type="datetime-local"
               className="selector-input"
@@ -333,7 +343,7 @@ export function DataDownload({ runs, sensors, externalSelection }: Props) {
             </label>
           </div>
           <div className="selector-field">
-            <label className="selector-label">End (UTC)</label>
+            <label className="selector-label">{`End (${timeInputLabelSuffix})`}</label>
             <input
               type="datetime-local"
               className="selector-input"
