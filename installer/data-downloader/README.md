@@ -32,4 +32,4 @@ Both JSON files are shared through the `./data` directory so every service (fron
 
 Set `INFLUX_SCHEMA`/`INFLUX_TABLE` to the same values used in the legacy scripts (e.g. `iox` + `WFR25`) so the SQL sent from `backend/server_scanner.py` and `backend/sql.py` matches the proven queries.
 
-All services mount `./data` inside the container and the FastAPI layer manages file I/O with atomic writes to keep data consistent between the worker and UI actions. If the rolling lookback produces no sensors, the collector automatically falls back to the historic 2025-06-19 -> 2025-07-10 window (tune via `SENSOR_FALLBACK_START` / `SENSOR_FALLBACK_END`).
+All services mount `./data` inside the container and the FastAPI layer manages file I/O with atomic writes to keep data consistent between the worker and UI actions. If the rolling lookback produces no sensors, the collector now falls back to the oldest/newest run windows discovered by the date scanner, so no manual date tuning is required.
