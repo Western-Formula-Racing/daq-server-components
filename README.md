@@ -1,3 +1,5 @@
+<img width="3456" height="605" alt="WFR-DAQ-Banner" src="https://github.com/user-attachments/assets/2e05c619-8101-4062-9a7d-6f40dfdc7fad" />
+
 # Western Formula Racing DAQ Components
 
 This repository hosts the Docker-based telemetry stack that powers Western Formula Racing’s data acquisition (DAQ) pipeline. It is designed to be publicly shareable: all runtime credentials live in `.env` files, sample datasets are anonymised, and every container is documented for easy onboarding.
@@ -49,7 +51,7 @@ Detailed documentation for each service is available in `docs/containers/`.
 
 ## Sample data & DBC files
 
-The repository ships with `example.dbc` (a minimal CAN database) and a markdown-wrapped sample dataset (`2025-01-01-00-00-00.csv.md`) containing four rows of synthetic telemetry. Copy the code block into a `.csv` file before running the stack. Replace both assets with production data when working with real vehicles.
+The repository ships with `example.dbc` (a minimal CAN database) and a sample dataset (`2025-01-01-00-00-00.csv`) containing four rows of synthetic telemetry. Replace both assets with production data when working with real vehicles.
 
 ## Working with environment variables
 
