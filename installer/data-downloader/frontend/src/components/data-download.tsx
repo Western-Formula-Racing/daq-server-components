@@ -145,12 +145,27 @@ export function DataDownload({ runs, sensors, externalSelection }: Props) {
   const handleRunSelect = (runKey: string) => {
     setSelectedRunKey(runKey);
     const run = runs.find((r) => r.key === runKey);
+
     if (run) {
+      // Selecting a run → format timestamps in run's zone
       const zone = normalizeZone(run.timezone);
       setSelectedRunTimezone(zone);
       setStartInput(formatInputValue(run.start_utc, zone));
       setEndInput(formatInputValue(run.end_utc, zone));
     } else {
+      // Switching back to manual → convert existing inputs into local zone
+      const localZone = getLocalTimeZone();
+
+      const convertToLocal = (ts: string, prevZone: string | null) => {
+        if (!ts) return "";
+        const dt = DateTime.fromFormat(ts, INPUT_FORMAT, { zone: prevZone ?? localZone });
+        return dt.setZone(localZone).toFormat(INPUT_FORMAT);
+      };
+
+      setStartInput((prev) => convertToLocal(prev, selectedRunTimezone));
+      setEndInput((prev) => convertToLocal(prev, selectedRunTimezone));
+
+      // Now clear timezone
       setSelectedRunTimezone(null);
     }
   };
