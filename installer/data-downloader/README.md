@@ -22,7 +22,7 @@ Both JSON files are shared through the `./data` directory so every service (fron
 
 ## Runtime behaviour
 
-- `frontend` serves the compiled React bundle via nginx. The UI calls the API using the `VITE_API_BASE_URL` value that gets baked into the build (defaults to http://localhost:8000). Match this host in `ALLOWED_ORIGINS` so CORS preflights succeed when the UI hits the API from another port.
+- `frontend` serves the compiled React bundle via nginx and now proxies `/api` requests (including `/api/scan` and `/api/scanner-status`) directly to the FastAPI container. When the UI is loaded from anything other than `localhost`, the client automatically falls back to relative `/api/...` calls so a single origin on a VPS still reaches the backend. Override `VITE_API_BASE_URL` if you want the UI to talk to a different host (for example when running `npm run dev` locally) and keep that host in `ALLOWED_ORIGINS`.
 - `api` runs `uvicorn backend.app:app`, exposing
   - `GET /api/runs` and `GET /api/sensors`
   - `POST /api/runs/{key}/note` to persist notes per run

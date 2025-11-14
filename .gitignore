@@ -197,3 +197,8 @@ installer/startup-data-loader/load_data_progress.json
 installer/data-downloader/data/scanner_status.json
 installer/data-downloader/data/runs.json
 installer/data-downloader/data/sensors.json
+
+installer/*.dbc
+# Keep example.dbc
+!installer/example.dbc
+

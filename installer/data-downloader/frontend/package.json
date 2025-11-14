@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "luxon": "^3.5.0",
     "lucide-react": "^0.446.0",
     "papaparse": "^5.4.1",
     "react": "^18.3.1",
