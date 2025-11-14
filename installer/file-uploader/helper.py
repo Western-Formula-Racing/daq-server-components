@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Optional, IO, Callable, Generator
 from zoneinfo import ZoneInfo
 from dataclasses import dataclass
+from pathlib import Path
 import cantools
 from influxdb_client.client.influxdb_client import InfluxDBClient
 from influxdb_client.client.write.point import Point
@@ -11,6 +12,9 @@ import os
 
 # Global list to track temp directories for emergency cleanup
 _temp_directories = []
+DBC_ENV_VAR = "DBC_FILE_PATH"
+DBC_FILENAME = "example.dbc"
+INSTALLER_ROOT = Path(__file__).resolve().parent.parent
 
 def _rolling_cleanup():
     """Clean up temp files older than 6 hours."""
@@ -38,6 +42,37 @@ def _rolling_cleanup():
 # Register rolling cleanup on process exit and run it once at startup
 atexit.register(_rolling_cleanup)
 _rolling_cleanup()  # Clean up any old temp files from previous runs
+
+
+def _resolve_dbc_path() -> Path:
+    """Find the DBC file via env override, shared volume, or local fallback."""
+    env_override = os.getenv(DBC_ENV_VAR)
+    if env_override:
+        env_path = Path(env_override).expanduser()
+        if env_path.exists():
+            return env_path
+        print(f"⚠️  {DBC_ENV_VAR}={env_override} not found; falling back to default lookup.")
+
+    for candidate in (
+        INSTALLER_ROOT / DBC_FILENAME,
+        Path("/installer") / DBC_FILENAME,
+    ):
+        if candidate.exists():
+            return candidate
+
+    # Final fallback: search nearby for compatibility with older layouts
+    local_candidates = sorted(
+        Path(__file__).resolve().parent.glob("*.dbc"),
+        key=lambda file_path: file_path.stat().st_mtime,
+        reverse=True,
+    )
+    if local_candidates:
+        return local_candidates[0]
+
+    raise FileNotFoundError(
+        f"Could not locate {DBC_FILENAME}. Place it in the repository root or set "
+        f"{DBC_ENV_VAR} to the desired path."
+    )
 
 if os.getenv("DEBUG") is None:
     from dotenv import load_dotenv
@@ -78,14 +113,9 @@ class CANInfluxStreamer:
         self.tz_toronto = ZoneInfo("America/Toronto")
         self.url = os.getenv("INFLUXDB_URL", "http://influxdb3:8181")
 
-        # finding dbc file in the current directory
-        self.db = cantools.database.load_file(
-            [
-                file
-                for file in os.listdir(os.path.dirname(os.path.abspath(__file__)))
-                if file.endswith(".dbc")
-            ][0]
-        )
+        dbc_path = _resolve_dbc_path()
+        self.db = cantools.database.load_file(str(dbc_path))
+        print(f"📁 Loaded DBC file: {dbc_path}")
 
         self.client = InfluxDBClient(
             url=self.url,

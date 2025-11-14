@@ -159,7 +159,9 @@ services:
       INFLUXDB_URL: "${INFLUXDB_URL:-http://influxdb3:8181}"
       BACKFILL: "1"
       CSV_RESTART_INTERVAL: "${CSV_RESTART_INTERVAL:-10}"
+      DBC_FILE_PATH: "/installer/${DBC_FILE_PATH:-example.dbc}"
     volumes:
+      - ./${DBC_FILE_PATH:-example.dbc}:/installer/${DBC_FILE_PATH:-example.dbc}:ro
       - ./startup-data-loader/data:/data:ro
       - telegraf-data:/var/lib/telegraf
     working_dir: /app
@@ -181,6 +183,7 @@ services:
       - "8084:8084"
     volumes:
       - ./file-uploader:/app
+      - ./${DBC_FILE_PATH:-example.dbc}:/installer/${DBC_FILE_PATH:-example.dbc}:ro
     restart: unless-stopped
     networks:
       - datalink
@@ -188,6 +191,7 @@ services:
       - INFLUXDB_TOKEN=${INFLUXDB_ADMIN_TOKEN:-apiv3_dev-influxdb-admin-token}
       - INFLUXDB_URL=${INFLUXDB_URL:-http://influxdb3:8181}
       - FILE_UPLOADER_WEBHOOK_URL=${FILE_UPLOADER_WEBHOOK_URL:-}
+      - DBC_FILE_PATH=/installer/${DBC_FILE_PATH:-example.dbc}
     deploy:
       resources:
         limits:

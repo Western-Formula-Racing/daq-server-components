@@ -6,7 +6,7 @@ This container pre-loads InfluxDB 3 with small CAN datasets whenever the compose
 
 1. Waits for InfluxDB 3 to pass its health check.
 2. Reads CSV files from the mounted `/data` directory (copy `2024-01-01-00-00-00.csv.md` to `2024-01-01-00-00-00.csv` for the sample dataset).
-3. Uses `example.dbc` to decode each CAN frame into human-readable signals.
+3. Uses the shared `/installer/example.dbc` file (or the path specified by `DBC_FILE_PATH`) to decode each CAN frame into human-readable signals.
 4. Writes the decoded metrics to InfluxDB 3 (`WFR25` bucket, `WFR` organisation) and emits line protocol for Telegraf.
 5. Exits once all files finish processing.
 
@@ -30,8 +30,8 @@ relative_ms,protocol,can_id,byte0,byte1,byte2,byte3,byte4,byte5,byte6,byte7
 ## Adding real data
 
 1. Drop additional CSV files into `data/` using the naming convention `YYYY-MM-DD-HH-MM-SS.csv`.
-2. Replace `example.dbc` with your production CAN database.
-3. Rebuild the image (`docker compose build startup-data-loader`) and restart the stack.
+2. Replace the repository-level `example.dbc` (or set `DBC_FILE_PATH`) with your production CAN database.
+3. Restart the stack so the new DBC is picked up by the container.
 
 ## Monitoring
 
