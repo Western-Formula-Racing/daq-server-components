@@ -132,6 +132,6 @@ class DataDownloaderService:
                 continue
             fallback_start = start_dt if fallback_start is None else min(fallback_start, start_dt)
             fallback_end = end_dt if fallback_end is None else max(fallback_end, end_dt)
-        if fallback_start and fallback_end and fallback_start >= fallback_end:
+        if fallback_start and fallback_end and fallback_start > fallback_end:
             return None, None
         return fallback_start, fallback_end
