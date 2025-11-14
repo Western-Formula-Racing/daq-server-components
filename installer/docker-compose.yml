@@ -111,7 +111,8 @@ services:
   slackbot:
     build: ./slackbot
     container_name: slackbot
-    restart: always
+    restart: no
+    # set restart to unless-stopped if you intend to run the slackbot continuously
     environment:
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
       SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
@@ -122,7 +123,17 @@ services:
     volumes:
       - ./slackbot:/app
     working_dir: /app
-    command: python slack_bot.py
+    command: >
+      sh -c '
+        if [ "$ENABLE_SLACK" = "true" ]; then
+          echo "Slackbot enabled, starting...";
+          python slack_bot.py;
+        else
+          echo "Slackbot disabled (ENABLE_SLACK=$ENABLE_SLACK). Exiting.";
+          sleep 5;
+          exit 0;
+        fi
+      '
     networks:
       - datalink
 
