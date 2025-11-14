@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+set -o errtrace
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -36,16 +37,19 @@ cleanup() {
   trap - EXIT
   set +e
 
-  compose ps || true
+  compose ps >/dev/null 2>&1 || true
   if [[ $exit_code -ne 0 ]]; then
-    compose logs --tail 200 || true
+    compose logs --tail 200 >/dev/null 2>&1 || true
   fi
 
   if [[ "${KEEP_DAQ_STACK:-0}" != "1" ]]; then
-    compose down -v --remove-orphans || true
+    compose down -v --remove-orphans >/dev/null 2>&1 || true
   fi
 
-  popd >/dev/null || true
+  popd >/dev/null 2>&1 || true
+
+  # Final return (not exit!)
+  # This avoids Bash trap exit cross-talk
   exit "$exit_code"
 }
 trap 'cleanup $?' EXIT
