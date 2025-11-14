@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { DateTime } from "luxon";
 import Papa from "papaparse";
 import { Download } from "lucide-react";
 import Plot from "react-plotly.js";
@@ -20,16 +21,35 @@ interface Props {
   externalSelection?: ExternalSelection;
 }
 
-const formatInputValue = (value: string) => {
-  if (!value) return "";
-  const date = new Date(value);
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+const INPUT_FORMAT = "yyyy-LL-dd'T'HH:mm";
+
+const getLocalTimeZone = () => {
+  if (typeof Intl === "undefined" || typeof Intl.DateTimeFormat === "undefined") {
+    return "UTC";
+  }
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
 };
 
-const toIsoString = (value: string) => {
+const normalizeZone = (zone?: string | null) => {
+  if (!zone) return null;
+  const trimmed = zone.trim();
+  return trimmed ? trimmed : null;
+};
+
+const formatInputValue = (value: string, timeZone?: string | null) => {
   if (!value) return "";
-  const date = new Date(value);
-  return date.toISOString();
+  const base = DateTime.fromISO(value, { zone: "utc", setZone: true });
+  if (!base.isValid) return "";
+  const zone = timeZone ?? getLocalTimeZone();
+  return base.setZone(zone).toFormat(INPUT_FORMAT);
+};
+
+const toIsoString = (value: string, timeZone?: string | null) => {
+  if (!value) return "";
+  const zone = timeZone ?? getLocalTimeZone();
+  const dt = DateTime.fromFormat(value, INPUT_FORMAT, { zone });
+  if (!dt.isValid) return "";
+  return dt.toUTC().toISO({ suppressMilliseconds: true });
 };
 
 const toLocaleTimestamp = (value: string) =>
@@ -37,6 +57,7 @@ const toLocaleTimestamp = (value: string) =>
 
 export function DataDownload({ runs, sensors, externalSelection }: Props) {
   const [selectedRunKey, setSelectedRunKey] = useState<string>("");
+  const [selectedRunTimezone, setSelectedRunTimezone] = useState<string | null>(null);
   const [selectedSensor, setSelectedSensor] = useState<string>("");
   const [startInput, setStartInput] = useState<string>("");
   const [endInput, setEndInput] = useState<string>("");
@@ -86,28 +107,31 @@ export function DataDownload({ runs, sensors, externalSelection }: Props) {
       setSelectedRunKey(runKey);
       const runChanged = runKey !== lastAppliedRunKeyRef.current;
       const matchedRun = runs.find((run) => run.key === runKey);
+      const zone = normalizeZone(matchedRun?.timezone);
+      setSelectedRunTimezone(zone);
       const derivedStart = startUtc ?? matchedRun?.start_utc;
       const derivedEnd = endUtc ?? matchedRun?.end_utc;
 
       if (runChanged) {
         if (derivedStart) {
-          setStartInput(formatInputValue(derivedStart));
+          setStartInput(formatInputValue(derivedStart, zone));
         }
         if (derivedEnd) {
-          setEndInput(formatInputValue(derivedEnd));
+          setEndInput(formatInputValue(derivedEnd, zone));
         }
       } else {
         if (startUtc) {
-          setStartInput(formatInputValue(startUtc));
+          setStartInput(formatInputValue(startUtc, zone));
         }
         if (endUtc) {
-          setEndInput(formatInputValue(endUtc));
+          setEndInput(formatInputValue(endUtc, zone));
         }
       }
 
       lastAppliedRunKeyRef.current = runKey;
     } else {
       setSelectedRunKey("");
+      setSelectedRunTimezone(null);
       lastAppliedRunKeyRef.current = null;
       if (startUtc) {
         setStartInput(formatInputValue(startUtc));
@@ -122,8 +146,12 @@ export function DataDownload({ runs, sensors, externalSelection }: Props) {
     setSelectedRunKey(runKey);
     const run = runs.find((r) => r.key === runKey);
     if (run) {
-      setStartInput(formatInputValue(run.start_utc));
-      setEndInput(formatInputValue(run.end_utc));
+      const zone = normalizeZone(run.timezone);
+      setSelectedRunTimezone(zone);
+      setStartInput(formatInputValue(run.start_utc, zone));
+      setEndInput(formatInputValue(run.end_utc, zone));
+    } else {
+      setSelectedRunTimezone(null);
     }
   };
 
@@ -136,10 +164,18 @@ export function DataDownload({ runs, sensors, externalSelection }: Props) {
     setError(null);
     try {
       const parsedLimit = noLimit ? undefined : Number(limitInput) || undefined;
+      const zone = selectedRunTimezone;
+      const startIso = toIsoString(startInput, zone);
+      const endIso = toIsoString(endInput, zone);
+      if (!startIso || !endIso) {
+        setError("Unable to parse time selection. Please verify both timestamps.");
+        setLoading(false);
+        return;
+      }
       const payload = {
         signal: selectedSensor,
-        start: toIsoString(startInput),
-        end: toIsoString(endInput),
+        start: startIso,
+        end: endIso,
         limit: parsedLimit,
         no_limit: noLimit || undefined
       };
@@ -248,6 +284,9 @@ export function DataDownload({ runs, sensors, externalSelection }: Props) {
               </option>
             ))}
           </select>
+          {selectedRunTimezone && (
+            <p className="selector-meta">Times interpreted as {selectedRunTimezone}.</p>
+          )}
 
           <div className="selector-field">
             <label className="selector-label">Start (UTC)</label>
