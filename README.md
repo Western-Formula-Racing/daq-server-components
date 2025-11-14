@@ -25,8 +25,8 @@ This repository hosts the Docker-based telemetry stack that powers Western Formu
 4. Visit the services:
    - InfluxDB 3 Explorer – http://localhost:8888
    - Grafana – http://localhost:8087
-   - File uploader – http://localhost:8084
-   - Static frontend – http://localhost:8060
+   - Drag and Drop CSV File uploader – http://localhost:8084
+   - Data Downloader - http://localhost:3000
 
 All services share a bridge network named `datalink` and rely on the admin token supplied through `.env`.
 
@@ -37,10 +37,10 @@ The compose stack deploys nine cooperating containers:
 1. **InfluxDB 3** – Time-series database seeded with a tiny example dataset.
 2. **InfluxDB 3 Explorer** – Web UI for browsing and querying telemetry.
 3. **Telegraf** – Reads the importer’s line protocol output and forwards metrics to InfluxDB.
-4. **Grafana** – Pre-provisioned dashboards that visualise the stored telemetry.
-5. **Sandbox** - Connecting InfluxDB3 with LLM for natural language queries and analysis.
+4. **Grafana** – Pre-provisioned dashboards that visualise the stored telemetry.  Load your own dashboard provisioning files into `installer/grafana/dashboards/`.
+5. **Sandbox** - *Under active development.* Connecting InfluxDB3 with LLM for natural language queries and analysis.
 6. **Slack bot d.b.a. Lappy** – Optional automation/notification bot for race ops.
-7. **Lap analysis app** – Dash-based location data visualiser and lap timer. (Useful if GPS data is available.)
+7. **Lap analysis app** – *Under active development.* Dash-based location data visualiser and lap timer. (Useful if GPS data is available.) 
 8. **Startup data loader** – Seeds the database on boot with sample CAN frames.
 9. **File uploader** – Streams uploaded CSV logs into InfluxDB using the shared DBC file.
 10. **Data downloader** - Scans InfluxDB periodically, visual SQL query builder, and CSV export service.
@@ -90,8 +90,8 @@ If you’re interested in our team’s broader engineering projects, here are so
 * https://github.com/Western-Formula-Racing/mobo-25
 
 ## Under Active Development
-1. Data downloader UI and connection to InfluxDB 3
-2. Slack bot improvements + sandbox
+1. Slack bot improvements + sandbox
+2. Lap analysis app
 
 
 ## License
