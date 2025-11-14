@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import logging
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from influxdb_client_3 import InfluxDBClient3
 
@@ -68,6 +68,7 @@ class DataDownloaderService:
                     initial_chunk_days=self.settings.scanner_initial_chunk_days,
                 )
             )
+            fallback_start, fallback_end = self._build_sensor_fallback_range(runs)
             runs_payload = self.runs_repo.merge_scanned_runs(runs)
 
             sensors = fetch_unique_sensors(
@@ -79,8 +80,8 @@ class DataDownloaderService:
                     table=self.settings.influx_table,
                     window_days=self.settings.sensor_window_days,
                     lookback_days=self.settings.sensor_lookback_days,
-                    fallback_start=_parse_iso(self.settings.sensor_fallback_start),
-                    fallback_end=_parse_iso(self.settings.sensor_fallback_end),
+                    fallback_start=fallback_start,
+                    fallback_end=fallback_end,
                 )
             )
             sensors_payload = self.sensors_repo.write_sensors(sensors)
@@ -118,3 +119,19 @@ class DataDownloaderService:
             logger.info("InfluxDB connectivity OK")
         except Exception:
             logger.exception("InfluxDB connectivity check failed")
+
+    @staticmethod
+    def _build_sensor_fallback_range(runs: List[dict]) -> tuple[Optional[datetime], Optional[datetime]]:
+        """Use scanner output to determine the oldest/newest windows for sensor fallback."""
+        fallback_start: Optional[datetime] = None
+        fallback_end: Optional[datetime] = None
+        for run in runs:
+            start_dt = _parse_iso(run.get("start_utc"))
+            end_dt = _parse_iso(run.get("end_utc"))
+            if start_dt is None or end_dt is None:
+                continue
+            fallback_start = start_dt if fallback_start is None else min(fallback_start, start_dt)
+            fallback_end = end_dt if fallback_end is None else max(fallback_end, end_dt)
+        if fallback_start and fallback_end and fallback_start >= fallback_end:
+            return None, None
+        return fallback_start, fallback_end
