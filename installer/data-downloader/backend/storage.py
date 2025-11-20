@@ -37,7 +37,9 @@ class JSONStore:
         with NamedTemporaryFile("w", delete=False, dir=str(self.path.parent), encoding="utf-8") as tmp:
             json.dump(payload, tmp, indent=2, ensure_ascii=True)
             tmp.flush()
-        Path(tmp.name).replace(self.path)
+        tmp_path = Path(tmp.name)
+        tmp_path.chmod(0o664)
+        tmp_path.replace(self.path)
 
 
 class RunsRepository:
