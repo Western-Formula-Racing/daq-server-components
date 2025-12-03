@@ -1,2 +1,10 @@
 requests
 slack_sdk
+python-dotenv
+# influxdb3-python
+# pandas
+# matplotlib
+# pyarrow
+# plotly
+# scikit-learn
+# openai

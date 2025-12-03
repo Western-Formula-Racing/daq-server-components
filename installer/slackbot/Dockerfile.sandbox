@@ -1,0 +1,26 @@
+FROM python:3.12-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install minimal system dependencies for matplotlib (headless mode)
+# Agg backend doesn't require X11, but we include font libraries for better text rendering
+RUN apt-get update && apt-get install -y \
+    --no-install-recommends \
+    libfreetype6 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY requirements.sandbox.txt .
+RUN pip install --no-cache-dir -r requirements.sandbox.txt
+
+# Create output directory for generated graphs
+RUN mkdir -p /app/output
+
+# Set matplotlib to use non-interactive backend (headless mode)
+ENV MPLBACKEND=Agg
+
+# Default command (can be overridden when running the container)
+# The actual script will be mounted and executed via gen.py
+CMD ["python", "--version"]
+
