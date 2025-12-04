@@ -22,13 +22,7 @@ socket_client = SocketModeClient(app_token=app_token, web_client=web_client)
 WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL")
 DEFAULT_CHANNEL = os.environ.get("SLACK_DEFAULT_CHANNEL", "C08NTG6CXL5")
 AGENT_PAYLOAD_PATH = Path(os.environ.get("AGENT_PAYLOAD_PATH", "agent_payload.txt"))
-AGENT_TRIGGER_COMMAND = os.environ.get("AGENT_TRIGGER_COMMAND")
-DEFAULT_AGENT_COMMAND = [
-    "python3",
-    "-c",
-    "print('Agent trigger placeholder executed')",
-]
-AGENT_COMMAND = shlex.split(AGENT_TRIGGER_COMMAND) if AGENT_TRIGGER_COMMAND else DEFAULT_AGENT_COMMAND
+SANDBOX_URL = os.environ.get("SANDBOX_URL", "http://sandbox:8080")
 
 
 # --- Public helper functions ---
@@ -110,32 +104,33 @@ def handle_agent(user, command_full):
             text=f"❌ <@{user}> Unable to write agent payload. Error: {exc}",
         )
         return
-    #TODO: Add AI + Terrarium integration here
 
+    # Send payload to Sandbox via HTTP POST
     try:
-        result = subprocess.run(
-            AGENT_COMMAND,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        output = (result.stdout or "Command executed with no output").strip()
+        payload = {"prompt": instructions}
+        print(f"Sending agent instructions to {SANDBOX_URL}...")
+        response = requests.post(SANDBOX_URL, json=payload, timeout=30)
+        response.raise_for_status()
+        
+        # Try to parse response as JSON, otherwise use text
+        try:
+            resp_data = response.json()
+            output_preview = str(resp_data)[:2000]
+        except ValueError:
+            output_preview = response.text[:2000]
+
         send_slack_message(
             DEFAULT_CHANNEL,
             text=(
-                f"✅ <@{user}> Agent instructions saved to `{AGENT_PAYLOAD_PATH}`."
-                " Placeholder trigger output:\n```${output[:2000]}```"
+                f"✅ <@{user}> Agent instructions sent to Sandbox.\n"
+                f"Response:\n```\n{output_preview}\n```"
             ),
         )
-    except subprocess.CalledProcessError as exc:
-        error_text = (exc.stderr or str(exc)).strip()
-        print("Agent trigger command failed:", error_text)
+    except Exception as exc:
+        print(f"Error communicating with sandbox: {exc}")
         send_slack_message(
             DEFAULT_CHANNEL,
-            text=(
-                f"❌ <@{user}> Agent trigger command failed with exit code {exc.returncode}."
-                f" Details:\n```${error_text[:2000]}```"
-            ),
+            text=f"❌ <@{user}> Failed to trigger Sandbox pipeline. Error: {exc}",
         )
 
 
