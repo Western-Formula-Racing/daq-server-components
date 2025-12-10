@@ -119,7 +119,7 @@ services:
       sh -c '
         if [ "$ENABLE_SLACK" = "true" ]; then
           echo "Slackbot enabled, starting...";
-          python slack_bot.py;
+          python -u slack_bot.py;
         else
           echo "Slackbot disabled (ENABLE_SLACK=$ENABLE_SLACK). Exiting.";
           sleep 5;
@@ -130,6 +130,7 @@ services:
       - code-generator
     networks:
       - datalink
+      - default
 
   lap-detector:
     build: ./lap-detector
@@ -292,5 +293,6 @@ services:
       - influxdb3
     volumes:
       - ./sandbox/generated:/app/generated
+      - ./sandbox/prompt-guide.txt:/app/prompt-guide.txt
     networks:
       - datalink
