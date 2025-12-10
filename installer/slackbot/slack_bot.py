@@ -1,6 +1,9 @@
 import os
 import shlex
 import subprocess
+import base64
+import json
+import datetime
 from pathlib import Path
 from threading import Event
 
@@ -12,17 +15,31 @@ from slack_sdk.socket_mode.response import SocketModeResponse
 
 processed_messages = set()
 
+# --- Logging Configuration ---
+LOG_DIR = Path("/app/logs")
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
 # --- Slack App Configuration ---
 app_token = os.environ["SLACK_APP_TOKEN"]
 bot_token = os.environ["SLACK_BOT_TOKEN"]
 
+print(f"DEBUG: Loaded SLACK_APP_TOKEN: {app_token[:9]}...{app_token[-4:]} (Length: {len(app_token)})")
+print(f"DEBUG: Loaded SLACK_BOT_TOKEN: {bot_token[:9]}...{bot_token[-4:]} (Length: {len(bot_token)})")
+
 web_client = WebClient(token=bot_token)
-socket_client = SocketModeClient(app_token=app_token, web_client=web_client)
+socket_client = SocketModeClient(
+    app_token=app_token,
+    web_client=web_client,
+    trace_enabled=True,  # Enable debug logging
+    ping_interval=30,    # Send ping every 30 seconds
+    auto_reconnect_enabled=True
+)
 
 WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL")
 DEFAULT_CHANNEL = os.environ.get("SLACK_DEFAULT_CHANNEL", "C08NTG6CXL5")
 AGENT_PAYLOAD_PATH = Path(os.environ.get("AGENT_PAYLOAD_PATH", "agent_payload.txt"))
 AGENT_TRIGGER_COMMAND = os.environ.get("AGENT_TRIGGER_COMMAND")
+CODE_GENERATOR_URL = os.environ.get("CODE_GENERATOR_URL", "http://code-generator:3030")
 DEFAULT_AGENT_COMMAND = [
     "python3",
     "-c",
@@ -46,6 +63,43 @@ def send_slack_image(channel: str, file_path: str, **kwargs):
     }
     upload_kwargs.update(kwargs)
     return web_client.files_upload_v2(**upload_kwargs)
+
+def log_interaction(user, instructions, result, status, error=None):
+    """Log the entire interaction to a file."""
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_entry_dir = LOG_DIR / f"{timestamp}_{user}"
+    log_entry_dir.mkdir(parents=True, exist_ok=True)
+
+    log_data = {
+        "timestamp": timestamp,
+        "user": user,
+        "instructions": instructions,
+        "status": status,
+        "error": error,
+        "generated_code": result.get("generated_code", ""),
+        "output": result.get("result", {}).get("output", "")
+    }
+
+    # Save textual log
+    with open(log_entry_dir / "interaction.json", "w") as f:
+        json.dump(log_data, f, indent=4)
+
+    # Save generated files (images)
+    exec_result = result.get("result", {})
+    files = exec_result.get("files", [])
+    for file_info in files:
+        filename = file_info.get("name")
+        b64_data = file_info.get("data")
+        file_type = file_info.get("type")
+        
+        if file_type == "image" and b64_data:
+            try:
+                image_data = base64.b64decode(b64_data)
+                (log_entry_dir / filename).write_bytes(image_data)
+            except Exception as e:
+                print(f"Error saving log image {filename}: {e}")
+
+    print(f"📝 Logged interaction to {log_entry_dir}")
 
 
 # --- Slack Command Handlers ---
@@ -91,6 +145,10 @@ def handle_testimage(user):
 
 
 def handle_agent(user, command_full):
+    """
+    Handle !agent command - sends request to code-generator service.
+    Supports AI-powered code generation and execution.
+    """
     parts = command_full.split(maxsplit=1)
     instructions = parts[1].strip() if len(parts) > 1 else ""
     if not instructions:
@@ -100,43 +158,116 @@ def handle_agent(user, command_full):
         )
         return
 
-    try:
-        AGENT_PAYLOAD_PATH.parent.mkdir(parents=True, exist_ok=True)
-        AGENT_PAYLOAD_PATH.write_text(instructions + "\n", encoding="utf-8")
-    except OSError as exc:
-        print("Error writing agent payload:", exc)
-        send_slack_message(
-            DEFAULT_CHANNEL,
-            text=f"❌ <@{user}> Unable to write agent payload. Error: {exc}",
-        )
-        return
-    #TODO: Add AI + Terrarium integration here
+    # Send initial acknowledgment
+    send_slack_message(
+        DEFAULT_CHANNEL,
+        text=f"🤖 <@{user}> Processing your request: `{instructions[:100]}...`\nGenerating code with AI...",
+    )
 
     try:
-        result = subprocess.run(
-            AGENT_COMMAND,
-            capture_output=True,
-            text=True,
-            check=True,
+        # Call code-generator service
+        response = requests.post(
+            f"{CODE_GENERATOR_URL}/api/generate-code",
+            json={"prompt": instructions},
+            timeout=120  # Allow up to 2 minutes for code generation + retries
         )
-        output = (result.stdout or "Command executed with no output").strip()
+        response.raise_for_status()
+        result = response.json()
+        
+        # Check if retries occurred
+        retries = result.get("retries", [])
+        if retries:
+            retry_msg = f"⚠️ Initial code had errors. Retried {len(retries)} time(s) with error feedback."
+            send_slack_message(DEFAULT_CHANNEL, text=retry_msg)
+        
+        # Get execution result
+        exec_result = result.get("result", {})
+        status = exec_result.get("status", "unknown")
+        
+        if status == "success":
+            # Success - send output and files
+            output = exec_result.get("output", "")
+            files = exec_result.get("files", [])
+            
+            success_msg = f"✅ <@{user}> Code executed successfully!"
+            if retries:
+                success_msg += f" (after {len(retries)} retry/retries)"
+            
+            send_slack_message(DEFAULT_CHANNEL, text=success_msg)
+            
+            # Send output if any
+            if output:
+                output_msg = f"**Output:**\n```\n{output[:2000]}\n```"
+                send_slack_message(DEFAULT_CHANNEL, text=output_msg)
+            
+            # Send generated files (images, etc.)
+            for file_info in files:
+                filename = file_info.get("name")
+                b64_data = file_info.get("data")
+                file_type = file_info.get("type")
+                
+                if file_type == "image" and b64_data:
+                    try:
+                        # Decode base64 and save temporarily
+                        temp_path = Path(f"/tmp/{filename}")
+                        image_data = base64.b64decode(b64_data)
+                        temp_path.write_bytes(image_data)
+                        
+                        # Upload to Slack
+                        send_slack_image(
+                            DEFAULT_CHANNEL,
+                            str(temp_path),
+                            title=f"Generated: {filename}",
+                            initial_comment=f"📊 <@{user}> Here's your visualization:"
+                        )
+                        
+                        # Clean up
+                        temp_path.unlink()
+                    except Exception as e:
+                        print(f"Error uploading image {filename}: {e}")
+                        send_slack_message(
+                            DEFAULT_CHANNEL,
+                            text=f"⚠️ Could not upload image {filename}: {e}"
+                        )
+            
+            # Log successful interaction
+            log_interaction(user, instructions, result, "success")
+        
+        else:
+            # Execution failed
+            error = exec_result.get("error", "Unknown error")
+            max_retries_reached = result.get("max_retries_reached", False)
+            
+            error_msg = f"❌ <@{user}> Code execution failed"
+            if max_retries_reached:
+                error_msg += f" after {len(retries)} retries"
+            error_msg += f":\n```\n{error[:1500]}\n```"
+            
+            send_slack_message(DEFAULT_CHANNEL, text=error_msg)
+            
+            # Log failed interaction
+            log_interaction(user, instructions, result, "failed", error)
+    
+    except requests.exceptions.Timeout:
         send_slack_message(
             DEFAULT_CHANNEL,
-            text=(
-                f"✅ <@{user}> Agent instructions saved to `{AGENT_PAYLOAD_PATH}`."
-                " Placeholder trigger output:\n```${output[:2000]}```"
-            ),
+            text=f"⏱️ <@{user}> Request timed out. The task might be too complex or the service is busy.",
         )
-    except subprocess.CalledProcessError as exc:
-        error_text = (exc.stderr or str(exc)).strip()
-        print("Agent trigger command failed:", error_text)
+        log_interaction(user, instructions, {}, "timeout", "Request timed out")
+    except requests.exceptions.RequestException as e:
         send_slack_message(
             DEFAULT_CHANNEL,
-            text=(
-                f"❌ <@{user}> Agent trigger command failed with exit code {exc.returncode}."
-                f" Details:\n```${error_text[:2000]}```"
-            ),
+            text=f"❌ <@{user}> Failed to connect to code generation service: {e}",
         )
+        log_interaction(user, instructions, {}, "connection_error", str(e))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        send_slack_message(
+            DEFAULT_CHANNEL,
+            text=f"❌ <@{user}> Unexpected error: {e}",
+        )
+        log_interaction(user, instructions, {}, "unexpected_error", str(e))
 
 
 def handle_help(user):
@@ -146,8 +277,9 @@ def handle_help(user):
         "!help                      - Show this help message.\n"
         "!location                  - Show the current :daqcar: location.\n"
         "!testimage                 - Upload the bundled Lappy test image.\n"
-        "!agent <instructions>      - Save instructions to the agent text file and trigger\n"
-        "                              the placeholder command.\n"
+        "!agent <instructions>      - Generate and execute Python code using AI.\n"
+        "                              Example: !agent plot inverter voltage vs current\n"
+        "                              Automatically retries up to 2 times if code fails.\n"
         "```"
     )
     send_slack_message(DEFAULT_CHANNEL, text=help_text)
@@ -213,8 +345,20 @@ def process_events(client: SocketModeClient, req: SocketModeRequest):
 # --- Main Execution ---
 if __name__ == "__main__":
     print("🟢 Bot attempting to connect...")
+    print("🔍 Testing Slack API connectivity...")
+    
+    # Test basic connectivity first
+    try:
+        response = requests.get("https://slack.com/api/api.test", timeout=10)
+        print(f"✓ Slack API reachable: {response.status_code}")
+    except requests.exceptions.Timeout:
+        print("❌ Timeout connecting to Slack API - check firewall/network")
+    except Exception as e:
+        print(f"❌ Cannot reach Slack API: {e}")
+    
     socket_client.socket_mode_request_listeners.append(process_events)
     try:
+        print("🔌 Connecting to Slack WebSocket...")
         socket_client.connect()
         if WEBHOOK_URL:
             requests.post(
@@ -226,8 +370,15 @@ if __name__ == "__main__":
             print("⚠️ SLACK_WEBHOOK_URL not configured - skipping webhook notification")
         print("🟢 Bot connected and listening for messages.")
         Event().wait()
+    except KeyboardInterrupt:
+        print("\n🛑 Bot shutting down...")
+        socket_client.close()
     except Exception as exc:
         print(f"🔴 Bot failed to connect: {exc}")
+        print("💡 Possible causes:")
+        print("   - Firewall blocking outbound WebSocket connections (port 443)")
+        print("   - Invalid tokens (check SLACK_APP_TOKEN and SLACK_BOT_TOKEN)")
+        print("   - Network connectivity issues")
         import traceback
 
         traceback.print_exc()
