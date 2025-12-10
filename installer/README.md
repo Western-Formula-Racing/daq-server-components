@@ -56,6 +56,10 @@ All secrets and tokens are defined in `.env`. The defaults provided in `.env.exa
 | `SLACK_WEBHOOK_URL` | Incoming webhook for notifications (optional) | empty |
 | `SLACK_DEFAULT_CHANNEL` | Default Slack channel ID for outbound messages | `C0123456789` |
 | `FILE_UPLOADER_WEBHOOK_URL` | Webhook invoked after uploads complete | inherits `SLACK_WEBHOOK_URL` |
+| `COHERE_API_KEY` | Cohere API key for AI-powered code generation | empty |
+| `COHERE_MODEL` | Cohere model to use | `command-a-03-2025` |
+| `MAX_RETRIES` | Maximum retries for failed code execution | `2` |
+| `INFLUXDB_DATABASE` | Database name for telemetry queries | `telemetry` |
 | `DEBUG` | Enables verbose logging for selected services | `0` |
 
 > **Security reminder:** Replace every default value when deploying outside of a local development environment. Generate secure tokens with `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`.
@@ -69,10 +73,12 @@ All secrets and tokens are defined in `.env`. The defaults provided in `.env.exa
 | `data-downloader` | `3000` | Periodically downloads CAN CSV archives from the DAQ server. Visual SQL query builder included. |
 | `telegraf` | n/a | Collects CAN metrics produced by the importer and forwards them to InfluxDB. |
 | `grafana` | `8087` | Visualises telemetry with pre-provisioned dashboards. |
-| `slackbot` | n/a | Socket-mode Slack bot for notifications and automation (optional). |
+| `slackbot` | n/a | Socket-mode Slack bot for notifications and automation (optional). Integrates with code-generator for AI queries. |
 | `lap-detector` | `8050` | Dash-based lap analysis web application. |
 | `startup-data-loader` | n/a | Seeds InfluxDB with sample CAN frames on first boot. |
 | `file-uploader` | `8084` | Web UI for uploading CAN CSV archives and streaming them into InfluxDB. |
+| `sandbox` | n/a | Custom Python execution environment with internet access for running AI-generated code and InfluxDB queries. |
+| `code-generator` | `3030` (internal) | AI-powered code generation service using Cohere. Generates Python code from natural language. |
 
 ## Data and DBC files
 
@@ -89,6 +95,33 @@ All secrets and tokens are defined in `.env`. The defaults provided in `.env.exa
 - **Service fails to connect to InfluxDB** – Confirm the token in `.env` matches `influxdb3-admin-token.json`. Regenerate the volumes with `docker compose down -v` if you rotate credentials.
 - **Re-import sample data** – Remove the `telegraf-data` volume and rerun the stack.
 - **Slack services are optional** – Leave Slack variables empty or set `ENABLE_SLACK=false` to skip starting the bot during development.
+- **AI code generation not working** – Ensure `COHERE_API_KEY` is set in `.env`. Check logs with `docker compose logs code-generator`.
+- **Sandbox execution fails** – Verify sandbox container is running with `docker ps | grep sandbox`. Check logs with `docker compose logs sandbox`.
+
+## AI-Powered Code Generation
+
+The stack includes an AI-powered code generation service that allows natural language queries via Slack:
+
+**Usage:**
+```
+!agent plot battery voltage over the last hour
+!agent show me motor temperature correlation with RPM
+!agent analyze inverter efficiency
+```
+
+**Features:**
+- Automatic code generation from natural language using Cohere AI
+- Self-correcting retry mechanism (up to 2 retries on failure)
+- Secure sandboxed execution environment
+- Auto-generation of plots and visualizations
+- Direct InfluxDB access for telemetry queries
+
+**Setup:**
+1. Add `COHERE_API_KEY` to your `.env` file
+2. Optional: Configure `COHERE_MODEL` and `MAX_RETRIES`
+3. Services start automatically with the stack
+
+See `sandbox/README.md` for detailed documentation.
 
 ## Next steps
 

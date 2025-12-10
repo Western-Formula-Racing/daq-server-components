@@ -108,8 +108,10 @@ services:
       SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
       SLACK_DEFAULT_CHANNEL: ${SLACK_DEFAULT_CHANNEL:-C0123456789}
+      ENABLE_SLACK: ${ENABLE_SLACK:-false}
       INFLUXDB_ADMIN_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-apiv3_dev-influxdb-admin-token}"
       INFLUXDB_URL: "${INFLUXDB_URL:-http://influxdb3:8181}"
+      CODE_GENERATOR_URL: "http://code-generator:3030"
     volumes:
       - ./slackbot:/app
     working_dir: /app
@@ -124,6 +126,8 @@ services:
           exit 0;
         fi
       '
+    depends_on:
+      - code-generator
     networks:
       - datalink
 
@@ -246,3 +250,47 @@ services:
     depends_on:
       data-downloader-api:
         condition: service_started
+
+  # Custom sandbox execution container (with internet access for InfluxDB queries)
+  sandbox:
+    build:
+      context: ./sandbox
+      dockerfile: Dockerfile.sandbox
+    container_name: sandbox
+    restart: unless-stopped
+    environment:
+      SANDBOX_PORT: 8080
+      SANDBOX_TIMEOUT: 30
+      SANDBOX_MAX_FILE_MB: 5
+      SANDBOX_MAX_FILES: 10
+      INFLUXDB_URL: ${INFLUXDB_URL:-http://influxdb3:8181}
+      INFLUXDB_ADMIN_TOKEN: ${INFLUXDB_ADMIN_TOKEN}
+      INFLUXDB_DATABASE: ${INFLUXDB_DATABASE:-telemetry}
+    depends_on:
+      - influxdb3
+    networks:
+      - datalink
+
+  # Code generator - Cohere integration for AI-powered code generation
+  code-generator:
+    build:
+      context: ./sandbox
+      dockerfile: Dockerfile
+    container_name: code-generator
+    restart: unless-stopped
+    environment:
+      COHERE_API_KEY: ${COHERE_API_KEY}
+      COHERE_MODEL: ${COHERE_MODEL:-command-r-plus}
+      SANDBOX_URL: "http://sandbox:8080"
+      MAX_RETRIES: ${MAX_RETRIES:-2}
+      CODE_GEN_PORT: 3030
+      INFLUXDB_URL: ${INFLUXDB_URL:-http://influxdb3:8181}
+      INFLUXDB_ADMIN_TOKEN: ${INFLUXDB_ADMIN_TOKEN}
+      INFLUXDB_DATABASE: ${INFLUXDB_DATABASE:-telemetry}
+    depends_on:
+      - sandbox
+      - influxdb3
+    volumes:
+      - ./sandbox/generated:/app/generated
+    networks:
+      - datalink
