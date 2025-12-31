@@ -58,7 +58,9 @@ ENABLED_SERVICES=(
   influxdb3
   influxdb3-explorer
   grafana
-  frontend
+  data-downloader-api
+  data-downloader-scanner
+  data-downloader-frontend
   lap-detector
   startup-data-loader
   file-uploader
@@ -68,9 +70,20 @@ compose up --detach --build --remove-orphans "${ENABLED_SERVICES[@]}"
 
 inspect_container() {
   local name="$1"
-  docker ps -a --filter "name=${name}" \
-    --format '{{.ID}} {{.State.Status}} {{.State.ExitCode}}' \
-    | head -n 1
+  local container_id
+  container_id=$(docker ps -a --filter "name=${name}" --format '{{.ID}}' | head -n 1)
+  
+  if [[ -z "$container_id" ]]; then
+    echo ""
+    return
+  fi
+  
+  local status
+  local exit_code
+  status=$(docker inspect -f '{{.State.Status}}' "$container_id" 2>/dev/null || echo "")
+  exit_code=$(docker inspect -f '{{.State.ExitCode}}' "$container_id" 2>/dev/null || echo "0")
+  
+  echo "$container_id $status $exit_code"
 }
 
 ready_timeout_seconds=$((SECONDS + 600))
