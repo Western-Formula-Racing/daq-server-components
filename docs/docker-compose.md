@@ -5,10 +5,10 @@ The `installer/docker-compose.yml` file orchestrates the complete DAQ telemetry 
 ## High-level architecture
 
 ```text
-┌────────────┐      ┌──────────────────┐      ┌────────────┐
-│ Startup    │      │  Telegraf        │      │ InfluxDB 3 │
-│ data loader├─────▶│  (line protocol) ├─────▶│ + Explorer │
-└────────────┘      └──────────────────┘      └────────────┘
+┌────────────┐                                ┌────────────┐
+│ Startup    │                                │ InfluxDB 3 │
+│ data loader├───────────────────────────────▶│ + Explorer │
+└────────────┘                                └────────────┘
        │                                           │
        │                                           ▼
        │                               ┌─────────────────────┐
@@ -29,7 +29,6 @@ All containers join the `datalink` bridge network, enabling them to communicate 
 | `influxdb3-data` | `influxdb3` | Persists InfluxDB 3 metadata and stored telemetry. |
 | `influxdb3-explorer-db` | `influxdb3-explorer` | Keeps explorer UI preferences. |
 | `grafana-storage` | `grafana` | Stores dashboards, plugins, and Grafana state. |
-| `telegraf-data` | `telegraf`, `startup-data-loader` | Shared folder for generated line protocol and importer progress. |
 
 Remove volumes with `docker compose down -v` if you need a clean slate.
 

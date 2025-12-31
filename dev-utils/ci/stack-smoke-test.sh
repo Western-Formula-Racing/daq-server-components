@@ -57,7 +57,6 @@ trap 'cleanup $?' EXIT
 ENABLED_SERVICES=(
   influxdb3
   influxdb3-explorer
-  telegraf
   grafana
   frontend
   lap-detector

@@ -6,15 +6,14 @@ The startup data loader seeds InfluxDB 3 with a small, deterministic dataset on 
 
 - Loads CSV files from `/data` (mounted from `installer/startup-data-loader/data/`; copy `2024-01-01-00-00-00.csv.md` to a `.csv` file for the bundled sample).
 - Uses `example.dbc` to decode CAN frames into human-readable metrics.
-- Generates line protocol for Telegraf and optionally writes directly to InfluxDB.
+- Writes decoded metrics directly to InfluxDB.
 
 ## Environment variables
 
 | Variable | Description | Default |
 | --- | --- | --- |
-| `INFLUXDB_TOKEN` | Token used for direct writes when `BACKFILL=1`. | `dev-influxdb-admin-token` |
+| `INFLUXDB_TOKEN` | Token used for direct writes. | `dev-influxdb-admin-token` |
 | `INFLUXDB_URL` | Target InfluxDB endpoint. | `http://influxdb3:8181` |
-| `BACKFILL` | Set to `1` to stream directly into InfluxDB; otherwise only emits line protocol. | `1` |
 
 ## Extending the dataset
 

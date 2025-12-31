@@ -31,4 +31,4 @@ Data is stored in the `influxdb3-data` Docker volume. Removing the volume (`dock
 ## Related services
 
 - **Startup data loader** seeds the bucket with the example dataset on first run.
-- **Grafana**, **telegraf**, **file-uploader**, and **slackbot** authenticate using `INFLUXDB_ADMIN_TOKEN`.
+- **Grafana**, **file-uploader**, and **slackbot** authenticate using `INFLUXDB_ADMIN_TOKEN`.
