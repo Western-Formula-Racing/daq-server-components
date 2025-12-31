@@ -268,7 +268,7 @@ class CANLineProtocolWriter:
     def _format_line_protocol(self, measurement: str, tags: dict, fields: dict, timestamp: int) -> str:
         tags_str = ",".join(f"{self._escape_tag_value(k)}={self._escape_tag_value(v)}" for k, v in tags.items())
         fields_str = ",".join(
-            f"{self._escape_tag_value(k)}={v}" if isinstance(v, (int, float)) else f'{self._escape_tag_value(k)}"{v}"'
+            f"{self._escape_tag_value(k)}={v}" if isinstance(v, (int, float)) else f'{self._escape_tag_value(k)}="{v}"'
             for k, v in fields.items())
         line = f"{measurement},{tags_str} {fields_str} {timestamp}"
         return line
