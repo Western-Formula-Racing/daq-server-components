@@ -5,6 +5,12 @@ on:
     branches: [ deploy ]
   pull_request:
     branches: [ main, deploy ]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Custom image tag (default: latest)'
+        required: false
+        default: 'latest'
 
 env:
   REGISTRY: ghcr.io
@@ -16,6 +22,11 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+
+    - name: Create .env file
+      run: |
+        cd installer
+        cp .env.example .env
 
     - name: Validate docker-compose files
       run: |
@@ -32,7 +43,11 @@ jobs:
 
     strategy:
       matrix:
-        service: [slackbot, lappy, startup-data-loader, file-uploader]
+        service: [slackbot, lap-detector, startup-data-loader, file-uploader, data-downloader]
+        include:
+          - service: data-downloader
+            dockerfile: backend/Dockerfile
+            context_suffix: /data-downloader
 
     steps:
     - name: Checkout code
@@ -52,17 +67,53 @@ jobs:
     - name: Extract metadata
       id: meta
       run: |
-        echo -e "tags=${{ env.REGISTRY }}/${IMAGE_NAME_LOWER}/${{ matrix.service }}:latest\n${{ env.REGISTRY }}/${IMAGE_NAME_LOWER}/${{ matrix.service }}:${{ github.sha }}" >> $GITHUB_OUTPUT
+        echo "tags<<EOF" >> $GITHUB_OUTPUT
+        echo "${{ env.REGISTRY }}/${IMAGE_NAME_LOWER}/${{ matrix.service }}:latest" >> $GITHUB_OUTPUT
+        echo "${{ env.REGISTRY }}/${IMAGE_NAME_LOWER}/${{ matrix.service }}:${{ github.sha }}" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Set build context
+      id: context
+      run: |
+        if [ "${{ matrix.service }}" = "data-downloader" ]; then
+          echo "context=./installer/data-downloader" >> $GITHUB_OUTPUT
+          echo "dockerfile=backend/Dockerfile" >> $GITHUB_OUTPUT
+        else
+          echo "context=./installer/${{ matrix.service }}" >> $GITHUB_OUTPUT
+          echo "dockerfile=Dockerfile" >> $GITHUB_OUTPUT
+        fi
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
       with:
-        context: ./installer/${{ matrix.service }}
+        context: ${{ steps.context.outputs.context }}
+        file: ${{ steps.context.outputs.context }}/${{ steps.context.outputs.dockerfile }}
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: |
           org.opencontainers.image.title=${{ github.event.repository.name }}
           org.opencontainers.image.description=WFR DAQ System - ${{ matrix.service }}
+          org.opencontainers.image.url=${{ github.event.repository.html_url }}
+          org.opencontainers.image.source=${{ github.event.repository.html_url }}
+          org.opencontainers.image.version=${{ github.sha }}
+          org.opencontainers.image.created=${{ steps.meta.outputs.created }}
+          org.opencontainers.image.revision=${{ github.sha }}
+    
+    - name: Build and push frontend (for data-downloader only)
+      if: matrix.service == 'data-downloader'
+      uses: docker/build-push-action@v5
+      with:
+        context: ./installer/data-downloader
+        file: ./installer/data-downloader/frontend/Dockerfile
+        push: true
+        tags: |
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}/data-downloader-frontend:latest
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LOWER }}/data-downloader-frontend:${{ github.sha }}
+        build-args: |
+          VITE_API_BASE_URL=http://localhost:8000
+        labels: |
+          org.opencontainers.image.title=${{ github.event.repository.name }}
+          org.opencontainers.image.description=WFR DAQ System - data-downloader-frontend
           org.opencontainers.image.url=${{ github.event.repository.html_url }}
           org.opencontainers.image.source=${{ github.event.repository.html_url }}
           org.opencontainers.image.version=${{ github.sha }}
