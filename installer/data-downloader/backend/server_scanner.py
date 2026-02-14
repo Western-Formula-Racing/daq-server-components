@@ -60,10 +60,13 @@ def scan_runs(config: ScannerConfig) -> List[dict]:
 def fetch_bins_adaptive(config: ScannerConfig) -> Iterable[Tuple[datetime, int]]:
     """Iterate over bucket start times with counts."""
 
+    # Fixed origin so DATE_BIN alignment is consistent across all chunks/splits
+    bin_origin = config.start.isoformat()
+
     def query_grouped_bins(client: InfluxDBClient3, t0: datetime, t1: datetime) -> Sequence[Tuple[datetime, int]]:
         sql = f"""
             SELECT
-                DATE_BIN(INTERVAL '{config.interval}', time, TIMESTAMP '{t0.isoformat()}') AS bucket,
+                DATE_BIN(INTERVAL '{config.interval}', time, TIMESTAMP '{bin_origin}') AS bucket,
                 COUNT(*) AS n
             FROM {config.table_ref}
             WHERE time >= TIMESTAMP '{t0.isoformat()}'
