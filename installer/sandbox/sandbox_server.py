@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 SANDBOX_PORT = int(os.getenv("SANDBOX_PORT", "8080"))
-SANDBOX_TIMEOUT = int(os.getenv("SANDBOX_TIMEOUT", "30"))
+SANDBOX_TIMEOUT = int(os.getenv("SANDBOX_TIMEOUT", "120"))
 SANDBOX_MAX_FILE_MB = int(os.getenv("SANDBOX_MAX_FILE_MB", "5"))
 SANDBOX_MAX_FILES = int(os.getenv("SANDBOX_MAX_FILES", "10"))
 
