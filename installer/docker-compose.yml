@@ -239,12 +239,13 @@ services:
     restart: unless-stopped
     environment:
       SANDBOX_PORT: 8080
-      SANDBOX_TIMEOUT: 30
-      SANDBOX_MAX_FILE_MB: 5
-      SANDBOX_MAX_FILES: 10
-      INFLUXDB_URL: ${INFLUXDB_URL:-http://influxdb3:8181}
-      INFLUXDB_ADMIN_TOKEN: ${INFLUXDB_ADMIN_TOKEN}
-      INFLUXDB_DATABASE: ${INFLUXDB_DATABASE:-telemetry}
+      SANDBOX_TIMEOUT: 120
+      SANDBOX_MAX_FILE_MB: 20
+      SANDBOX_MAX_FILES: 20
+      # slicks package reads these env vars automatically
+      INFLUX_URL: ${INFLUXDB_URL:-http://influxdb3:8181}
+      INFLUX_TOKEN: ${INFLUXDB_ADMIN_TOKEN}
+      INFLUX_DB: ${INFLUXDB_DATABASE:-telemetry}
     depends_on:
       - influxdb3
     networks:
@@ -263,9 +264,10 @@ services:
       SANDBOX_URL: "http://sandbox:8080"
       MAX_RETRIES: ${MAX_RETRIES:-2}
       CODE_GEN_PORT: 3030
-      INFLUXDB_URL: ${INFLUXDB_URL:-http://influxdb3:8181}
-      INFLUXDB_ADMIN_TOKEN: ${INFLUXDB_ADMIN_TOKEN}
-      INFLUXDB_DATABASE: ${INFLUXDB_DATABASE:-telemetry}
+      # slicks package reads these env vars automatically
+      INFLUX_URL: ${INFLUXDB_URL:-http://influxdb3:8181}
+      INFLUX_TOKEN: ${INFLUXDB_ADMIN_TOKEN}
+      INFLUX_DB: ${INFLUXDB_DATABASE:-telemetry}
     depends_on:
       - sandbox
       - influxdb3

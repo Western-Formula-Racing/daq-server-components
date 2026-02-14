@@ -1,0 +1,32 @@
+name: Sandbox Integration Test
+
+on:
+  push:
+    branches: [main, deploy]
+  pull_request:
+    branches: [main, deploy]
+  workflow_dispatch:
+
+jobs:
+  slicks-sensor-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install slicks
+        run: pip install slicks
+
+      - name: Discover sensors for June 2025
+        env:
+          INFLUX_URL: ${{ secrets.INFLUX_URL }}
+          INFLUX_TOKEN: ${{ secrets.INFLUX_TOKEN }}
+          INFLUX_DB: ${{ secrets.INFLUX_DB }}
+        run: python dev-utils/ci/slicks-sensor-check.py

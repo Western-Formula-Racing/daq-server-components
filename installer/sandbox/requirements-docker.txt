@@ -1,9 +1,10 @@
 # Docker container requirements for sandbox execution environment
 # These are the dependencies needed inside the Docker container
 
-influxdb3-python
-pandas
-matplotlib
+# WFR's own telemetry pipeline (wraps influxdb3-python, pandas, matplotlib)
+slicks
+
+# Data & visualization (extras beyond what slicks brings in)
 pyarrow
 plotly
 python-dateutil
