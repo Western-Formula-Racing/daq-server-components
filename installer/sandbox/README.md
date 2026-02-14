@@ -21,7 +21,8 @@ Generate and execute Python code for telemetry analysis using Cohere AI and a cu
 2. **Custom Sandbox** (`sandbox_server.py`)
    - HTTP server that executes Python code in isolated environment
    - **Has internet access** for InfluxDB queries and API calls
-   - Supports full Python ecosystem: matplotlib, pandas, numpy, plotly, scikit-learn, influxdb3-python
+   - Uses the [`slicks`](https://pypi.org/project/slicks/) package for data access (wraps InfluxDB, movement detection, sensor discovery)
+   - Supports full Python ecosystem: slicks, matplotlib, pandas, numpy, plotly, scikit-learn
    - Auto-captures output files (images, data)
    - Configurable timeout and resource limits
 
@@ -151,8 +152,8 @@ The code generator uses a system prompt (`prompt-guide.txt`) to guide Cohere's c
 3. File is gitignored - your custom prompts stay private
 
 **The system prompt should include:**
-- Available libraries and database connection details
-- InfluxDB query examples
+- Available libraries and the `slicks` package API
+- Example usage of `slicks.fetch_telemetry()`, `slicks.discover_sensors()`, etc.
 - Visualization best practices
 - Sandboxed execution rules (no user input, save files)
 - Domain-specific guidance for your telemetry data
@@ -239,10 +240,10 @@ docker compose logs -f sandbox
 ## Security
 
 - Code executes in isolated subprocess with timeout limits
-- **Has internet access** for InfluxDB queries and API calls (unlike Terrarium)
+- **Has internet access** for InfluxDB queries via `slicks` and API calls
 - Limited runtime (30 seconds max, configurable)
 - Limited memory and file size
-- InfluxDB credentials passed via environment variables
+- InfluxDB credentials passed via environment variables (consumed by `slicks` automatically)
 - Generated code is logged for audit purposes
 
 ## Troubleshooting
@@ -290,7 +291,7 @@ docker compose up -d --build code-generator
 - `Dockerfile` - Code generator container image
 - `Dockerfile.sandbox` - Custom sandbox container image
 - `requirements.txt` - Python dependencies for code generator
-- `requirements-docker.txt` - Python dependencies for sandbox (includes scientific libraries)
+- `requirements-docker.txt` - Python dependencies for sandbox (includes `slicks` and scientific libraries)
 - `docker-compose.yml` - Standalone compose file (not used in main stack)
 
 

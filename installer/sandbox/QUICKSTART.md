@@ -224,11 +224,11 @@ docker compose exec code-generator cat generated_sandbox_code.py
 ## Security Notes
 
 - Code executes in isolated Python subprocess with configurable timeout
-- **Has internet access** for InfluxDB queries and API calls (unlike Terrarium)
+- **Has internet access** for InfluxDB queries via `slicks` and API calls
 - Maximum runtime: 30 seconds (configurable via SANDBOX_TIMEOUT)
 - Maximum file size: 5 MB per file (configurable via SANDBOX_MAX_FILE_MB)
 - Maximum files: 10 files (configurable via SANDBOX_MAX_FILES)
-- InfluxDB credentials passed via environment only
+- InfluxDB credentials passed via environment only (consumed by `slicks` automatically)
 - Generated code is logged for audit purposes
 
 ## Resources
