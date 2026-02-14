@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 
-# To run locally: BACKFILL=1 python3 load_data.py
+# To run locally: python3 load_data.py
 # Options
 
 # Add 5 second pause between files
 # INTER_FILE_DELAY=5 python3 load_data.py
 
 # Combine both delays
-# BACKFILL=1 BATCH_DELAY=0.05 INTER_FILE_DELAY=10 python3 load_data.py
+# BATCH_DELAY=0.05 INTER_FILE_DELAY=10 python3 load_data.py
 
 """
 WFR DAQ System - Startup Data Loader
-- Default: writes metrics in InfluxDB line protocol format to a Telegraf file
-- BACKFILL=1: writes directly to InfluxDB (fast bulk load)
+- Writes metrics directly to InfluxDB (fast bulk load)
 - Supports resume after interrupt using JSON state file
 """
 
@@ -44,9 +43,6 @@ def _env_int(var_name: str, default: int) -> int:
         print(f"⚠️  Invalid value '{raw_value}' for {var_name}; using default {default}")
         return default
 
-# Output file - use local file if telegraf directory doesn't exist
-OUTPUT_FILE = "can_metrics.out" if not os.path.exists("/var/lib/telegraf") else "/var/lib/telegraf/can_metrics.out"
-
 # Progress state file
 PROGRESS_FILE = "load_data_progress.json"
 # InfluxDB direct write config
@@ -57,9 +53,6 @@ INFLUX_BUCKET = "WFR25"
 DBC_ENV_VAR = "DBC_FILE_PATH"
 DBC_FILENAME = "example.dbc"
 INSTALLER_ROOT = Path(__file__).resolve().parent.parent
-
-# Mode switch
-BACKFILL_MODE = os.getenv("BACKFILL", "0") == "1"
 
 # Performance tuning - delays to reduce server load
 BATCH_DELAY = float(os.getenv("BATCH_DELAY", "0.0"))  # Delay after each batch write (seconds)
@@ -207,9 +200,8 @@ def _resolve_dbc_path() -> Path:
 
 
 class CANLineProtocolWriter:
-    def __init__(self, output_path: str, batch_size: int = 1000, progress_state: Optional[ProgressState] = None):
+    def __init__(self, batch_size: int = 1000, progress_state: Optional[ProgressState] = None):
         self.batch_size = batch_size
-        self.output_path = output_path
         self.org = "WFR"
         self.tz_toronto = ZoneInfo("America/Toronto")
         self.progress_state = progress_state or ProgressState.load()
@@ -219,38 +211,31 @@ class CANLineProtocolWriter:
         self.db = cantools.database.load_file(str(dbc_path))
         print(f"📁 Loaded DBC file: {dbc_path}")
 
-        # Influx client setup (only if in backfill mode)
-        if BACKFILL_MODE:
-            # Adjust batch size and flush interval based on BATCH_DELAY
-            influx_batch_size = 50000
-            influx_flush_interval = 10_000
-            
-            if BATCH_DELAY > 0:
-                # If user adds delay, we can use larger batches
-                influx_batch_size = min(100000, int(50000 * (1 + BATCH_DELAY)))
-                influx_flush_interval = min(30_000, int(10_000 * (1 + BATCH_DELAY)))
-            
-            self.client = InfluxDBClient(
-                url=INFLUX_URL,
-                token=INFLUX_TOKEN,
-                org=INFLUX_ORG
+        # Influx client setup
+        # Adjust batch size and flush interval based on BATCH_DELAY
+        influx_batch_size = 50000
+        influx_flush_interval = 10_000
+        
+        if BATCH_DELAY > 0:
+            # If user adds delay, we can use larger batches
+            influx_batch_size = min(100000, int(50000 * (1 + BATCH_DELAY)))
+            influx_flush_interval = min(30_000, int(10_000 * (1 + BATCH_DELAY)))
+        
+        self.client = InfluxDBClient(
+            url=INFLUX_URL,
+            token=INFLUX_TOKEN,
+            org=INFLUX_ORG
+        )
+        self.write_api = self.client.write_api(
+            write_options=WriteOptions(
+                batch_size=influx_batch_size,
+                flush_interval=influx_flush_interval,
+                jitter_interval=2000,
+                retry_interval=5000
             )
-            self.write_api = self.client.write_api(
-                write_options=WriteOptions(
-                    batch_size=influx_batch_size,
-                    flush_interval=influx_flush_interval,
-                    jitter_interval=2000,
-                    retry_interval=5000
-                )
-            )
-            print(f"⚙️  InfluxDB batch_size={influx_batch_size}, flush_interval={influx_flush_interval}ms")
-        else:
-            # Clear or create output file for Telegraf only if starting fresh
-            if not self.progress_state.completed_files and not self.progress_state.file_progress:
-                with open(self.output_path, "w") as f:
-                    pass
-            self.client = None
-            self.write_api = None
+        )
+        print(f"⚙️  InfluxDB batch_size={influx_batch_size}, flush_interval={influx_flush_interval}ms")
+
 
     def count_total_messages(self, file: IO[bytes], is_csv: bool = True) -> int:
         total = 0
@@ -383,11 +368,7 @@ class CANLineProtocolWriter:
                     current_row += 1
 
                     if len(batch_lines) >= self.batch_size:
-                        if BACKFILL_MODE:
-                            self.write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=batch_lines)
-                        else:
-                            with open(self.output_path, "a") as out_file:
-                                out_file.write("\n".join(batch_lines) + "\n")
+                        self.write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=batch_lines)
 
                         file_progress.processed_rows = current_row
                         file_progress.last_update = time.time()
@@ -405,16 +386,10 @@ class CANLineProtocolWriter:
                         # Configurable delay to reduce server load
                         if BATCH_DELAY > 0:
                             await asyncio.sleep(BATCH_DELAY)
-                        elif not BACKFILL_MODE:
-                            await asyncio.sleep(0.1)  # let Telegraf catch up
 
             # Write remaining batch
             if batch_lines:
-                if BACKFILL_MODE:
-                    self.write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=batch_lines)
-                else:
-                    with open(self.output_path, "a") as out_file:
-                        out_file.write("\n".join(batch_lines) + "\n")
+                self.write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=batch_lines)
                 file_progress.processed_rows = current_row
                 if on_progress:
                     on_progress(current_row, total_rows)
@@ -431,8 +406,7 @@ class CANLineProtocolWriter:
             except:
                 pass
 
-        mode_str = "InfluxDB Direct" if BACKFILL_MODE else "Telegraf File"
-        print(f"\n✅ Processed {current_row:,} rows using {mode_str} mode")
+        print(f"\n✅ Processed {current_row:,} rows using InfluxDB Direct mode")
 
 
 def make_progress_callback(file_path: str):
@@ -446,8 +420,7 @@ def make_progress_callback(file_path: str):
 
 
 async def load_startup_data():
-    mode_str = "InfluxDB Direct (BACKFILL)" if BACKFILL_MODE else "Telegraf File"
-    print(f"🚀 WFR DAQ System - Startup Data Loader [{mode_str}]")
+    print(f"🚀 WFR DAQ System - Startup Data Loader [InfluxDB Direct]")
     print("=" * 60)
     restart_interval = CSV_RESTART_INTERVAL if CSV_RESTART_INTERVAL > 0 else None
     if restart_interval:
@@ -495,7 +468,6 @@ async def load_startup_data():
 
     try:
         writer = CANLineProtocolWriter(
-            output_path=OUTPUT_FILE, 
             batch_size=1000,
             progress_state=progress_state
         )
@@ -564,12 +536,11 @@ def main():
     try:
         success = asyncio.run(load_startup_data())
         elapsed = time.time() - start_time
-        mode_str = "InfluxDB Direct" if BACKFILL_MODE else "Telegraf Loader"
         if success:
-            print(f"\n🏁 Data writing completed in {elapsed:.2f} seconds ({mode_str})")
+            print(f"\n🏁 Data writing completed in {elapsed:.2f} seconds (InfluxDB Direct)")
             sys.exit(0)
         else:
-            print(f"\n💥 Data writing failed after {elapsed:.2f} seconds ({mode_str})")
+            print(f"\n💥 Data writing failed after {elapsed:.2f} seconds (InfluxDB Direct)")
             sys.exit(1)
 
     except KeyboardInterrupt:

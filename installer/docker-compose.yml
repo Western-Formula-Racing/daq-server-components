@@ -6,7 +6,6 @@ volumes:
   grafana-storage:
   influxdb3-data:
   influxdb3-explorer-db:
-  telegraf-data:
 
 services:
   influxdb3:
@@ -56,24 +55,6 @@ services:
       - datalink
     depends_on:
       - influxdb3
-
-  telegraf:
-    image: telegraf:1.30
-    container_name: telegraf
-    restart: unless-stopped
-    depends_on:
-      - influxdb3
-    environment:
-      INFLUXDB_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-apiv3_dev-influxdb-admin-token}"
-      INFLUXDB_URL: "${INFLUXDB_URL:-http://influxdb3:8181}"
-    volumes:
-      - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro
-      - telegraf-data:/var/lib/telegraf
-    networks:
-      - datalink
-    command: >
-      sh -c "touch /var/lib/telegraf/can_metrics.out &&
-             telegraf --config /etc/telegraf/telegraf.conf"
 
   grafana:
     image: grafana/grafana
@@ -153,7 +134,7 @@ services:
     environment:
       INFLUXDB_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-apiv3_dev-influxdb-admin-token}"
       INFLUXDB_URL: "${INFLUXDB_URL:-http://influxdb3:8181}"
-      BACKFILL: "1"
+      # Removed BACKFILL env var as it's now the default/only mode
       CSV_RESTART_INTERVAL: "${CSV_RESTART_INTERVAL:-10}"
       # Fixed container path, host path remains flexible
       DBC_FILE_PATH: "/installer/example.dbc"
@@ -161,7 +142,6 @@ services:
       # Host can name DBC file anything they want
       - ./${DBC_FILE_PATH:-example.dbc}:/installer/example.dbc:ro
       - ./startup-data-loader/data:/data:ro
-      - telegraf-data:/var/lib/telegraf
     working_dir: /app
     networks:
       - datalink
@@ -170,9 +150,7 @@ services:
     command: >
       sh -c "echo 'Waiting additional 5 seconds for InfluxDB 3 to stabilize...' &&
              sleep 5 &&
-             echo 'Creating telegraf input file...' &&
-             python load_data.py &&
-             echo 'Telegraf input file created successfully'"
+             python load_data.py"
 
 
   file-uploader:

@@ -15,11 +15,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Keep the build context small by only copying the files needed to run the loader.
 COPY load_data.py requirements.txt ./
 
-# Create Telegraf output directory
-RUN mkdir -p /var/lib/telegraf
-
 # Make the script executable
 RUN chmod +x load_data.py
 
-# Run the Telegraf/direct-write loader
+# Run the direct-write loader
 CMD ["python", "load_data.py"]

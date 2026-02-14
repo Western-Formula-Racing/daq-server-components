@@ -17,4 +17,4 @@ docker run -d --name influxdb2 \
   influxdb:2
 ```
 
-For current deployments use the Docker Compose stack under `installer/`, which provisions InfluxDB 3 along with Grafana, Telegraf, and the rest of the telemetry tooling.
+For current deployments use the Docker Compose stack under `installer/`, which provisions InfluxDB 3 along with Grafana and the rest of the telemetry tooling.

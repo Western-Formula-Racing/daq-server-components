@@ -71,7 +71,6 @@ All secrets and tokens are defined in `.env`. The defaults provided in `.env.exa
 | `influxdb3` | `9000` (mapped to `8181` internally) | Core time-series database. Initialised with the admin token from `.env`. |
 | `influxdb3-explorer` | `8888` | Lightweight UI for browsing data in InfluxDB 3. |
 | `data-downloader` | `3000` | Periodically downloads CAN CSV archives from the DAQ server. Visual SQL query builder included. |
-| `telegraf` | n/a | Collects CAN metrics produced by the importer and forwards them to InfluxDB. |
 | `grafana` | `8087` | Visualises telemetry with pre-provisioned dashboards. |
 | `slackbot` | n/a | Socket-mode Slack bot for notifications and automation (optional). Integrates with code-generator for AI queries. |
 | `lap-detector` | `8050` | Dash-based lap analysis web application. |
@@ -88,12 +87,11 @@ All secrets and tokens are defined in `.env`. The defaults provided in `.env.exa
 ## Observability
 
 - Grafana dashboards are provisioned automatically from `grafana/dashboards/` and use the datasource in `grafana/provisioning/datasources/`.
-- Telegraf writes processed metrics to `/var/lib/telegraf/can_metrics.out` before forwarding them to InfluxDB. Inspect this file inside the container for debugging (`docker compose exec telegraf tail -f /var/lib/telegraf/can_metrics.out`).
 
 ## Troubleshooting tips
 
 - **Service fails to connect to InfluxDB** – Confirm the token in `.env` matches `influxdb3-admin-token.json`. Regenerate the volumes with `docker compose down -v` if you rotate credentials.
-- **Re-import sample data** – Remove the `telegraf-data` volume and rerun the stack.
+- **Re-import sample data** – Run `docker compose down -v` and restart the stack to re-trigger the data loader.
 - **Slack services are optional** – Leave Slack variables empty or set `ENABLE_SLACK=false` to skip starting the bot during development.
 - **AI code generation not working** – Ensure `COHERE_API_KEY` is set in `.env`. Check logs with `docker compose logs code-generator`.
 - **Sandbox execution fails** – Verify sandbox container is running with `docker ps | grep sandbox`. Check logs with `docker compose logs sandbox`.

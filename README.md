@@ -34,18 +34,17 @@ All services share a bridge network named `datalink` and rely on the admin token
 
 ## System overview
 
-The compose stack deploys nine cooperating containers:
+The compose stack deploys eight cooperating containers:
 
 1. **InfluxDB 3** – Time-series database seeded with a tiny example dataset.
 2. **InfluxDB 3 Explorer** – Web UI for browsing and querying telemetry.
-3. **Telegraf** – Reads the importer’s line protocol output and forwards metrics to InfluxDB.
-4. **Grafana** – Pre-provisioned dashboards that visualise the stored telemetry.  Load your own dashboard provisioning files into `installer/grafana/dashboards/`.
-5. **Sandbox** - *Under active development.* Connecting InfluxDB3 with LLM for natural language queries and analysis.
-6. **Slack bot d.b.a. Lappy** – Optional automation/notification bot for race ops.
-7. **Lap analysis app** – *Under active development.* Dash-based location data visualiser and lap timer. (Useful if GPS data is available.) 
-8. **Startup data loader** – Seeds the database on boot with sample CAN frames.
-9. **File uploader** – Streams uploaded CSV logs into InfluxDB using the shared DBC file.
-10. **Data downloader** - Scans InfluxDB periodically, visual SQL query builder, and CSV export service.
+3. **Grafana** – Pre-provisioned dashboards that visualise the stored telemetry.  Load your own dashboard provisioning files into `installer/grafana/dashboards/`.
+4. **Sandbox** - *Under active development.* Connecting InfluxDB3 with LLM for natural language queries and analysis.
+5. **Slack bot d.b.a. Lappy** – Optional automation/notification bot for race ops.
+6. **Lap analysis app** – *Under active development.* Dash-based location data visualiser and lap timer. (Useful if GPS data is available.) 
+7. **Startup data loader** – Seeds the database on boot with sample CAN frames.
+8. **File uploader** – Streams uploaded CSV logs into InfluxDB using the shared DBC file.
+9. **Data downloader** - Scans InfluxDB periodically, visual SQL query builder, and CSV export service.
 
 Detailed documentation for each service is available in `docs/containers/`.
 
@@ -80,7 +79,7 @@ https://github.com/Western-Formula-Racing/daq-2023
 
 We also want to acknowledge the open-source tools and libraries that make this project possible. Key components include:
 * Docker / Docker Compose for containerisation
-* InfluxDB 3 and Telegraf for time-series storage and ingestion
+* InfluxDB 3 for time-series storage
 * Grafana for visualisation
 * Python open-source packages (NumPy, Pandas, Requests, etc.) used throughout the stack
 
