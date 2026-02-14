@@ -150,18 +150,19 @@ def handle_testimage(user, thread_ts=None, channel=None):
         )
 
 
-def handle_agent(user, command_full, thread_ts=None, timeout=120, channel=None):
+def handle_agent_legacy(user, command_full, thread_ts=None, timeout=120, channel=None):
     """
-    Handle !agent command - sends request to code-generator service.
-    Supports AI-powered code generation and execution.
+    Handle !agent-legacy command - single-shot code generation + execution.
+    Sends request to code-generator service (one prompt → one code block → retry on error).
     """
     channel = channel or DEFAULT_CHANNEL
     parts = command_full.split(maxsplit=1)
     instructions = parts[1].strip() if len(parts) > 1 else ""
+    cmd_name = command_full.split(maxsplit=1)[0]
     if not instructions:
         send_slack_message(
             channel,
-            text=f"⚠️ <@{user}> Please provide instructions after `!agent`.",
+            text=f"⚠️ <@{user}> Please provide instructions after `!{cmd_name}`.",
             thread_ts=thread_ts,
         )
         return
@@ -285,21 +286,210 @@ def handle_agent(user, command_full, thread_ts=None, timeout=120, channel=None):
         log_interaction(user, instructions, {}, "unexpected_error", str(e))
 
 
+def _upload_b64_images(files, user, channel, thread_ts):
+    """Upload base64-encoded image files to Slack."""
+    for file_info in files:
+        filename = file_info.get("name")
+        b64_data = file_info.get("data")
+        file_type = file_info.get("type")
+        if file_type == "image" and b64_data:
+            try:
+                temp_path = Path(f"/tmp/{filename}")
+                image_data = base64.b64decode(b64_data)
+                temp_path.write_bytes(image_data)
+                send_slack_image(
+                    channel,
+                    str(temp_path),
+                    title=f"Generated: {filename}",
+                    initial_comment=f"📊 <@{user}>",
+                    thread_ts=thread_ts,
+                )
+                temp_path.unlink()
+            except Exception as e:
+                print(f"Error uploading image {filename}: {e}")
+                send_slack_message(
+                    channel,
+                    text=f"⚠️ Could not upload image {filename}: {e}",
+                    thread_ts=thread_ts,
+                )
+
+
+def handle_agent(user, command_full, thread_ts=None, timeout=300, channel=None):
+    """
+    Handle !agent command — streams multi-step agent results to Slack in real time.
+    Uses SSE (Server-Sent Events) from the code-generator so each step is posted
+    to the thread as it happens.
+    """
+    channel = channel or DEFAULT_CHANNEL
+    parts = command_full.split(maxsplit=1)
+    instructions = parts[1].strip() if len(parts) > 1 else ""
+    cmd_name = parts[0]
+    if not instructions:
+        send_slack_message(
+            channel,
+            text=f"⚠️ <@{user}> Please provide instructions after `!{cmd_name}`.",
+            thread_ts=thread_ts,
+        )
+        return
+
+    # Send initial acknowledgment
+    timeout_msg = f" (extended timeout: {timeout}s)" if timeout > 300 else ""
+    send_slack_message(
+        channel,
+        text=(
+            f"🧠 <@{user}> Starting multi-step analysis: `{instructions[:100]}...`\n"
+            f"I'll post updates as I work through each step.{timeout_msg}"
+        ),
+        thread_ts=thread_ts,
+    )
+
+    try:
+        # Stream SSE from the code-generator
+        response = requests.post(
+            f"{CODE_GENERATOR_URL}/api/agent",
+            json={"prompt": instructions},
+            timeout=timeout,
+            stream=True,
+        )
+        response.raise_for_status()
+
+        final_answer = None
+        all_files = []
+        step_count = 0
+
+        for line in response.iter_lines(decode_unicode=True):
+            if not line or not line.startswith("data: "):
+                continue
+
+            try:
+                event = json.loads(line[6:])  # strip "data: " prefix
+            except json.JSONDecodeError:
+                continue
+
+            event_type = event.get("event")
+
+            if event_type == "thinking":
+                step_num = event.get("step", "?")
+                max_steps = event.get("max_steps", "?")
+                send_slack_message(
+                    channel,
+                    text=f"💭 Step {step_num}/{max_steps} — thinking...",
+                    thread_ts=thread_ts,
+                )
+
+            elif event_type == "executed":
+                step_num = event.get("step", "?")
+                thought = event.get("thought", "")[:300]
+                result = event.get("result", {})
+                status = result.get("status", "unknown")
+                output = result.get("output", "")
+                error = result.get("error", "")
+                step_files = event.get("files", [])
+                step_count = step_num
+
+                if status == "success":
+                    msg = f"✅ Step {step_num} succeeded"
+                    if thought:
+                        msg += f": _{thought}_"
+                    send_slack_message(channel, text=msg, thread_ts=thread_ts)
+                    if output:
+                        send_slack_message(
+                            channel,
+                            text=f"```\n{output[:2000]}\n```",
+                            thread_ts=thread_ts,
+                        )
+                else:
+                    msg = f"❌ Step {step_num} error"
+                    if thought:
+                        msg += f": _{thought}_"
+                    msg += f"\n```\n{error[:1000]}\n```\n_Self-correcting..._"
+                    send_slack_message(channel, text=msg, thread_ts=thread_ts)
+
+                # Upload images from this step immediately
+                _upload_b64_images(step_files, user, channel, thread_ts)
+
+            elif event_type == "final":
+                final_answer = event.get("final_answer", "")
+                remaining_files = event.get("files", [])
+                send_slack_message(
+                    channel,
+                    text=f"🏁 <@{user}> *Result:*\n{final_answer[:3000]}",
+                    thread_ts=thread_ts,
+                )
+                # Upload any files that came with the final event
+                # (these are accumulated files not already sent per-step)
+
+            elif event_type == "max_steps":
+                total = event.get("total_steps", "?")
+                send_slack_message(
+                    channel,
+                    text=(
+                        f"⚠️ <@{user}> Reached the maximum number of steps ({total}) "
+                        f"without a final answer. The outputs above may still be useful."
+                    ),
+                    thread_ts=thread_ts,
+                )
+
+            elif event_type == "error":
+                err_msg = event.get("error", "Unknown error")
+                send_slack_message(
+                    channel,
+                    text=f"❌ <@{user}> Agent error: {err_msg}",
+                    thread_ts=thread_ts,
+                )
+
+        # Log the interaction
+        log_interaction(
+            user, instructions,
+            {"code": "(multi-step)", "result": {"output": final_answer or "", "files": all_files}},
+            "success" if final_answer else "max_steps_reached",
+        )
+
+    except requests.exceptions.Timeout:
+        send_slack_message(
+            channel,
+            text=f"⏱️ <@{user}> Request timed out. The analysis might need more time.",
+            thread_ts=thread_ts,
+        )
+        log_interaction(user, instructions, {}, "timeout", "Request timed out")
+    except requests.exceptions.RequestException as e:
+        send_slack_message(
+            channel,
+            text=f"❌ <@{user}> Failed to connect to code generation service: {e}",
+            thread_ts=thread_ts,
+        )
+        log_interaction(user, instructions, {}, "connection_error", str(e))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        send_slack_message(
+            channel,
+            text=f"❌ <@{user}> Unexpected error: {e}",
+            thread_ts=thread_ts,
+        )
+        log_interaction(user, instructions, {}, "unexpected_error", str(e))
+
+
 def handle_help(user, thread_ts=None, channel=None):
     channel = channel or DEFAULT_CHANNEL
     help_text = (
         f"📘 <@{user}> Available Commands:\n"
         "```\n"
-        "!help                      - Show this help message.\n"
-        "!location                  - Show the current :daqcar: location.\n"
-        "!testimage                 - Upload the bundled Lappy test image.\n"
-        "!agent <instructions>      - Generate and execute Python code using AI.\n"
-        "                              Timeout: 120s (2 minutes)\n"
-        "                              Example: !agent plot inverter voltage vs current\n"
-        "!agent-debug <instructions> - Same as !agent but with extended timeout.\n"
-        "                              Timeout: 1200s (20 minutes)\n"
-        "                              Use for complex analysis or large datasets.\n"
-        "                              Automatically retries up to 2 times if code fails.\n"
+        "!help                              - Show this help message.\n"
+        "!location                          - Show the current :daqcar: location.\n"
+        "!testimage                         - Upload the bundled Lappy test image.\n"
+        "\n"
+        "── AI Agent ──\n"
+        "!agent <instructions>              - Multi-step AI analysis (5 min timeout).\n"
+        "                                     Discovers sensors, fetches data, analyzes,\n"
+        "                                     and self-corrects across multiple steps.\n"
+        "                                     Example: !agent analyze motor performance\n"
+        "                                              on the most recent test day\n"
+        "!agent-debug <instructions>        - Same as !agent with 20 min timeout.\n"
+        "\n"
+        "── Legacy (single-shot) ──\n"
+        "!agent-legacy <instructions>       - Single-shot code gen + run (2 min timeout).\n"
+        "!agent-legacy-debug <instructions> - Same with 20 min timeout.\n"
         "```\n"
         "💬 Tip: You can also DM me these commands directly!"
     )
@@ -368,9 +558,13 @@ def process_events(client: SocketModeClient, req: SocketModeRequest):
     elif main_command == "testimage":
         handle_testimage(user, thread_ts, response_channel)
     elif main_command == "agent":
-        handle_agent(user, command_full, thread_ts, timeout=120, channel=response_channel)
+        handle_agent(user, command_full, thread_ts, timeout=300, channel=response_channel)
     elif main_command == "agent-debug":
         handle_agent(user, command_full, thread_ts, timeout=1200, channel=response_channel)
+    elif main_command == "agent-legacy":
+        handle_agent_legacy(user, command_full, thread_ts, timeout=120, channel=response_channel)
+    elif main_command == "agent-legacy-debug":
+        handle_agent_legacy(user, command_full, thread_ts, timeout=1200, channel=response_channel)
     elif main_command == "help":
         handle_help(user, thread_ts, response_channel)
     else:

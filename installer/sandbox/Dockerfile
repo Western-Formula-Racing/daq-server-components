@@ -9,6 +9,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY code_generator.py .
 COPY prompt-guide.txt .
+# Agent prompt guide is optional; copy if present
+COPY agent-prompt-guide.tx[t] .
 
 # Create directory for generated code
 RUN mkdir -p /app/generated

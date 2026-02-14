@@ -12,5 +12,6 @@ __pycache__/
 *.csv
 output.*
 
-# Custom prompt engineering (use prompt-guide.txt.example as template)
+# Custom prompt engineering (use *.txt.example as template)
 prompt-guide.txt
+agent-prompt-guide.txt
