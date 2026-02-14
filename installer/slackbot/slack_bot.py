@@ -76,7 +76,7 @@ def log_interaction(user, instructions, result, status, error=None):
         "instructions": instructions,
         "status": status,
         "error": error,
-        "generated_code": result.get("generated_code", ""),
+        "generated_code": result.get("code", ""),
         "output": result.get("result", {}).get("output", "")
     }
 
@@ -104,7 +104,8 @@ def log_interaction(user, instructions, result, status, error=None):
 
 # --- Slack Command Handlers ---
 # Not currently used: handle_location
-def handle_location(user):
+def handle_location(user, thread_ts=None, channel=None):
+    channel = channel or DEFAULT_CHANNEL
     try:
         response = requests.get("http://lap-detector-server:8050/api/track?type=location", timeout=5)
         response.raise_for_status()
@@ -114,54 +115,63 @@ def handle_location(user):
             raise ValueError("Location payload missing lat/lon")
         map_url = f"https://www.google.com/maps/@{lat},{lon},17z"
         send_slack_message(
-            DEFAULT_CHANNEL,
+            channel,
             text=(
                 f"📍 <@{user}> Current :daqcar: location:\n"
                 f"<{map_url}|View on Map>\nLatitude: {lat}\nLongitude: {lon}"
             ),
+            thread_ts=thread_ts,
         )
     except Exception as exc:
         print("Error fetching location:", exc)
         send_slack_message(
-            DEFAULT_CHANNEL,
+            channel,
             text=f"❌ <@{user}> Failed to retrieve car location. Error: {exc}",
+            thread_ts=thread_ts,
         )
 
 
-def handle_testimage(user):
+def handle_testimage(user, thread_ts=None, channel=None):
+    channel = channel or DEFAULT_CHANNEL
     try:
         send_slack_image(
-            DEFAULT_CHANNEL,
+            channel,
             file_path="lappy_test_image.png",
             title="Lappy Test Image",
             initial_comment=f"🖼️ <@{user}> Here's the test image:",
+            thread_ts=thread_ts,
         )
     except Exception as exc:
         print("Error uploading image:", exc)
         send_slack_message(
-            DEFAULT_CHANNEL,
+            channel,
             text=f"❌ <@{user}> Failed to upload image. Error: {exc}",
+            thread_ts=thread_ts,
         )
 
 
-def handle_agent(user, command_full):
+def handle_agent(user, command_full, thread_ts=None, timeout=120, channel=None):
     """
     Handle !agent command - sends request to code-generator service.
     Supports AI-powered code generation and execution.
     """
+    channel = channel or DEFAULT_CHANNEL
     parts = command_full.split(maxsplit=1)
     instructions = parts[1].strip() if len(parts) > 1 else ""
     if not instructions:
         send_slack_message(
-            DEFAULT_CHANNEL,
+            channel,
             text=f"⚠️ <@{user}> Please provide instructions after `!agent`.",
+            thread_ts=thread_ts,
         )
         return
 
     # Send initial acknowledgment
+    timeout_msg = f" (extended timeout: {timeout}s)" if timeout > 120 else ""
     send_slack_message(
-        DEFAULT_CHANNEL,
-        text=f"🤖 <@{user}> Processing your request: `{instructions[:100]}...`\nGenerating code with AI...",
+        channel,
+        text=f"🤖 <@{user}> Processing your request: `{instructions[:100]}...`\nGenerating code with AI...{timeout_msg}",
+        thread_ts=thread_ts,
     )
 
     try:
@@ -169,7 +179,7 @@ def handle_agent(user, command_full):
         response = requests.post(
             f"{CODE_GENERATOR_URL}/api/generate-code",
             json={"prompt": instructions},
-            timeout=120  # Allow up to 2 minutes for code generation + retries
+            timeout=timeout
         )
         response.raise_for_status()
         result = response.json()
@@ -178,7 +188,7 @@ def handle_agent(user, command_full):
         retries = result.get("retries", [])
         if retries:
             retry_msg = f"⚠️ Initial code had errors. Retried {len(retries)} time(s) with error feedback."
-            send_slack_message(DEFAULT_CHANNEL, text=retry_msg)
+            send_slack_message(channel, text=retry_msg, thread_ts=thread_ts)
         
         # Get execution result
         exec_result = result.get("result", {})
@@ -193,12 +203,12 @@ def handle_agent(user, command_full):
             if retries:
                 success_msg += f" (after {len(retries)} retry/retries)"
             
-            send_slack_message(DEFAULT_CHANNEL, text=success_msg)
+            send_slack_message(channel, text=success_msg, thread_ts=thread_ts)
             
             # Send output if any
             if output:
                 output_msg = f"**Output:**\n```\n{output[:2000]}\n```"
-                send_slack_message(DEFAULT_CHANNEL, text=output_msg)
+                send_slack_message(channel, text=output_msg, thread_ts=thread_ts)
             
             # Send generated files (images, etc.)
             for file_info in files:
@@ -215,10 +225,11 @@ def handle_agent(user, command_full):
                         
                         # Upload to Slack
                         send_slack_image(
-                            DEFAULT_CHANNEL,
+                            channel,
                             str(temp_path),
                             title=f"Generated: {filename}",
-                            initial_comment=f"📊 <@{user}> Here's your visualization:"
+                            initial_comment=f"📊 <@{user}> Here's your visualization:",
+                            thread_ts=thread_ts
                         )
                         
                         # Clean up
@@ -226,8 +237,9 @@ def handle_agent(user, command_full):
                     except Exception as e:
                         print(f"Error uploading image {filename}: {e}")
                         send_slack_message(
-                            DEFAULT_CHANNEL,
-                            text=f"⚠️ Could not upload image {filename}: {e}"
+                            channel,
+                            text=f"⚠️ Could not upload image {filename}: {e}",
+                            thread_ts=thread_ts
                         )
             
             # Log successful interaction
@@ -243,34 +255,38 @@ def handle_agent(user, command_full):
                 error_msg += f" after {len(retries)} retries"
             error_msg += f":\n```\n{error[:1500]}\n```"
             
-            send_slack_message(DEFAULT_CHANNEL, text=error_msg)
+            send_slack_message(channel, text=error_msg, thread_ts=thread_ts)
             
             # Log failed interaction
             log_interaction(user, instructions, result, "failed", error)
     
     except requests.exceptions.Timeout:
         send_slack_message(
-            DEFAULT_CHANNEL,
+            channel,
             text=f"⏱️ <@{user}> Request timed out. The task might be too complex or the service is busy.",
+            thread_ts=thread_ts,
         )
         log_interaction(user, instructions, {}, "timeout", "Request timed out")
     except requests.exceptions.RequestException as e:
         send_slack_message(
-            DEFAULT_CHANNEL,
+            channel,
             text=f"❌ <@{user}> Failed to connect to code generation service: {e}",
+            thread_ts=thread_ts,
         )
         log_interaction(user, instructions, {}, "connection_error", str(e))
     except Exception as e:
         import traceback
         traceback.print_exc()
         send_slack_message(
-            DEFAULT_CHANNEL,
+            channel,
             text=f"❌ <@{user}> Unexpected error: {e}",
+            thread_ts=thread_ts,
         )
         log_interaction(user, instructions, {}, "unexpected_error", str(e))
 
 
-def handle_help(user):
+def handle_help(user, thread_ts=None, channel=None):
+    channel = channel or DEFAULT_CHANNEL
     help_text = (
         f"📘 <@{user}> Available Commands:\n"
         "```\n"
@@ -278,11 +294,16 @@ def handle_help(user):
         "!location                  - Show the current :daqcar: location.\n"
         "!testimage                 - Upload the bundled Lappy test image.\n"
         "!agent <instructions>      - Generate and execute Python code using AI.\n"
+        "                              Timeout: 120s (2 minutes)\n"
         "                              Example: !agent plot inverter voltage vs current\n"
+        "!agent-debug <instructions> - Same as !agent but with extended timeout.\n"
+        "                              Timeout: 1200s (20 minutes)\n"
+        "                              Use for complex analysis or large datasets.\n"
         "                              Automatically retries up to 2 times if code fails.\n"
-        "```"
+        "```\n"
+        "💬 Tip: You can also DM me these commands directly!"
     )
-    send_slack_message(DEFAULT_CHANNEL, text=help_text)
+    send_slack_message(channel, text=help_text, thread_ts=thread_ts)
 
 
 # --- Event Processing Logic ---
@@ -295,7 +316,15 @@ def process_events(client: SocketModeClient, req: SocketModeRequest):
     if event.get("type") != "message" or event.get("subtype") is not None:
         return
 
-    if event.get("channel") != DEFAULT_CHANNEL:
+    # Get channel type - check if it's a DM or the default channel
+    channel = event.get("channel")
+    channel_type = event.get("channel_type")
+    
+    # Allow messages from default channel or DMs (im = direct message)
+    is_dm = channel_type == "im"
+    is_default_channel = channel == DEFAULT_CHANNEL
+    
+    if not (is_dm or is_default_channel):
         return
 
     msg_ts = event.get("ts")
@@ -324,21 +353,31 @@ def process_events(client: SocketModeClient, req: SocketModeRequest):
 
     print(
         f"Received command: '{command_full}' from user {user} "
-        f"in channel {event.get('channel')}"
+        f"in {'DM' if is_dm else f'channel {channel}'}"
     )
 
+    # Get thread_ts - use the message timestamp to create/reply to thread
+    # For DMs, thread_ts is the same as msg_ts
+    thread_ts = event.get("thread_ts") or msg_ts
+    
+    # For DM responses, use the DM channel; otherwise use DEFAULT_CHANNEL
+    response_channel = channel if is_dm else DEFAULT_CHANNEL
+
     if main_command == "location":
-        handle_location(user)
+        handle_location(user, thread_ts, response_channel)
     elif main_command == "testimage":
-        handle_testimage(user)
+        handle_testimage(user, thread_ts, response_channel)
     elif main_command == "agent":
-        handle_agent(user, command_full)
+        handle_agent(user, command_full, thread_ts, timeout=120, channel=response_channel)
+    elif main_command == "agent-debug":
+        handle_agent(user, command_full, thread_ts, timeout=1200, channel=response_channel)
     elif main_command == "help":
-        handle_help(user)
+        handle_help(user, thread_ts, response_channel)
     else:
         send_slack_message(
-            DEFAULT_CHANNEL,
+            response_channel,
             text=f"❓ <@{user}> Unknown command: `{text}`. Try `!help`.",
+            thread_ts=thread_ts,
         )
 
 

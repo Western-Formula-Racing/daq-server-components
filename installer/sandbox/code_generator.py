@@ -28,7 +28,7 @@ if not COHERE_API_KEY:
         "COHERE_API_KEY not found in environment. Add it to your .env or export it as an env var."
     )
 
-COHERE_MODEL = os.getenv("COHERE_MODEL", "command-r-plus")
+COHERE_MODEL = os.getenv("COHERE_MODEL", "command-a-reasoning-08-2025")
 SANDBOX_URL = os.getenv("SANDBOX_URL", "http://sandbox-runner:9090")
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "2"))
 
