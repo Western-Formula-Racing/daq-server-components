@@ -32,6 +32,82 @@ This repository hosts the Docker-based telemetry stack that powers Western Formu
 
 All services share a bridge network named `datalink` and rely on the admin token supplied through `.env`.
 
+## System architecture
+
+```mermaid
+graph TB
+    subgraph Ingestion["Data Ingestion"]
+        CSV["CSV Log Files"]
+        DBC["DBC File<br/><i>CAN Signal Definitions</i>"]
+        SDL["Startup Data Loader<br/><i>Bulk loader on boot</i>"]
+        FU["File Uploader<br/><i>Drag & drop web UI :8084</i>"]
+    end
+
+    subgraph Radio["daq-radio repo (external)"]
+        CAR["Car ECU, Raspberry Pi<br/><i>CAN → radio transmitter</i>"]
+        BASE["Base Station<br/><i>UDP/TCP receiver</i>"]
+    end
+
+    subgraph Storage["Time-Series Storage"]
+        INFLUX["InfluxDB 3<br/><i>Core database :9000</i>"]
+    end
+
+    subgraph Visualization["Visualization & Exploration"]
+        EXPLORER["InfluxDB 3 Explorer<br/><i>Query browser :8888</i>"]
+        GRAFANA["Grafana<br/><i>Dashboards :8087</i>"]
+    end
+
+    subgraph DataExport["Data Downloader :3000"]
+        DD_FE["Frontend<br/><i>Vite + TypeScript SPA</i>"]
+        DD_API["Backend API<br/><i>FastAPI :8000</i>"]
+        DD_SCAN["Periodic Scanner<br/><i>Discovers runs & signals</i>"]
+    end
+
+    subgraph AI["AI Analysis Pipeline"]
+        SLACK["Slackbot<br/><i>Lappy — Socket Mode</i>"]
+        CODEGEN["Code Generator<br/><i>Cohere LLM :3030</i>"]
+        SANDBOX["Sandbox<br/><i>Isolated Python runner</i>"]
+    end
+
+    subgraph Tracking["Future: Track Analysis"]
+        LAP["Lap Detector<br/><i>Dash app :8050<br/>Planned — requires GPS hardware</i>"]
+    end
+
+    CSV --> SDL
+    CSV --> FU
+    DBC -.->|cantools decode| SDL
+    DBC -.->|cantools decode| FU
+    SDL -->|Write API| INFLUX
+    FU -->|Write API| INFLUX
+
+    CAR -.->|UDP/TCP| BASE
+    BASE -.->|Write API| INFLUX
+
+    INFLUX --> EXPLORER
+    INFLUX --> GRAFANA
+
+    DD_FE -->|REST| DD_API
+    DD_API -->|SQL queries| INFLUX
+    DD_SCAN -->|Discover data| INFLUX
+    DD_SCAN -->|Update metadata| DD_API
+
+    SLACK -->|"!agent prompt"| CODEGEN
+    CODEGEN -->|Generated Python| SANDBOX
+    SANDBOX -->|Query via env creds| INFLUX
+    SANDBOX -->|stdout + images| CODEGEN
+    CODEGEN -->|Results| SLACK
+
+    SLACK -->|"!location"| LAP
+
+    style Ingestion fill:#e8f5e9,stroke:#2e7d32,color:#000
+    style Storage fill:#e3f2fd,stroke:#1565c0,color:#000
+    style Visualization fill:#fff3e0,stroke:#e65100,color:#000
+    style DataExport fill:#f3e5f5,stroke:#6a1b9a,color:#000
+    style AI fill:#fce4ec,stroke:#b71c1c,color:#000
+    style Tracking fill:#f5f5f5,stroke:#9e9e9e,color:#000,stroke-dasharray: 5 5
+    style Radio fill:#f5f5f5,stroke:#9e9e9e,color:#000,stroke-dasharray: 5 5
+```
+
 ## System overview
 
 The compose stack deploys eight cooperating containers:

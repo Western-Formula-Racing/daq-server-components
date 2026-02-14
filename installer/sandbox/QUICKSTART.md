@@ -201,7 +201,7 @@ docker compose exec code-generator cat generated_sandbox_code.py
 ┌─────────────────────────────┐
 │  Custom Sandbox             │
 │  • Execute code             │
-│  • Query InfluxDB (has net) │
+│  • Query InfluxDB (remote)  │
 │  • Generate plots           │
 └──────────┬────────────────┘
            │ Results (stdout, files)
