@@ -202,3 +202,4 @@ installer/*.dbc
 # Keep example.dbc
 !installer/example.dbc
 
+installer/slackbot/logs/*
