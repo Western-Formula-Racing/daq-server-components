@@ -1,6 +1,4 @@
 import os
-import shlex
-import subprocess
 import base64
 import json
 import datetime
@@ -37,15 +35,7 @@ socket_client = SocketModeClient(
 
 WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL")
 DEFAULT_CHANNEL = os.environ.get("SLACK_DEFAULT_CHANNEL", "C08NTG6CXL5")
-AGENT_PAYLOAD_PATH = Path(os.environ.get("AGENT_PAYLOAD_PATH", "agent_payload.txt"))
-AGENT_TRIGGER_COMMAND = os.environ.get("AGENT_TRIGGER_COMMAND")
 CODE_GENERATOR_URL = os.environ.get("CODE_GENERATOR_URL", "http://code-generator:3030")
-DEFAULT_AGENT_COMMAND = [
-    "python3",
-    "-c",
-    "print('Agent trigger placeholder executed')",
-]
-AGENT_COMMAND = shlex.split(AGENT_TRIGGER_COMMAND) if AGENT_TRIGGER_COMMAND else DEFAULT_AGENT_COMMAND
 
 
 # --- Public helper functions ---
@@ -308,77 +298,93 @@ def handle_help(user, thread_ts=None, channel=None):
 
 # --- Event Processing Logic ---
 def process_events(client: SocketModeClient, req: SocketModeRequest):
-    if req.type != "events_api":
-        return
+    try:
+        if req.type != "events_api":
+            return
 
-    client.send_socket_mode_response(SocketModeResponse(envelope_id=req.envelope_id))
-    event = req.payload.get("event", {})
-    if event.get("type") != "message" or event.get("subtype") is not None:
-        return
+        client.send_socket_mode_response(SocketModeResponse(envelope_id=req.envelope_id))
+        event = req.payload.get("event", {})
+        if event.get("type") != "message" or event.get("subtype") is not None:
+            return
 
-    # Get channel type - check if it's a DM or the default channel
-    channel = event.get("channel")
-    channel_type = event.get("channel_type")
-    
-    # Allow messages from default channel or DMs (im = direct message)
-    is_dm = channel_type == "im"
-    is_default_channel = channel == DEFAULT_CHANNEL
-    
-    if not (is_dm or is_default_channel):
-        return
+        # Get channel type - check if it's a DM or the default channel
+        channel = event.get("channel")
+        channel_type = event.get("channel_type")
+        
+        # Allow messages from default channel or DMs (im = direct message)
+        is_dm = channel_type == "im"
+        is_default_channel = channel == DEFAULT_CHANNEL
+        
+        if not (is_dm or is_default_channel):
+            return
 
-    msg_ts = event.get("ts")
-    if msg_ts in processed_messages:
-        print(f"Skipping already processed message: {msg_ts}")
-        return
+        msg_ts = event.get("ts")
+        if msg_ts in processed_messages:
+            print(f"Skipping already processed message: {msg_ts}")
+            return
 
-    processed_messages.add(msg_ts)
-    if len(processed_messages) > 1000:
-        oldest_ts = sorted(processed_messages)[0]
-        processed_messages.remove(oldest_ts)
+        processed_messages.add(msg_ts)
+        if len(processed_messages) > 1000:
+            oldest_ts = sorted(processed_messages)[0]
+            processed_messages.remove(oldest_ts)
 
-    user = event.get("user")
-    bot_user_id = os.environ.get("SLACK_BOT_USER_ID", "U08P8KS8K25")
-    if user == bot_user_id:
-        print(f"Skipping message from bot itself ({bot_user_id}).")
-        return
+        user = event.get("user")
+        bot_user_id = os.environ.get("SLACK_BOT_USER_ID", "U08P8KS8K25")
+        if user == bot_user_id:
+            print(f"Skipping message from bot itself ({bot_user_id}).")
+            return
 
-    text = event.get("text", "").strip()
-    if not text.startswith("!"):
-        return
+        text = event.get("text", "").strip()
+        if not text.startswith("!"):
+            return
 
-    command_full = text[1:]
-    command_parts = command_full.split()
-    main_command = command_parts[0] if command_parts else ""
+        command_full = text[1:]
+        command_parts = command_full.split()
+        main_command = command_parts[0] if command_parts else ""
 
-    print(
-        f"Received command: '{command_full}' from user {user} "
-        f"in {'DM' if is_dm else f'channel {channel}'}"
-    )
-
-    # Get thread_ts - use the message timestamp to create/reply to thread
-    # For DMs, thread_ts is the same as msg_ts
-    thread_ts = event.get("thread_ts") or msg_ts
-    
-    # For DM responses, use the DM channel; otherwise use DEFAULT_CHANNEL
-    response_channel = channel if is_dm else DEFAULT_CHANNEL
-
-    if main_command == "location":
-        handle_location(user, thread_ts, response_channel)
-    elif main_command == "testimage":
-        handle_testimage(user, thread_ts, response_channel)
-    elif main_command == "agent":
-        handle_agent(user, command_full, thread_ts, timeout=120, channel=response_channel)
-    elif main_command == "agent-debug":
-        handle_agent(user, command_full, thread_ts, timeout=1200, channel=response_channel)
-    elif main_command == "help":
-        handle_help(user, thread_ts, response_channel)
-    else:
-        send_slack_message(
-            response_channel,
-            text=f"❓ <@{user}> Unknown command: `{text}`. Try `!help`.",
-            thread_ts=thread_ts,
+        print(
+            f"Received command: '{command_full}' from user {user} "
+            f"in {'DM' if is_dm else f'channel {channel}'}"
         )
+
+        # Get thread_ts - use the message timestamp to create/reply to thread
+        # For DMs, thread_ts is the same as msg_ts
+        thread_ts = event.get("thread_ts") or msg_ts
+        
+        # For DM responses, use the DM channel; otherwise use DEFAULT_CHANNEL
+        response_channel = channel if is_dm else DEFAULT_CHANNEL
+
+        if main_command == "location":
+            handle_location(user, thread_ts, response_channel)
+        elif main_command == "testimage":
+            handle_testimage(user, thread_ts, response_channel)
+        elif main_command == "agent":
+            handle_agent(user, command_full, thread_ts, timeout=120, channel=response_channel)
+        elif main_command == "agent-debug":
+            handle_agent(user, command_full, thread_ts, timeout=1200, channel=response_channel)
+        elif main_command == "help":
+            handle_help(user, thread_ts, response_channel)
+        else:
+            send_slack_message(
+                response_channel,
+                text=f"❓ <@{user}> Unknown command: `{text}`. Try `!help`.",
+                thread_ts=thread_ts,
+            )
+    except Exception as e:
+        import traceback
+        print(f"❌ Error processing event: {e}")
+        traceback.print_exc()
+        try:
+            # Try to notify the user about the error
+            if 'user' in locals() and 'response_channel' in locals():
+                send_slack_message(
+                    response_channel,
+                    text=f"❌ <@{user}> An error occurred while processing your command. Please try again later.",
+                    thread_ts=locals().get('thread_ts')
+                )
+        except:
+            # If even error notification fails, just log it
+            print("Failed to send error notification to Slack")
 
 
 # --- Main Execution ---

@@ -25,8 +25,7 @@ Set the following environment variables before running the bot:
 - `SLACK_WEBHOOK_URL` (optional): Incoming webhook URL to announce when the bot starts.
 - `SLACK_DEFAULT_CHANNEL` (optional): Channel ID the bot monitors and posts to. Defaults to `C08NTG6CXL5`.
 - `SLACK_BOT_USER_ID` (optional): Bot user ID. Used to avoid responding to itself. Default is `U08P8KS8K25`.
-- `AGENT_PAYLOAD_PATH` (optional): Path where `!agent` instructions are written. Defaults to `agent_payload.txt` in the working directory.
-- `AGENT_TRIGGER_COMMAND` (optional): Shell command to execute after writing the payload. When omitted, the bot runs `python3 -c "print('Agent trigger placeholder executed')"` as a stand-in.
+- `CODE_GENERATOR_URL` (optional): URL of the code-generator service. Defaults to `http://code-generator:3030`.
 
 Local Development
 -----------------
@@ -72,14 +71,18 @@ Slack Commands
   Upload the bundled `lappy_test_image.png` to confirm file upload functionality.
 
 - `!agent <instructions>`  
-  Write the provided text to `AGENT_PAYLOAD_PATH` and run `AGENT_TRIGGER_COMMAND`. Replies with the stdout (or failure information) from the triggered process. If no instructions are supplied, the bot prompts the user to include them.
+  Generate and execute Python code using AI via the code-generator service. Supports data visualization and analysis. Timeout: 120 seconds.
+
+- `!agent-debug <instructions>`  
+  Extended version of `!agent` with 1200 second (20 minute) timeout. Automatically retries up to 2 times if code fails. Use for complex analysis or large datasets.
 
 Agent Workflow
 --------------
-1. User posts `!agent` followed by freeform text.
-2. Bot saves the text (plus newline) to the payload file, creating parent directories if necessary.
-3. Bot runs the trigger command and reports success or failure in Slack.
-4. Another service can watch the payload file or integrate with the trigger command to act on the instructions.
+1. User posts `!agent` or `!agent-debug` followed by freeform instructions.
+2. Bot sends instructions to the code-generator service via HTTP.
+3. Code-generator uses AI to create Python code based on the instructions.
+4. Generated code executes in a sandboxed environment and returns results (output, images, etc.).
+5. Bot reports success/failure and uploads any generated visualizations to Slack.
 
 Helper Functions
 ----------------
