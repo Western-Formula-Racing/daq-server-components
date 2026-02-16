@@ -4,7 +4,7 @@ import math
 import random
 from datetime import datetime, timedelta
 
-OUTPUT_DIR = "./generated_days"
+OUTPUT_DIR = "./generated-days"
 DAYS = 5
 SESSIONS_PER_DAY = 3
 SESSION_LENGTH_MIN = 15              # minutes (increased for better data duration)
