@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional
 
-import slicks
+from influxdb_client_3 import InfluxDBClient3
 
 from backend.config import Settings
 from backend.storage import RunsRepository, SensorsRepository, ScannerStatusRepository
@@ -110,13 +110,12 @@ class DataDownloaderService:
                 database,
                 table,
             )
-            slicks.connect_influxdb3(
-                url=host,
-                token=self.settings.influx_token,
-                db=database,
-            )
-            client = slicks.get_influx_client()
-            client.query("SELECT 1")
+            with InfluxDBClient3(host=host, token=self.settings.influx_token, database=database) as client:
+                ping_fn = getattr(client, "ping", None)
+                if callable(ping_fn):
+                    ping_fn()
+                else:
+                    client.query("SELECT 1")
             logger.info("InfluxDB connectivity OK")
         except Exception:
             logger.exception("InfluxDB connectivity check failed")
