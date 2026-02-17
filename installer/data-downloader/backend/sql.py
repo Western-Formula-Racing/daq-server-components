@@ -43,17 +43,20 @@ def fetch_unique_sensors(config: SensorQueryConfig) -> List[str]:
     end = datetime.now(UTC)
     start = end - timedelta(days=config.lookback_days)
 
+    # slicks 0.1.3 generates invalid SQL for InfluxDB 3 if passed timezone-aware datetimes
+    # because it appends 'Z' to an ISO string that already has an offset.
+    # Passing naive UTC datetimes works around this.
     sensors = discover_sensors(
-        start_time=start,
-        end_time=end,
+        start_time=start.replace(tzinfo=None),
+        end_time=end.replace(tzinfo=None),
         chunk_size_days=config.window_days,
         show_progress=False,
     )
 
     if not sensors and config.fallback_start and config.fallback_end:
         sensors = discover_sensors(
-            start_time=config.fallback_start,
-            end_time=config.fallback_end,
+            start_time=config.fallback_start.replace(tzinfo=None),
+            end_time=config.fallback_end.replace(tzinfo=None),
             chunk_size_days=config.window_days,
             show_progress=False,
         )

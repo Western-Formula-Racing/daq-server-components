@@ -185,6 +185,11 @@ services:
     container_name: data-downloader-api
     env_file:
       - .env
+    environment:
+      # Ensure slicks child processes can self-configure
+      INFLUX_URL: ${INFLUXDB_URL:-http://influxdb3:8181}
+      INFLUX_TOKEN: ${INFLUXDB_ADMIN_TOKEN}
+      INFLUX_DB: ${INFLUX_DATABASE:-WFR25}
     ports:
       - "8000:8000"
     volumes:
@@ -204,6 +209,11 @@ services:
     container_name: data-downloader-scanner
     env_file:
       - .env
+    environment:
+      # Ensure slicks child processes can self-configure
+      INFLUX_URL: ${INFLUXDB_URL:-http://influxdb3:8181}
+      INFLUX_TOKEN: ${INFLUXDB_ADMIN_TOKEN}
+      INFLUX_DB: ${INFLUX_DATABASE:-WFR25}
     command: ["python", "-m", "backend.periodic_worker"]
     volumes:
       - ./data-downloader/data:/app/data

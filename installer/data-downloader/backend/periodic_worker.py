@@ -19,9 +19,10 @@ async def run_worker():
             logging.info("Running scheduled scan...")
             service.run_full_scan(source="periodic")
             logging.info("Finished scheduled scan.")
+            await asyncio.sleep(interval)
         except Exception:
-            logging.exception("Scheduled scan failed")
-        await asyncio.sleep(interval)
+            logging.exception("Scheduled scan failed. Retrying in 60s...")
+            await asyncio.sleep(60)
 
 
 if __name__ == "__main__":

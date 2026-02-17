@@ -4,6 +4,7 @@ from datetime import datetime
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from backend.config import get_settings
@@ -69,7 +70,69 @@ def trigger_scan(background_tasks: BackgroundTasks) -> dict:
     return {"status": "scheduled"}
 
 
-@app.post("/api/data/query")
-def query_data(payload: DataQueryPayload) -> dict:
     limit = None if payload.no_limit else (payload.limit or 2000)
     return service.query_signal_series(payload.signal, payload.start, payload.end, limit)
+
+
+@app.get("/", response_class=HTMLResponse)
+def index():
+    """Simple status page for debugging."""
+    influx_status = "Unknown"
+    influx_color = "gray"
+    try:
+        service._log_influx_connectivity()
+        influx_status = "Connected"
+        influx_color = "green"
+    except Exception as e:
+        influx_status = f"Error: {e}"
+        influx_color = "red"
+
+    runs = service.get_runs()
+    sensors = service.get_sensors()
+    scanner_status = service.get_scanner_status()
+
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>DAQ Data Downloader Status</title>
+        <style>
+            body {{ font-family: sans-serif; max-width: 800px; margin: 2rem auto; line-height: 1.6; }}
+            h1 {{ border-bottom: 2px solid #eee; padding-bottom: 0.5rem; }}
+            .card {{ border: 1px solid #ddd; border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; }}
+            .status-ok {{ color: green; font-weight: bold; }}
+            .status-err {{ color: red; font-weight: bold; }}
+            code {{ background: #f4f4f4; padding: 2px 5px; border-radius: 4px; }}
+        </style>
+    </head>
+    <body>
+        <h1>DAQ Data Downloader Status</h1>
+        
+        <div class="card">
+            <h2>System Status</h2>
+            <p><strong>InfluxDB Connection:</strong> <span style="color: {influx_color}">{influx_status}</span></p>
+            <p><strong>Scanner Status:</strong> {scanner_status.get('status', 'Unknown')} (Last run: {scanner_status.get('last_run', 'Never')})</p>
+            <p><strong>API Version:</strong> 1.0.0</p>
+        </div>
+
+        <div class="card">
+            <h2>Data Stats</h2>
+            <ul>
+                <li><strong>Runs Found:</strong> {len(runs.get('runs', []))}</li>
+                <li><strong>Sensors Found:</strong> {len(sensors)}</li>
+            </ul>
+        </div>
+
+        <div class="card">
+            <h2>Configuration</h2>
+            <ul>
+                <li><strong>Influx Host:</strong> <code>{settings.influx_host}</code></li>
+                <li><strong>Database:</strong> <code>{settings.influx_database}</code></li>
+            </ul>
+        </div>
+        
+        <p><a href="/docs">View API Documentation</a> | <a href="http://localhost:3000">Open Frontend</a></p>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html)
