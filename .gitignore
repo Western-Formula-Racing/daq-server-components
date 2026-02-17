@@ -203,3 +203,9 @@ installer/*.dbc
 !installer/example.dbc
 
 installer/slackbot/logs/*
+installer/slackbot/*.png
+installer/slackbot/*.jpg
+installer/slackbot/*.jpeg
+
+# Generated CSV data files
+generated-days/
