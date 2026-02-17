@@ -2,3 +2,4 @@ fastapi==0.115.4
 uvicorn[standard]==0.23.2
 influxdb3-python==0.16.0
 pydantic==2.9.2
+slicks>=0.1.3
