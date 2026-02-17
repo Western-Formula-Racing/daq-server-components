@@ -207,3 +207,4 @@ installer/slackbot/logs/*
 installer/sandbox/prompt-guide.txt
 
 wfr-telemetry
+/installer/data-downloader/data

@@ -41,14 +41,19 @@ def healthcheck() -> dict:
     return {"status": "ok"}
 
 
+@app.get("/api/seasons")
+def list_seasons() -> List[dict]:
+    return service.get_seasons()
+
+
 @app.get("/api/runs")
-def list_runs() -> dict:
-    return service.get_runs()
+def list_runs(season: str | None = None) -> dict:
+    return service.get_runs(season=season)
 
 
 @app.get("/api/sensors")
-def list_sensors() -> dict:
-    return service.get_sensors()
+def list_sensors(season: str | None = None) -> dict:
+    return service.get_sensors(season=season)
 
 
 @app.get("/api/scanner-status")
@@ -57,10 +62,10 @@ def scanner_status() -> dict:
 
 
 @app.post("/api/runs/{key}/note")
-def save_note(key: str, payload: NotePayload) -> dict:
-    run = service.update_note(key, payload.note.strip())
+def save_note(key: str, payload: NotePayload, season: str | None = None) -> dict:
+    run = service.update_note(key, payload.note.strip(), season=season)
     if not run:
-        raise HTTPException(status_code=404, detail=f"Run {key} not found")
+        raise HTTPException(status_code=404, detail=f"Run {key} not found (season={season})")
     return run
 
 
@@ -70,8 +75,16 @@ def trigger_scan(background_tasks: BackgroundTasks) -> dict:
     return {"status": "scheduled"}
 
 
+@app.post("/api/query")
+def query_signal(payload: DataQueryPayload, season: str | None = None) -> dict:
     limit = None if payload.no_limit else (payload.limit or 2000)
-    return service.query_signal_series(payload.signal, payload.start, payload.end, limit)
+    return service.query_signal_series(
+        payload.signal, 
+        payload.start, 
+        payload.end, 
+        limit,
+        season=season
+    )
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -87,9 +100,12 @@ def index():
         influx_status = f"Error: {e}"
         influx_color = "red"
 
+    # Default to first season for overview
     runs = service.get_runs()
     sensors = service.get_sensors()
     scanner_status = service.get_scanner_status()
+    seasons_list = service.get_seasons()
+    seasons_html = ", ".join([f"{s['name']} ({s['year']})" for s in seasons_list])
 
     html = f"""
     <!DOCTYPE html>
@@ -112,26 +128,23 @@ def index():
             <h2>System Status</h2>
             <p><strong>InfluxDB Connection:</strong> <span style="color: {influx_color}">{influx_status}</span></p>
             <p><strong>Scanner Status:</strong> {scanner_status.get('status', 'Unknown')} (Last run: {scanner_status.get('last_run', 'Never')})</p>
-            <p><strong>API Version:</strong> 1.0.0</p>
+            <p><strong>API Version:</strong> 1.1.0 (Multi-Season Support)</p>
         </div>
 
         <div class="card">
-            <h2>Data Stats</h2>
+            <h2>Active Config</h2>
+            <p><strong>Seasons Configured:</strong> {seasons_html}</p>
+        </div>
+
+        <div class="card">
+            <h2>Default Season Stats ({seasons_list[0]['name'] if seasons_list else 'None'})</h2>
             <ul>
                 <li><strong>Runs Found:</strong> {len(runs.get('runs', []))}</li>
-                <li><strong>Sensors Found:</strong> {len(sensors)}</li>
-            </ul>
-        </div>
-
-        <div class="card">
-            <h2>Configuration</h2>
-            <ul>
-                <li><strong>Influx Host:</strong> <code>{settings.influx_host}</code></li>
-                <li><strong>Database:</strong> <code>{settings.influx_database}</code></li>
+                <li><strong>Sensors Found:</strong> {len(sensors.get('sensors', []))}</li>
             </ul>
         </div>
         
-        <p><a href="/docs">View API Documentation</a> | <a href="http://localhost:3000">Open Frontend</a></p>
+        <p><a href="/docs">API Docs</a> | <a href="/api/seasons">JSON Seasons List</a> | <a href="http://localhost:3000">Frontend</a></p>
     </body>
     </html>
     """

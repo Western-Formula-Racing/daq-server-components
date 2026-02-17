@@ -14,7 +14,14 @@ def _normalize(dt: datetime) -> datetime:
     return dt.astimezone(timezone.utc)
 
 
-def fetch_signal_series(settings: Settings, signal: str, start: datetime, end: datetime, limit: int | None) -> dict:
+def fetch_signal_series(
+    settings: Settings, 
+    signal: str, 
+    start: datetime, 
+    end: datetime, 
+    limit: int | None, 
+    database: str | None = None
+) -> dict:
     start_dt = _normalize(start)
     end_dt = _normalize(end)
     if start_dt >= end_dt:
@@ -35,8 +42,11 @@ def fetch_signal_series(settings: Settings, signal: str, start: datetime, end: d
           AND time <= TIMESTAMP '{end_dt.isoformat()}'
         ORDER BY time{limit_clause}
     """
+    
+    # Use provided database or fallback to default setting
+    target_db = database if database else settings.influx_database
 
-    with InfluxDBClient3(host=settings.influx_host, token=settings.influx_token, database=settings.influx_database) as client:
+    with InfluxDBClient3(host=settings.influx_host, token=settings.influx_token, database=target_db) as client:
         tbl = client.query(sql)
         points = []
         for idx in range(tbl.num_rows):
@@ -56,6 +66,7 @@ def fetch_signal_series(settings: Settings, signal: str, start: datetime, end: d
         "start": start_dt.isoformat(),
         "end": end_dt.isoformat(),
         "limit": limit,
+        "database": target_db,
         "row_count": len(points),
         "points": points,
         "sql": " ".join(line.strip() for line in sql.strip().splitlines()),

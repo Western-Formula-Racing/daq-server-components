@@ -12,6 +12,52 @@ def _parse_origins(raw: str | None) -> List[str]:
     return [origin.strip() for origin in raw.split(",") if origin.strip()]
 
 
+class SeasonConfig(BaseModel):
+    name: str  # e.g. "WFR25"
+    year: int  # e.g. 2025
+    database: str  # e.g. "WFR25"
+    color: str | None = None # e.g. "222 76 153"
+
+
+def _parse_seasons(raw: str | None) -> List[SeasonConfig]:
+    """Parse SEASONS env var: "WFR25:2025:222 76 153,WFR26:2026:..."."""
+    if not raw:
+        # Default fallback if not set
+        return [SeasonConfig(name="WFR25", year=2025, database="WFR25", color="#DE4C99")]
+    
+    seasons = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            # Split into at most 3 parts: Name, Year, Color
+            parts = part.split(":", 2)
+            name = parts[0]
+            
+            if len(parts) >= 2:
+                year = int(parts[1])
+            else:
+                # Malformed or simple format not supported purely by regex?
+                # Actually if just "WFR25", split gives ['WFR25']
+                # require at least year
+                continue
+
+            color = parts[2] if len(parts) > 2 else None
+            
+            # Assume DB name matches Season Name
+            seasons.append(SeasonConfig(name=name, year=year, database=name, color=color))
+        except ValueError:
+            continue
+            
+    if not seasons:
+         return [SeasonConfig(name="WFR25", year=2025, database="WFR25")]
+         
+    # Sort by year descending (newest first)
+    seasons.sort(key=lambda s: s.year, reverse=True)
+    return seasons
+
+
 class Settings(BaseModel):
     """Centralised configuration pulled from environment variables."""
 
@@ -19,12 +65,15 @@ class Settings(BaseModel):
 
     influx_host: str = Field(default_factory=lambda: os.getenv("INFLUX_HOST", "http://localhost:9000"))
     influx_token: str = Field(default_factory=lambda: os.getenv("INFLUX_TOKEN", ""))
-    influx_database: str = Field(default_factory=lambda: os.getenv("INFLUX_DATABASE", "WFR25"))
+    
+    # Global/Default Influx settings (used for connectivity check or default fallback)
     influx_schema: str = Field(default_factory=lambda: os.getenv("INFLUX_SCHEMA", "iox"))
     influx_table: str = Field(default_factory=lambda: os.getenv("INFLUX_TABLE", "WFR25"))
 
-    scanner_year: int = Field(default_factory=lambda: int(os.getenv("SCANNER_YEAR", "2025")))
-    scanner_bin: str = Field(default_factory=lambda: os.getenv("SCANNER_BIN", "hour"))  # hour or day
+    seasons: List[SeasonConfig] = Field(default_factory=lambda: _parse_seasons(os.getenv("SEASONS")))
+
+    # Scanner settings common to all seasons (unless we want per-season granularity later)
+    scanner_bin: str = Field(default_factory=lambda: os.getenv("SCANNER_BIN", "hour"))
     scanner_include_counts: bool = Field(default_factory=lambda: os.getenv("SCANNER_INCLUDE_COUNTS", "true").lower() == "true")
     scanner_initial_chunk_days: int = Field(default_factory=lambda: int(os.getenv("SCANNER_INITIAL_CHUNK_DAYS", "31")))
 
@@ -32,6 +81,7 @@ class Settings(BaseModel):
     sensor_lookback_days: int = Field(default_factory=lambda: int(os.getenv("SENSOR_LOOKBACK_DAYS", "30")))
 
     periodic_interval_seconds: int = Field(default_factory=lambda: int(os.getenv("SCAN_INTERVAL_SECONDS", "3600")))
+    scan_daily_time: str | None = Field(default_factory=lambda: os.getenv("SCAN_DAILY_TIME"))
 
     allowed_origins: List[str] = Field(default_factory=lambda: _parse_origins(os.getenv("ALLOWED_ORIGINS", "*")))
 

@@ -45,3 +45,10 @@ export interface ScannerStatus {
   error?: string | null;
   updated_at: string | null;
 }
+
+export interface Season {
+  name: string;
+  year: number;
+  database: string;
+  color?: string;
+}

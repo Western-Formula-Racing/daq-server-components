@@ -37,10 +37,12 @@ class ScannerConfig:
 
     @property
     def start(self) -> datetime:
-        return datetime(self.year, 1, 1, tzinfo=UTC)
+        # Season starts in August of the previous year
+        return datetime(self.year - 1, 8, 1, tzinfo=UTC)
 
     @property
     def end(self) -> datetime:
+        # Season ends at the end of the configured year (Jan 1 of year + 1)
         return datetime(self.year + 1, 1, 1, tzinfo=UTC)
 
 

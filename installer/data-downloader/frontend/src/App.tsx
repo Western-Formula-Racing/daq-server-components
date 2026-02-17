@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchRuns, fetchSensors, fetchScannerStatus, triggerScan, updateNote } from "./api";
-import { RunRecord, RunsResponse, ScannerStatus, SensorsResponse } from "./types";
+import { fetchRuns, fetchSensors, fetchScannerStatus, triggerScan, updateNote, fetchSeasons } from "./api";
+import { RunRecord, RunsResponse, ScannerStatus, SensorsResponse, Season } from "./types";
 import { RunTable } from "./components/RunTable";
 import { DataDownload } from "./components/data-download";
 
@@ -15,6 +15,8 @@ interface DownloaderSelection {
 }
 
 export default function App() {
+  const [seasons, setSeasons] = useState<Season[]>([]);
+  const [selectedSeason, setSelectedSeason] = useState<string>(""); // season name
   const [runs, setRuns] = useState<RunsResponse | null>(null);
   const [sensors, setSensors] = useState<SensorsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -31,16 +33,36 @@ export default function App() {
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [runsData, sensorsData] = await Promise.all([fetchRuns(), fetchSensors()]);
+
+      let currentSeason = selectedSeason;
+
+      // Initial load: fetch seasons if we don't have them
+      if (seasons.length === 0) {
+        const seasonsList = await fetchSeasons();
+        setSeasons(seasonsList);
+        if (seasonsList.length > 0 && !currentSeason) {
+          currentSeason = seasonsList[0].name;
+          setSelectedSeason(currentSeason);
+        }
+      }
+
+      // If we still don't have a season (e.g. no seasons configured), fetch with default (undefined)
+      const seasonArg = currentSeason || undefined;
+
+      const [runsData, sensorsData] = await Promise.all([
+        fetchRuns(seasonArg),
+        fetchSensors(seasonArg)
+      ]);
       setRuns(runsData);
       setSensors(sensorsData);
       setError(null);
     } catch (err) {
+      console.error(err);
       setError(err instanceof Error ? err.message : "Failed to fetch data");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedSeason, seasons.length]);
 
   const loadStatus = useCallback(
     async (syncOnFinishChange: boolean) => {
@@ -110,14 +132,14 @@ export default function App() {
         prev
           ? { ...prev, scanning: false, last_result: "error", error: message }
           : {
-              scanning: false,
-              started_at: null,
-              finished_at: null,
-              source: null,
-              last_result: "error",
-              error: message,
-              updated_at: new Date().toISOString()
-            }
+            scanning: false,
+            started_at: null,
+            finished_at: null,
+            source: null,
+            last_result: "error",
+            error: message,
+            updated_at: new Date().toISOString()
+          }
       );
     } finally {
       setTimeout(() => setScanState("idle"), 5000);
@@ -137,7 +159,7 @@ export default function App() {
     const nextNote = noteDrafts[key] ?? runs?.runs.find((r) => r.key === key)?.note ?? "";
     setSavingKey(key);
     try {
-      const updated = await updateNote(key, nextNote);
+      const updated = await updateNote(key, nextNote, selectedSeason);
       setRuns((prev) => {
         if (!prev) return prev;
         const updatedRuns = prev.runs.map((run) => (run.key === key ? updated : run));
@@ -188,13 +210,46 @@ export default function App() {
     ? new Date(sensors.updated_at).toLocaleString()
     : "never";
 
+  const selectedSeasonColor = useMemo(() => {
+    return seasons.find(s => s.name === selectedSeason)?.color || "#0bf"; // Default blue
+  }, [seasons, selectedSeason]);
+
   return (
     <div className="app-shell">
-      <header style={{ marginBottom: "1.5rem" }}>
-        <h1 style={{ margin: 0 }}>DAQ Data Downloader</h1>
-        <p className="subtitle">
-          Inspect historical scans, refresh availability, and capture run notes.
-        </p>
+      <header style={{ marginBottom: "1.5rem", borderLeft: `6px solid ${selectedSeasonColor}`, paddingLeft: "1rem" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div>
+            <h1 style={{ margin: 0, color: selectedSeasonColor }}>DAQ Data Downloader</h1>
+            <p className="subtitle">
+              Inspect historical scans, refresh availability, and capture run notes.
+            </p>
+          </div>
+
+          {seasons.length > 0 && (
+            <div className="season-selector" style={{ textAlign: "right" }}>
+              <label style={{ display: "block", fontSize: "0.8rem", color: selectedSeasonColor, marginBottom: "0.25rem", fontWeight: "bold" }}>
+                Active Season
+              </label>
+              <select
+                value={selectedSeason}
+                onChange={(e) => setSelectedSeason(e.target.value)}
+                style={{
+                  padding: "0.5rem",
+                  borderRadius: "4px",
+                  border: `2px solid ${selectedSeasonColor}`,
+                  fontSize: "1rem",
+                  outline: "none",
+                  color: selectedSeasonColor,
+                  fontWeight: "bold"
+                }}
+              >
+                {seasons.map(s => (
+                  <option key={s.name} value={s.name}>{s.name} ({s.year})</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
       </header>
 
       {scanningActive && (
@@ -278,6 +333,7 @@ export default function App() {
         <DataDownload
           runs={runs?.runs ?? []}
           sensors={sensorsPreview}
+          season={selectedSeason}
           externalSelection={downloaderSelection ?? undefined}
         />
       </section>
