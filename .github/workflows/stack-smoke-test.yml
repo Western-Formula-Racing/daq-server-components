@@ -29,8 +29,17 @@ jobs:
     - name: Ensure CI script is executable
       run: chmod +x ./dev-utils/ci/stack-smoke-test.sh
 
+    - name: Prepare environment file for CI
+      run: |
+        if [ ! -f installer/.env ]; then
+          cp installer/.env.example installer/.env
+          echo "Created .env file from .env.example"
+        fi
+        ls -la installer/.env
+
     - name: Run installer smoke test
       env:
+        CI: "true"
         DOCKER_BUILDKIT: "1"
         COMPOSE_DOCKER_CLI_BUILD: "1"
       run: ./dev-utils/ci/stack-smoke-test.sh
