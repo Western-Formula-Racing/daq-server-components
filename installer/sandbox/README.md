@@ -4,10 +4,40 @@ Generate and execute Python code for telemetry analysis using Cohere AI and a cu
 
 ## Architecture
 
-```
-[User in Slack] → [Slackbot (Lappy)] → [Code Generator] → [Custom Sandbox]
-        ↑                                    (Cohere AI)       (Python + InfluxDB)
-        └──────────────────────────── [Results (images, logs, data)] ←──────────┘
+```mermaid
+flowchart TD
+    User([User in Slack])
+
+    User -->|"!agent &lt;prompt&gt;"| Slackbot
+
+    subgraph "Code Generator (port 3030)"
+        direction TB
+        Receive[Receive prompt]
+        LoadGuide["Load system prompt (prompt-guide.txt)"]
+        CohereAI["Cohere AI (command-r-plus)"]
+        RetryNode["Append error to prompt and retry"]
+        Check{"Execution successful?"}
+
+        Receive --> LoadGuide
+        LoadGuide -->|"system prompt + user prompt"| CohereAI
+        CohereAI -->|"Generated Python code"| Check
+        RetryNode -->|"Updated prompt"| CohereAI
+    end
+
+    subgraph "Sandbox (port 8080)"
+        direction TB
+        Execute["Execute Python in subprocess"]
+        InfluxDB[("InfluxDB3")]
+
+        Execute <-->|"slicks: fetch_telemetry(), discover_sensors()"| InfluxDB
+    end
+
+    Slackbot -->|"POST /api/generate-code { prompt }"| Receive
+    Check -->|"Submit code"| Execute
+    Execute -->|"ok, stdout, stderr, output_files (b64)"| Check
+    Check -->|"Failed & retries remaining"| RetryNode
+    Check -->|"Success or max retries reached"| Slackbot
+    Slackbot -->|"Text output + uploaded images"| User
 ```
 
 ### Components
@@ -38,7 +68,7 @@ Add to your `.env` file:
 # Required: Cohere API key
 COHERE_API_KEY=your-cohere-api-key-here
 
-# Optional: Cohere model (default: command-r-plus)
+# Optional: Cohere model (default in docker-compose: command-r-plus; code default: command-a-reasoning-08-2025)
 COHERE_MODEL=command-r-plus
 
 # Optional: Max retry attempts (default: 2)
@@ -119,27 +149,27 @@ Use the `!agent` command in Slack:
 **Simple Plot:**
 ```
 User: !agent create a random scatter plot
-Bot: 🤖 Processing your request...
-Bot: ✅ Code executed successfully!
-Bot: 📊 Here's your visualization: [output.png]
+Bot:  Processing your request...
+Bot:  Code executed successfully!
+Bot:  Here's your visualization: [output.png]
 ```
 
 **With Retry:**
 ```
 User: !agent plot df['time'] data
-Bot: 🤖 Processing your request...
-Bot: ⚠️ Initial code had errors. Retried 1 time(s) with error feedback.
-Bot: ✅ Code executed successfully! (after 1 retry)
-Bot: Output: Data plotted successfully
+Bot:  Processing your request...
+Bot:  Initial code had errors. Retried 1 time(s) with error feedback.
+Bot:  Code executed successfully! (after 1 retry)
+Bot:  Output: Data plotted successfully
 ```
 
 **Failure After Retries:**
 ```
 User: !agent impossible task
-Bot: 🤖 Processing your request...
-Bot: ⚠️ Initial code had errors. Retried 2 time(s) with error feedback.
-Bot: ❌ Code execution failed after 2 retries:
-     ERROR_TRACE: [error details]
+Bot:  Processing your request...
+Bot:  Initial code had errors. Retried 2 time(s) with error feedback.
+Bot:  Code execution failed after 2 retries:
+      ERROR_TRACE: [error details]
 ```
 
 ## System Prompt
@@ -204,9 +234,9 @@ Response:
 }
 ```
 
-### Sandbox Runner Service (Port 9090)
+### Sandbox Runner Service (Port 8080)
 
-**POST /**
+**POST / or /execute**
 ```json
 {
   "code": "print('hello world')"
@@ -216,11 +246,16 @@ Response:
 Response:
 ```json
 {
-  "success": true,
+  "ok": true,
   "std_out": "hello world\n",
   "std_err": "",
   "return_code": 0,
-  "output_files": []
+  "output_files": [
+    {
+      "filename": "output.png",
+      "b64_data": "base64-encoded-bytes"
+    }
+  ]
 }
 ```
 
@@ -241,7 +276,7 @@ docker compose logs -f sandbox
 
 - Code executes in isolated subprocess with timeout limits
 - **Has internet access** for InfluxDB queries via `slicks` and API calls
-- Limited runtime (30 seconds max, configurable)
+- Limited runtime (120 seconds max, configurable via `SANDBOX_TIMEOUT`)
 - Limited memory and file size
 - InfluxDB credentials passed via environment variables (consumed by `slicks` automatically)
 - Generated code is logged for audit purposes

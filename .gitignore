@@ -208,4 +208,9 @@ installer/sandbox/prompt-guide.txt
 
 wfr-telemetry
 /installer/data-downloader/data
-generated-days/2025-01-01-00-07-00.csv
+installer/slackbot/*.png
+installer/slackbot/*.jpg
+installer/slackbot/*.jpeg
+
+# Generated CSV data files
+generated-days/
