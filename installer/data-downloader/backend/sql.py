@@ -38,6 +38,8 @@ def fetch_unique_sensors(config: SensorQueryConfig) -> List[str]:
         url=config.host,
         token=config.token,
         db=config.database,
+        schema=config.schema,
+        table=config.table,
     )
 
     end = datetime.now(UTC)

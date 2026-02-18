@@ -55,14 +55,26 @@ def scan_runs(config: ScannerConfig) -> List[dict]:
     """Run the adaptive scan via *slicks* and return formatted windows."""
 
     # Configure slicks to point at the same InfluxDB instance
+    # config.table comes in as "schema.table" from services.py
+    schema, table_name = "iox", config.table
+    if "." in config.table:
+        parts = config.table.split(".", 1)
+        schema, table_name = parts[0], parts[1]
+
     slicks.connect_influxdb3(
         url=config.host,
         token=config.token,
         db=config.database,
+        schema=schema,
+        table=table_name,
     )
 
     # Determine the table string slicks expects ("schema.table")
-    table = config.table  # already "iox.WFR25" from services.py
+    # We pass None to use the global configured table we just set above
+    # Or we can just pass table_name if scan_data_availability expects a name?
+    # scan_data_availability expects "schema.table" or defaults to config.
+    # Let's rely on the global config we just set.
+    table = None 
 
     result = scan_data_availability(
         start=config.start,
