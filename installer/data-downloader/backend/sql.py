@@ -1,12 +1,18 @@
+"""Thin wrapper that delegates sensor discovery to the *slicks* package.
+
+The public API (``SensorQueryConfig`` + ``fetch_unique_sensors``) is
+unchanged so ``services.py`` works without modification.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import List, Set
+from typing import List
 
-from influxdb_client_3 import InfluxDBClient3
+import slicks
+from slicks.discovery import discover_sensors
 
-from backend.table_utils import quote_table
 
 UTC = timezone.utc
 
@@ -23,52 +29,41 @@ class SensorQueryConfig:
     fallback_start: datetime | None = None
     fallback_end: datetime | None = None
 
-    @property
-    def table_ref(self) -> str:
-        identifier = f"{self.schema}.{self.table}" if self.schema else self.table
-        return quote_table(identifier)
-
 
 def fetch_unique_sensors(config: SensorQueryConfig) -> List[str]:
-    """Collect distinct signal names by scanning the recent history."""
+    """Collect distinct signal names by scanning recent history via *slicks*."""
+
+    # Configure slicks to point at the same InfluxDB instance
+    slicks.connect_influxdb3(
+        url=config.host,
+        token=config.token,
+        db=config.database,
+        schema=config.schema,
+        table=config.table,
+    )
+
     end = datetime.now(UTC)
     start = end - timedelta(days=config.lookback_days)
-    unique: Set[str] = set()
 
-    with InfluxDBClient3(host=config.host, token=config.token, database=config.database) as client:
-        unique.update(
-            _collect_range(client, config, start, end)
+    # slicks 0.1.3 generates invalid SQL for InfluxDB 3 if passed timezone-aware datetimes
+    # because it appends 'Z' to an ISO string that already has an offset.
+    # Passing naive UTC datetimes works around this.
+    sensors = discover_sensors(
+        start_time=start.replace(tzinfo=None),
+        end_time=end.replace(tzinfo=None),
+        chunk_size_days=config.window_days,
+        show_progress=False,
+    )
+
+    if not sensors and config.fallback_start and config.fallback_end:
+        sensors = discover_sensors(
+            start_time=config.fallback_start.replace(tzinfo=None),
+            end_time=config.fallback_end.replace(tzinfo=None),
+            chunk_size_days=config.window_days,
+            show_progress=False,
         )
-        if not unique and config.fallback_start and config.fallback_end:
-            unique.update(
-                _collect_range(client, config, config.fallback_start, config.fallback_end)
-            )
-    return sorted(unique)
 
-
-def _collect_range(client: InfluxDBClient3, config: SensorQueryConfig, start: datetime, end: datetime) -> Set[str]:
-    cur = start
-    found: Set[str] = set()
-    while cur < end:
-        nxt = min(cur + timedelta(days=config.window_days), end)
-        sql = f"""
-            SELECT DISTINCT "signalName"
-            FROM {config.table_ref}
-            WHERE time >= TIMESTAMP '{cur.isoformat()}'
-              AND time <  TIMESTAMP '{nxt.isoformat()}'
-            LIMIT 5000
-        """
-        try:
-            tbl = client.query(sql)
-            if tbl.num_rows == 0:
-                cur = nxt
-                continue
-            for row in tbl.column("signalName"):
-                found.add(row.as_py())
-        except Exception:
-            pass
-        cur = nxt
-    return found
+    return sensors
 
 
 if __name__ == "__main__":  # pragma: no cover

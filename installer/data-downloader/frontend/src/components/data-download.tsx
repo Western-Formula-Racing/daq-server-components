@@ -18,6 +18,7 @@ interface ExternalSelection {
 interface Props {
   runs: RunRecord[];
   sensors: string[];
+  season?: string;
   externalSelection?: ExternalSelection;
 }
 
@@ -60,7 +61,7 @@ const toUtcTooltip = (value: string) => {
   return dt.isValid ? `${dt.toFormat("yyyy-LL-dd HH:mm:ss")} UTC` : value;
 };
 
-export function DataDownload({ runs, sensors, externalSelection }: Props) {
+export function DataDownload({ runs, sensors, season, externalSelection }: Props) {
   const [selectedRunKey, setSelectedRunKey] = useState<string>("");
   const [selectedRunTimezone, setSelectedRunTimezone] = useState<string | null>(null);
   const [selectedSensor, setSelectedSensor] = useState<string>("");
@@ -205,7 +206,7 @@ export function DataDownload({ runs, sensors, externalSelection }: Props) {
         limit: parsedLimit,
         no_limit: noLimit || undefined
       };
-      const response = await querySensorData(payload);
+      const response = await querySensorData(payload, season);
       setSeries(response.points);
       const { points, ...meta } = response;
       setQueryMeta(meta);
@@ -223,17 +224,17 @@ export function DataDownload({ runs, sensors, externalSelection }: Props) {
       series.length === 0
         ? []
         : [
-            {
-              x: series.map((point) => point.time),
-              y: series.map((point) => point.value),
-              customdata: series.map((point) => toUtcTooltip(point.time)),
-              type: "scatter",
-              mode: "lines",
-              line: { color: "#2563eb", width: 2 },
-              hovertemplate: "%{y}<br>%{customdata}<extra></extra>",
-              name: selectedSensor || "Sensor"
-            }
-          ],
+          {
+            x: series.map((point) => point.time),
+            y: series.map((point) => point.value),
+            customdata: series.map((point) => toUtcTooltip(point.time)),
+            type: "scatter",
+            mode: "lines",
+            line: { color: "#2563eb", width: 2 },
+            hovertemplate: "%{y}<br>%{customdata}<extra></extra>",
+            name: selectedSensor || "Sensor"
+          }
+        ],
     [series, selectedSensor]
   );
 

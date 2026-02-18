@@ -2,6 +2,7 @@ import {
   RunRecord,
   RunsResponse,
   ScannerStatus,
+  Season,
   SensorDataResponse,
   SensorsResponse
 } from "./types";
@@ -33,12 +34,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
-export function fetchRuns(): Promise<RunsResponse> {
-  return request("/api/runs");
+export function fetchSeasons(): Promise<Season[]> {
+  return request("/api/seasons");
 }
 
-export function fetchSensors(): Promise<SensorsResponse> {
-  return request("/api/sensors");
+export function fetchRuns(season?: string): Promise<RunsResponse> {
+  const query = season ? `?season=${encodeURIComponent(season)}` : "";
+  return request(`/api/runs${query}`);
+}
+
+export function fetchSensors(season?: string): Promise<SensorsResponse> {
+  const query = season ? `?season=${encodeURIComponent(season)}` : "";
+  return request(`/api/sensors${query}`);
 }
 
 export function fetchScannerStatus(): Promise<ScannerStatus> {
@@ -49,8 +56,9 @@ export function triggerScan(): Promise<{ status: string }> {
   return request("/api/scan", { method: "POST" });
 }
 
-export function updateNote(key: string, note: string): Promise<RunRecord> {
-  return request(`/api/runs/${encodeURIComponent(key)}/note`, {
+export function updateNote(key: string, note: string, season?: string): Promise<RunRecord> {
+  const query = season ? `?season=${encodeURIComponent(season)}` : "";
+  return request(`/api/runs/${encodeURIComponent(key)}/note${query}`, {
     method: "POST",
     body: JSON.stringify({ note })
   });
@@ -64,8 +72,9 @@ export interface DataQueryPayload {
   no_limit?: boolean;
 }
 
-export function querySensorData(payload: DataQueryPayload): Promise<SensorDataResponse> {
-  return request("/api/data/query", {
+export function querySensorData(payload: DataQueryPayload, season?: string): Promise<SensorDataResponse> {
+  const query = season ? `?season=${encodeURIComponent(season)}` : "";
+  return request(`/api/query${query}`, {
     method: "POST",
     body: JSON.stringify(payload)
   });

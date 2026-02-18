@@ -43,9 +43,10 @@ class JSONStore:
 
 
 class RunsRepository:
-    def __init__(self, data_dir: Path):
+    def __init__(self, data_dir: Path, suffix: str = ""):
+        filename = f"runs_{suffix}.json" if suffix else "runs.json"
         default = {"updated_at": None, "runs": []}
-        self.store = JSONStore(data_dir / "runs.json", default)
+        self.store = JSONStore(data_dir / filename, default)
 
     def list_runs(self) -> dict:
         return self.store.read()
@@ -130,9 +131,10 @@ class RunsRepository:
 
 
 class SensorsRepository:
-    def __init__(self, data_dir: Path):
+    def __init__(self, data_dir: Path, suffix: str = ""):
+        filename = f"sensors_{suffix}.json" if suffix else "sensors.json"
         default = {"updated_at": None, "sensors": []}
-        self.store = JSONStore(data_dir / "sensors.json", default)
+        self.store = JSONStore(data_dir / filename, default)
 
     def list_sensors(self) -> dict:
         return self.store.read()

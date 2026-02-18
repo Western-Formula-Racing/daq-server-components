@@ -203,7 +203,13 @@ installer/*.dbc
 !installer/example.dbc
 
 installer/slackbot/logs/*
+
+installer/sandbox/prompt-guide.txt
+
+wfr-telemetry
+/installer/data-downloader/data
 installer/slackbot/*.png
+!installer/slackbot/lappy_test_image.png
 installer/slackbot/*.jpg
 installer/slackbot/*.jpeg
 

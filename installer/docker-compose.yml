@@ -7,18 +7,13 @@ volumes:
   influxdb3-data:
   influxdb3-explorer-db:
 
+
 services:
   influxdb3:
     image: influxdb:3.5.0-core
     container_name: influxdb3
     command: >
-      influxdb3 serve
-      --node-id influxdb3-node
-      --object-store file
-      --data-dir /var/lib/influxdb3
-      --admin-token-file /influxdb3-admin-token.json
-      --wal-snapshot-size 100
-      --snapshotted-wal-files-to-keep 10
+      influxdb3 serve --node-id influxdb3-node --object-store file --data-dir /var/lib/influxdb3 --admin-token-file /influxdb3-admin-token.json --wal-snapshot-size 100 --snapshotted-wal-files-to-keep 10
     restart: unless-stopped
     ports:
       - "9000:8181"
@@ -32,7 +27,7 @@ services:
     networks:
       - datalink
     healthcheck:
-      test: ["CMD-SHELL", "timeout 1 bash -c 'cat < /dev/null > /dev/tcp/localhost/8181' || exit 1"]
+      test: [ "CMD-SHELL", "timeout 1 bash -c 'cat < /dev/null > /dev/tcp/localhost/8181' || exit 1" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -50,7 +45,7 @@ services:
     volumes:
       - influxdb3-explorer-db:/db:rw
       - ./influxdb3-explorer-config:/app-root/config:ro
-    command: ["--mode=admin"]
+    command: [ "--mode=admin" ]
     networks:
       - datalink
     depends_on:
@@ -77,7 +72,6 @@ services:
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     networks:
       - datalink
-
 
   slackbot:
     build: ./slackbot
@@ -126,7 +120,6 @@ services:
     networks:
       - datalink
 
-
   startup-data-loader:
     build: ./startup-data-loader
     container_name: startup-data-loader
@@ -152,7 +145,6 @@ services:
              sleep 5 &&
              python load_data.py"
 
-
   file-uploader:
     build: ./file-uploader
     container_name: file-uploader
@@ -177,7 +169,6 @@ services:
           cpus: "1"
           memory: 1024M
 
-          
   data-downloader-api:
     build:
       context: ./data-downloader
@@ -185,6 +176,12 @@ services:
     container_name: data-downloader-api
     env_file:
       - .env
+    environment:
+      # Ensure slicks child processes can self-configure
+      INFLUX_URL: ${INFLUXDB_URL:-http://influxdb3:8181}
+      INFLUX_TOKEN: ${INFLUXDB_ADMIN_TOKEN}
+      INFLUX_DB: ${INFLUX_DATABASE:-WFR25}
+      SEASONS: "${SEASONS:-WFR25:2025}"
     ports:
       - "8000:8000"
     volumes:
@@ -196,7 +193,6 @@ services:
       influxdb3:
         condition: service_healthy
 
-
   data-downloader-scanner:
     build:
       context: ./data-downloader
@@ -204,7 +200,14 @@ services:
     container_name: data-downloader-scanner
     env_file:
       - .env
-    command: ["python", "-m", "backend.periodic_worker"]
+    environment:
+      # Ensure slicks child processes can self-configure
+      INFLUX_URL: ${INFLUXDB_URL:-http://influxdb3:8181}
+      INFLUX_TOKEN: ${INFLUXDB_ADMIN_TOKEN}
+      INFLUX_DB: ${INFLUX_DATABASE:-WFR25}
+      SEASONS: "${SEASONS:-WFR25:2025}"
+      SCAN_DAILY_TIME: "${SCAN_DAILY_TIME}"
+    command: [ "python", "-m", "backend.periodic_worker" ]
     volumes:
       - ./data-downloader/data:/app/data
     restart: unless-stopped

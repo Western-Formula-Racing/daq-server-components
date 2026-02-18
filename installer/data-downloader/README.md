@@ -21,6 +21,51 @@ Both JSON files are shared through the `./data` directory so every service (fron
 3. Open http://localhost:3000 to access the web UI, and keep the API running on http://localhost:8000 if you want to call it directly.
 
 ## Runtime behaviour
+```mermaid
+sequenceDiagram
+    participant Worker as periodic_worker.py
+    participant Service as DataDownloaderService
+    participant Scanner as server_scanner.py
+    participant Slicks as slicks library
+    participant InfluxDB as InfluxDB3
+    participant Storage as JSON Storage
+
+    Worker->>Service: run_full_scan(source="periodic")
+    Service->>Service: Sort seasons by year (newest first)
+
+    loop For each season (WFR25, WFR26)
+        Service->>Scanner: scan_runs(ScannerConfig{<br/>database: season.database,<br/>year: season.year})
+        Scanner->>Slicks: connect_influxdb3(url, token, db)
+        Scanner->>Slicks: scan_data_availability(start, end, table, bin_size)
+
+        loop Adaptive scanning (inside slicks)
+            Slicks->>InfluxDB: Try query_grouped_bins()<br/>(DATE_BIN + COUNT(*))
+            alt Success
+                InfluxDB-->>Slicks: Return bins with counts
+            else Failure (timeout/size)
+                Slicks->>Slicks: Binary subdivision
+                Slicks->>InfluxDB: query_exists_per_bin()<br/>(SELECT 1 LIMIT 1 per bin)
+                InfluxDB-->>Slicks: Return existence flags
+            end
+        end
+
+        Slicks-->>Scanner: ScanResult (windows)
+        Scanner-->>Service: List[dict] (formatted runs)
+
+        Service->>Service: fetch_unique_sensors(season.database)
+        Service->>Storage: runs_repos[season.name].merge_scanned_runs(runs)
+        Storage-->>Storage: Atomic write to runs_WFR25.json
+        Service->>Storage: sensors_repos[season.name].write_sensors(sensors)
+        Storage-->>Storage: Atomic write to sensors_WFR25.json
+
+        alt Season scan failed
+            Service->>Service: Log error, continue to next season
+        end
+    end
+
+    Service->>Storage: status_repo.mark_finish(success)
+    Storage-->>Storage: Update scanner_status.json
+```
 
 - `frontend` serves the compiled React bundle via nginx and now proxies `/api` requests (including `/api/scan` and `/api/scanner-status`) directly to the FastAPI container. When the UI is loaded from anything other than `localhost`, the client automatically falls back to relative `/api/...` calls so a single origin on a VPS still reaches the backend. Override `VITE_API_BASE_URL` if you want the UI to talk to a different host (for example when running `npm run dev` locally) and keep that host in `ALLOWED_ORIGINS`.
 - `api` runs `uvicorn backend.app:app`, exposing

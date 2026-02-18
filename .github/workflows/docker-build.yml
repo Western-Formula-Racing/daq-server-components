@@ -17,6 +17,13 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Prepare environment file for CI
+      run: |
+        if [ ! -f installer/.env ]; then
+          cp installer/.env.example installer/.env
+          echo "Created .env file from .env.example"
+        fi
+
     - name: Validate docker-compose files
       run: |
         cd installer
@@ -32,7 +39,7 @@ jobs:
 
     strategy:
       matrix:
-        service: [slackbot, lappy, startup-data-loader, file-uploader]
+        service: [slackbot, lap-detector, startup-data-loader, file-uploader]
 
     steps:
     - name: Checkout code
@@ -52,7 +59,10 @@ jobs:
     - name: Extract metadata
       id: meta
       run: |
-        echo -e "tags=${{ env.REGISTRY }}/${IMAGE_NAME_LOWER}/${{ matrix.service }}:latest\n${{ env.REGISTRY }}/${IMAGE_NAME_LOWER}/${{ matrix.service }}:${{ github.sha }}" >> $GITHUB_OUTPUT
+        echo "tags<<EOF" >> $GITHUB_OUTPUT
+        echo "${{ env.REGISTRY }}/${IMAGE_NAME_LOWER}/${{ matrix.service }}:latest" >> $GITHUB_OUTPUT
+        echo "${{ env.REGISTRY }}/${IMAGE_NAME_LOWER}/${{ matrix.service }}:${{ github.sha }}" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
