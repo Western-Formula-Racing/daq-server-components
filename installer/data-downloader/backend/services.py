@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional
 
-import slicks
+from influxdb_client_3 import InfluxDBClient3
 
 from backend.config import Settings
 from backend.storage import RunsRepository, SensorsRepository, ScannerStatusRepository
@@ -117,29 +117,35 @@ class DataDownloaderService:
                 database,
                 table,
             )
-            slicks.connect_influxdb3(
-                url=host,
-                token=self.settings.influx_token,
-                db=database,
-            )
-            client = slicks.get_influx_client()
-            client.query("SELECT 1")
+            with InfluxDBClient3(host=host, token=self.settings.influx_token, database=database) as client:
+                ping_fn = getattr(client, "ping", None)
+                if callable(ping_fn):
+                    ping_fn()
+                else:
+                    client.query("SELECT 1")
             logger.info("InfluxDB connectivity OK")
         except Exception:
             logger.exception("InfluxDB connectivity check failed")
 
     @staticmethod
     def _build_sensor_fallback_range(runs: List[dict]) -> tuple[Optional[datetime], Optional[datetime]]:
-        """Use scanner output to determine the oldest/newest windows for sensor fallback."""
-        fallback_start: Optional[datetime] = None
-        fallback_end: Optional[datetime] = None
+        """Use the longest run discovered by the scanner for sensor fallback."""
+        longest_run: Optional[dict] = None
+        longest_duration: Optional[float] = None
+        
         for run in runs:
             start_dt = _parse_iso(run.get("start_utc"))
             end_dt = _parse_iso(run.get("end_utc"))
             if start_dt is None or end_dt is None:
                 continue
-            fallback_start = start_dt if fallback_start is None else min(fallback_start, start_dt)
-            fallback_end = end_dt if fallback_end is None else max(fallback_end, end_dt)
-        if fallback_start and fallback_end and fallback_start > fallback_end:
+            duration = (end_dt - start_dt).total_seconds()
+            if longest_duration is None or duration > longest_duration:
+                longest_duration = duration
+                longest_run = run
+        
+        if longest_run is None:
             return None, None
+        
+        fallback_start = _parse_iso(longest_run.get("start_utc"))
+        fallback_end = _parse_iso(longest_run.get("end_utc"))
         return fallback_start, fallback_end

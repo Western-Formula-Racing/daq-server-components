@@ -82,8 +82,8 @@ services:
   slackbot:
     build: ./slackbot
     container_name: slackbot
-    restart: no
-    # set restart to unless-stopped if you intend to run the slackbot continuously
+    restart: unless-stopped
+    # set restart to no if you want to manually control the slackbot
     environment:
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
       SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
