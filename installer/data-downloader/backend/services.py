@@ -141,8 +141,34 @@ class DataDownloaderService:
             else:
                 self.status_repo.mark_finish(success=True)
 
-            return results
-            
+            sensors = fetch_unique_sensors(
+                SensorQueryConfig(
+                    host=self.settings.influx_host,
+                    token=self.settings.influx_token,
+                    database=self.settings.influx_database,
+                    schema=self.settings.influx_schema,
+                    table=self.settings.influx_table,
+                    window_days=self.settings.sensor_window_days,
+                    lookback_days=self.settings.sensor_lookback_days,
+                    fallback_start=fallback_start,
+                    fallback_end=fallback_end,
+                )
+            )
+            sensors_payload = self.sensors_repo.write_sensors(sensors)
+
+            runs_list = runs_payload.get("runs", [])
+            sensors_list = sensors_payload.get("sensors", [])
+            self.status_repo.mark_finish(
+                success=True,
+                runs_count=len(runs_list),
+                sensors_count=len(sensors_list),
+                interval_seconds=self.settings.periodic_interval_seconds,
+            )
+
+            return {
+                "runs": runs_payload,
+                "sensors": sensors_payload,
+            }
         except Exception as exc:
             self.status_repo.mark_finish(success=False, error=str(exc))
             raise
