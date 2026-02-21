@@ -20,7 +20,7 @@ from influxdb_client_3 import InfluxDBClient3, Point
 INTERVAL_SECONDS = int(os.getenv("HEALTH_MONITOR_INTERVAL_SECONDS", "60"))
 INFLUXDB_URL = os.getenv("INFLUXDB_URL", "http://influxdb3:8181")
 INFLUXDB_TOKEN = os.getenv("INFLUXDB_ADMIN_TOKEN", os.getenv("INFLUXDB_TOKEN", ""))
-INFLUXDB_DATABASE = os.getenv("INFLUXDB_HEALTH_DATABASE", "health")
+INFLUXDB_DATABASE = os.getenv("INFLUXDB_HEALTH_DATABASE", "monitoring")
 CONTAINER_INFLUXDB = os.getenv("HEALTH_MONITOR_INFLUXDB_CONTAINER", "influxdb3")
 CONTAINER_SCANNER = os.getenv("HEALTH_MONITOR_SCANNER_CONTAINER", "data-downloader-scanner")
 SCANNER_API_URL = os.getenv(
@@ -91,7 +91,7 @@ def collect_influxdb_metrics(client: docker.DockerClient) -> dict:
         try:
             start = time.perf_counter()
             with InfluxDBClient3(**(_influx_client_kwargs())) as influx:
-                ping = Point("health_ping").field("check", 1).time(_now_ns(), write_precision="ns")
+                ping = Point("monitor.ping").field("check", 1).time(_now_ns(), write_precision="ns")
                 influx.write(ping)
             out["write_latency_seconds"] = round(time.perf_counter() - start, 4)
         except Exception as e:
@@ -150,9 +150,9 @@ def write_health_to_influx(influx_metrics: dict, scanner_metrics: dict) -> None:
         with InfluxDBClient3(**_influx_client_kwargs()) as client:
             ts_ns = _now_ns()
 
-            # Container: influxdb
+            # monitor.container.* — Docker/container-level metrics
             p_influx = (
-                Point("container_health")
+                Point("monitor.container")
                 .tag("container", CONTAINER_INFLUXDB)
                 .field("up", influx_metrics["up"])
                 .time(ts_ns, write_precision="ns")
@@ -169,28 +169,44 @@ def write_health_to_influx(influx_metrics: dict, scanner_metrics: dict) -> None:
                 p_influx = p_influx.field("write_error", influx_metrics["write_error"])
             client.write(p_influx)
 
-            # Container: scanner
-            p_scanner = (
-                Point("container_health")
+            p_scanner_container = (
+                Point("monitor.container")
                 .tag("container", CONTAINER_SCANNER)
                 .field("up", scanner_metrics["up"])
                 .time(ts_ns, write_precision="ns")
             )
+            if scanner_metrics.get("api_error"):
+                p_scanner_container = p_scanner_container.field(
+                    "api_error", scanner_metrics["api_error"]
+                )
+            client.write(p_scanner_container)
+
+            # monitor.service.* — Application/service-level metrics (scanner)
+            p_scanner_service = (
+                Point("monitor.service")
+                .tag("service", CONTAINER_SCANNER)
+                .field("up", scanner_metrics["up"])
+                .time(ts_ns, write_precision="ns")
+            )
             if scanner_metrics.get("events_processed_per_minute") is not None:
-                p_scanner = p_scanner.field(
+                p_scanner_service = p_scanner_service.field(
                     "events_processed_per_minute",
                     scanner_metrics["events_processed_per_minute"],
                 )
             if scanner_metrics.get("last_successful_job_timestamp"):
-                p_scanner = p_scanner.field(
+                p_scanner_service = p_scanner_service.field(
                     "last_successful_job_timestamp",
                     scanner_metrics["last_successful_job_timestamp"],
                 )
             if scanner_metrics.get("error_count") is not None:
-                p_scanner = p_scanner.field("error_count", scanner_metrics["error_count"])
+                p_scanner_service = p_scanner_service.field(
+                    "error_count", scanner_metrics["error_count"]
+                )
             if scanner_metrics.get("api_error"):
-                p_scanner = p_scanner.field("api_error", scanner_metrics["api_error"])
-            client.write(p_scanner)
+                p_scanner_service = p_scanner_service.field(
+                    "api_error", scanner_metrics["api_error"]
+                )
+            client.write(p_scanner_service)
 
         logger.info("Wrote health points for %s and %s", CONTAINER_INFLUXDB, CONTAINER_SCANNER)
     except Exception as e:
