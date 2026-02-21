@@ -86,7 +86,14 @@ class DataDownloaderService:
             )
             sensors_payload = self.sensors_repo.write_sensors(sensors)
 
-            self.status_repo.mark_finish(success=True)
+            runs_list = runs_payload.get("runs", [])
+            sensors_list = sensors_payload.get("sensors", [])
+            self.status_repo.mark_finish(
+                success=True,
+                runs_count=len(runs_list),
+                sensors_count=len(sensors_list),
+                interval_seconds=self.settings.periodic_interval_seconds,
+            )
 
             return {
                 "runs": runs_payload,

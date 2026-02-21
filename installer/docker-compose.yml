@@ -214,6 +214,26 @@ services:
       data-downloader-api:
         condition: service_started
 
+  health-monitor:
+    build: ./health-monitor
+    container_name: health-monitor
+    restart: unless-stopped
+    environment:
+      HEALTH_MONITOR_INTERVAL_SECONDS: "${HEALTH_MONITOR_INTERVAL_SECONDS:-60}"
+      INFLUXDB_URL: "${INFLUXDB_URL:-http://influxdb3:8181}"
+      INFLUXDB_ADMIN_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-apiv3_dev-influxdb-admin-token}"
+      INFLUXDB_HEALTH_DATABASE: "${INFLUXDB_HEALTH_DATABASE:-health}"
+      HEALTH_MONITOR_INFLUXDB_CONTAINER: "${HEALTH_MONITOR_INFLUXDB_CONTAINER:-influxdb3}"
+      HEALTH_MONITOR_SCANNER_CONTAINER: "${HEALTH_MONITOR_SCANNER_CONTAINER:-data-downloader-scanner}"
+      HEALTH_MONITOR_SCANNER_API_URL: "${HEALTH_MONITOR_SCANNER_API_URL:-http://data-downloader-api:8000}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - datalink
+    depends_on:
+      influxdb3:
+        condition: service_healthy
+
   data-downloader-frontend:
     build:
       context: ./data-downloader

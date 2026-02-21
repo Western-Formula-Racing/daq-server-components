@@ -156,6 +156,12 @@ class ScannerStatusRepository:
             "source": None,
             "last_result": None,
             "error": None,
+            "last_successful_job_timestamp": None,
+            "error_count": 0,
+            "last_scan_runs_count": None,
+            "last_scan_sensors_count": None,
+            "scan_interval_seconds": None,
+            "events_processed_per_minute": None,
         }
         self.store = JSONStore(data_dir / "scanner_status.json", default)
 
@@ -176,7 +182,14 @@ class ScannerStatusRepository:
         self.store.write(payload)
         return payload
 
-    def mark_finish(self, success: bool, error: str | None = None) -> dict:
+    def mark_finish(
+        self,
+        success: bool,
+        error: str | None = None,
+        runs_count: int | None = None,
+        sensors_count: int | None = None,
+        interval_seconds: int | None = None,
+    ) -> dict:
         payload = self.store.read()
         payload.update(
             {
@@ -187,8 +200,20 @@ class ScannerStatusRepository:
         )
         if success:
             payload.pop("error", None)
+            payload["last_successful_job_timestamp"] = now_iso()
+            if runs_count is not None:
+                payload["last_scan_runs_count"] = runs_count
+            if sensors_count is not None:
+                payload["last_scan_sensors_count"] = sensors_count
+            if interval_seconds is not None:
+                payload["scan_interval_seconds"] = interval_seconds
+                if runs_count is not None and interval_seconds > 0:
+                    payload["events_processed_per_minute"] = round(
+                        (runs_count * 60.0) / interval_seconds, 2
+                    )
         else:
             payload["error"] = error or "scan failed"
+            payload["error_count"] = payload.get("error_count", 0) + 1
         payload["updated_at"] = now_iso()
         self.store.write(payload)
         return payload
