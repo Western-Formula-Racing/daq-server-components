@@ -64,6 +64,7 @@ ENABLED_SERVICES=(
   lap-detector
   startup-data-loader
   file-uploader
+  health-monitor
 )
 
 compose up --detach --build --remove-orphans "${ENABLED_SERVICES[@]}"

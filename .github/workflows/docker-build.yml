@@ -32,7 +32,7 @@ jobs:
 
     strategy:
       matrix:
-        service: [slackbot, lappy, startup-data-loader, file-uploader]
+        service: [slackbot, lappy, startup-data-loader, file-uploader, health-monitor]
 
     steps:
     - name: Checkout code

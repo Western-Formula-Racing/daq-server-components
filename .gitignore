@@ -203,3 +203,4 @@ installer/*.dbc
 !installer/example.dbc
 
 installer/slackbot/logs/*
+generated-days/2025-01-01-00-07-00.csv
