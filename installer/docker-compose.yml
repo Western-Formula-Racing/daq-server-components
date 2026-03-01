@@ -63,6 +63,18 @@ services:
       GF_SECURITY_ADMIN_EMAIL: daq@westernformularacing.com
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_AUTH_BASIC_ENABLED: "true"
+      # Cloudflare Zero Trust SSO via Auth Proxy
+      # Cloudflare Access injects Cf-Access-Authenticated-User-Email on every authenticated request
+      GF_AUTH_PROXY_ENABLED: "true"
+      GF_AUTH_PROXY_HEADER_NAME: "Cf-Access-Authenticated-User-Email"
+      GF_AUTH_PROXY_HEADER_PROPERTY: "email"
+      GF_AUTH_PROXY_AUTO_SIGN_UP: "true"
+      GF_AUTH_PROXY_SYNC_TTL: "60"
+      GF_AUTH_PROXY_ENABLE_LOGIN_TOKEN: "false"
+      # Auto-assign Editor role when a new user is provisioned via SSO
+      GF_USERS_AUTO_ASSIGN_ORG: "true"
+      GF_USERS_AUTO_ASSIGN_ORG_ROLE: "Editor"
+      GF_SERVER_ROOT_URL: "https://grafana.westernformularacing.org"
       GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
       GF_PATHS_PROVISIONING: /etc/grafana/provisioning
       GF_DASHBOARDS_MIN_REFRESH_INTERVAL: 100ms
