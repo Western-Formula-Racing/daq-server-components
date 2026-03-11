@@ -20,16 +20,16 @@ Python service that periodically collects Docker container and application metri
 
 ## Environment variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `HEALTH_MONITOR_INTERVAL_SECONDS` | `60` | Seconds between collection cycles. |
-| `INFLUXDB_URL` | `http://influxdb3:8181` | InfluxDB 3 URL. |
-| `INFLUXDB_ADMIN_TOKEN` | (from env) | Token for writing to InfluxDB 3. |
-| `INFLUXDB_HEALTH_DATABASE` | `monitoring` | Database (bucket) name for monitoring metrics. |
-| `HEALTH_MONITOR_INFLUXDB_CONTAINER` | `influxdb3` | Container name for InfluxDB. |
-| `HEALTH_MONITOR_SCANNER_CONTAINER` | `data-downloader-scanner` | Container name for the scanner. |
-| `HEALTH_MONITOR_SCANNER_API_URL` | `http://data-downloader-api:8000` | Base URL of the data-downloader API (for scanner metrics). |
-| `HEALTH_MONITOR_INFLUXDB_VOLUME_SUFFIX` | `influxdb3-data` | Volume name suffix used to find InfluxDB data volume for disk usage. |
+| Variable                                | Default                           | Description                                                          |
+|-----------------------------------------|-----------------------------------|----------------------------------------------------------------------|
+| `HEALTH_MONITOR_INTERVAL_SECONDS`       | `60`                              | Seconds between collection cycles.                                   |
+| `INFLUXDB_URL`                          | `http://influxdb3:8181`           | InfluxDB 3 URL.                                                      |
+| `INFLUXDB_ADMIN_TOKEN`                  | (from env)                        | Token for writing to InfluxDB 3.                                     |
+| `INFLUXDB_HEALTH_DATABASE`              | `monitoring`                      | Database (bucket) name for monitoring metrics.                       |
+| `HEALTH_MONITOR_INFLUXDB_CONTAINER`     | `influxdb3`                       | Container name for InfluxDB.                                         |
+| `HEALTH_MONITOR_SCANNER_CONTAINER`      | `data-downloader-scanner`         | Container name for the scanner.                                      |
+| `HEALTH_MONITOR_SCANNER_API_URL`        | `http://data-downloader-api:8000` | Base URL of the data-downloader API (for scanner metrics).           |
+| `HEALTH_MONITOR_INFLUXDB_VOLUME_SUFFIX` | `influxdb3-data`                  | Volume name suffix used to find InfluxDB data volume for disk usage. |
 
 ## Running
 
