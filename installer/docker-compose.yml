@@ -139,6 +139,7 @@ services:
     environment:
       INFLUXDB_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-apiv3_dev-influxdb-admin-token}"
       INFLUXDB_URL: "${INFLUXDB_URL:-http://influxdb3:8181}"
+      INFLUXDB_BUCKET: "${INFLUX_DATABASE:-WFR26}"
       # Removed BACKFILL env var as it's now the default/only mode
       CSV_RESTART_INTERVAL: "${CSV_RESTART_INTERVAL:-10}"
       # Fixed container path, host path remains flexible
@@ -192,8 +193,8 @@ services:
       # Ensure slicks child processes can self-configure
       INFLUX_URL: ${INFLUXDB_URL:-http://influxdb3:8181}
       INFLUX_TOKEN: ${INFLUXDB_ADMIN_TOKEN}
-      INFLUX_DB: ${INFLUX_DATABASE:-WFR25}
-      SEASONS: "${SEASONS:-WFR25:2025}"
+      INFLUX_DB: ${INFLUX_DATABASE:-WFR26}
+      SEASONS: "${SEASONS:-WFR26:2026}"
     ports:
       - "8000:8000"
     volumes:
@@ -216,8 +217,8 @@ services:
       # Ensure slicks child processes can self-configure
       INFLUX_URL: ${INFLUXDB_URL:-http://influxdb3:8181}
       INFLUX_TOKEN: ${INFLUXDB_ADMIN_TOKEN}
-      INFLUX_DB: ${INFLUX_DATABASE:-WFR25}
-      SEASONS: "${SEASONS:-WFR25:2025}"
+      INFLUX_DB: ${INFLUX_DATABASE:-WFR26}
+      SEASONS: "${SEASONS:-WFR26:2026}"
       SCAN_DAILY_TIME: "${SCAN_DAILY_TIME}"
     command: [ "python", "-m", "backend.periodic_worker" ]
     volumes:
@@ -263,6 +264,26 @@ services:
       INFLUX_DB: ${INFLUXDB_DATABASE:-telemetry}
     depends_on:
       - influxdb3
+    networks:
+      - datalink
+
+  # Grafana bridge - Pecan → Grafana dashboard creation API
+  grafana-bridge:
+    build: ./grafana-bridge
+    container_name: grafana-bridge
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      GRAFANA_INTERNAL_URL: "http://grafana:3000"
+      GRAFANA_EXTERNAL_URL: "https://grafana.westernformularacing.org"
+      GRAFANA_API_TOKEN: "${GRAFANA_API_TOKEN}"
+      GRAFANA_DATASOURCE_UID: "influxdb-wfr-v2"
+      GRAFANA_FOLDER_UID: "${GRAFANA_FOLDER_UID:-}"
+      CORS_ORIGIN: "https://pecan.westernformularacing.org"
+      INFLUX_TABLE: "${INFLUX_DATABASE:-WFR26}"
+    depends_on:
+      - grafana
     networks:
       - datalink
 
