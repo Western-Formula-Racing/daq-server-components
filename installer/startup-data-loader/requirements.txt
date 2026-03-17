@@ -1,3 +1,4 @@
 influxdb-client==1.38.0
-cantools==38.0.2
+cantools>=39.0.0
 python-dotenv==1.0.0
+slicks>=0.2.0

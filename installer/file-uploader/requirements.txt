@@ -3,3 +3,4 @@ influxdb-client
 Flask
 requests
 python-dotenv
+slicks>=0.2.0

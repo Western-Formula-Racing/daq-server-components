@@ -2,7 +2,7 @@
 # These are the dependencies needed inside the Docker container
 
 # WFR's own telemetry pipeline (wraps influxdb3-python, pandas, matplotlib)
-slicks
+slicks>=0.2.0
 
 # Data & visualization (extras beyond what slicks brings in)
 pyarrow
