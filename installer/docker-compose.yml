@@ -198,6 +198,7 @@ services:
       - "8000:8000"
     volumes:
       - ./data-downloader/data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
     networks:
       - datalink
