@@ -27,9 +27,7 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Optional, IO, Callable, Dict, Set
 from zoneinfo import ZoneInfo
 from dataclasses import dataclass, asdict
-from pathlib import Path
-import cantools
-from influxdb_client import InfluxDBClient, WriteOptions
+import slicks
 
 
 def _env_int(var_name: str, default: int) -> int:
@@ -49,10 +47,7 @@ PROGRESS_FILE = "load_data_progress.json"
 INFLUX_URL = os.getenv("INFLUXDB_URL", "http://influxdb3:8181")
 INFLUX_TOKEN = os.getenv("INFLUXDB_TOKEN", "apiv3_dev-influxdb-admin-token")
 INFLUX_ORG = "WFR"
-INFLUX_BUCKET = "WFR25"
-DBC_ENV_VAR = "DBC_FILE_PATH"
-DBC_FILENAME = "example.dbc"
-INSTALLER_ROOT = Path(__file__).resolve().parent.parent
+INFLUX_BUCKET = os.getenv("INFLUXDB_BUCKET", "WFR26")
 
 # Performance tuning - delays to reduce server load
 BATCH_DELAY = float(os.getenv("BATCH_DELAY", "0.0"))  # Delay after each batch write (seconds)
@@ -166,73 +161,26 @@ def compute_file_hash(file_path: str) -> str:
     return hash_md5.hexdigest()
 
 
-def _resolve_dbc_path() -> Path:
-    """Resolve the DBC path using env override, shared installer copy or local fallback."""
-    env_override = os.getenv(DBC_ENV_VAR)
-    if env_override:
-        env_path = Path(env_override).expanduser()
-        if env_path.exists():
-            return env_path
-        print(f"⚠️  {DBC_ENV_VAR}={env_override} not found; falling back to default lookup.")
-
-    shared_candidates = [
-        INSTALLER_ROOT / DBC_FILENAME,
-        Path("/installer") / DBC_FILENAME,
-    ]
-    for candidate in shared_candidates:
-        if candidate.exists():
-            return candidate
-
-    # Final fallback: look for local .dbc files (maintains backwards compatibility)
-    current_dir = Path(__file__).resolve().parent
-    dbc_candidates = sorted(
-        current_dir.glob("*.dbc"),
-        key=lambda file_path: file_path.stat().st_mtime,
-        reverse=True
-    )
-    if dbc_candidates:
-        return dbc_candidates[0]
-
-    raise FileNotFoundError(
-        f"Could not locate {DBC_FILENAME}. Place it in the installer root "
-        f"or set {DBC_ENV_VAR} to the desired path."
-    )
-
-
 class CANLineProtocolWriter:
     def __init__(self, batch_size: int = 1000, progress_state: Optional[ProgressState] = None):
         self.batch_size = batch_size
-        self.org = "WFR"
         self.tz_toronto = ZoneInfo("America/Toronto")
         self.progress_state = progress_state or ProgressState.load()
 
-        # Load the shared DBC file
-        dbc_path = _resolve_dbc_path()
-        self.db = cantools.database.load_file(str(dbc_path))
-        print(f"📁 Loaded DBC file: {dbc_path}")
-
-        # Influx client setup
         # Adjust batch size and flush interval based on BATCH_DELAY
         influx_batch_size = 50000
         influx_flush_interval = 10_000
-        
         if BATCH_DELAY > 0:
-            # If user adds delay, we can use larger batches
             influx_batch_size = min(100000, int(50000 * (1 + BATCH_DELAY)))
             influx_flush_interval = min(30_000, int(10_000 * (1 + BATCH_DELAY)))
-        
-        self.client = InfluxDBClient(
+
+        self.writer = slicks.WideWriter(
             url=INFLUX_URL,
             token=INFLUX_TOKEN,
-            org=INFLUX_ORG
-        )
-        self.write_api = self.client.write_api(
-            write_options=WriteOptions(
-                batch_size=influx_batch_size,
-                flush_interval=influx_flush_interval,
-                jitter_interval=2000,
-                retry_interval=5000
-            )
+            bucket=INFLUX_BUCKET,
+            org=INFLUX_ORG,
+            batch_size=influx_batch_size,
+            flush_interval_ms=influx_flush_interval,
         )
         print(f"⚙️  InfluxDB batch_size={influx_batch_size}, flush_interval={influx_flush_interval}ms")
 
@@ -250,68 +198,37 @@ class CANLineProtocolWriter:
                     byte_values = [int(b) for b in row[3:11] if b]
                     if len(byte_values) != 8:
                         continue
-                    msg_id = int(row[2])
-                    self.db.get_message_by_frame_id(msg_id)
+                    int(row[2])  # validate can_id is parseable
                     total += 1
                 except Exception:
                     continue
             try:
                 text_stream.detach()
-            except:
+            except Exception:
                 pass
         file.seek(0)
         return total
 
-    def _escape_tag_value(self, val: str) -> str:
-        return val.replace(" ", r"\ ").replace(",", r"\,").replace("=", r"\=")
-
-    def _format_line_protocol(self, measurement: str, tags: dict, fields: dict, timestamp: int) -> str:
-        tags_str = ",".join(f"{self._escape_tag_value(k)}={self._escape_tag_value(v)}" for k, v in tags.items())
-        fields_str = ",".join(
-            f"{self._escape_tag_value(k)}={v}" if isinstance(v, (int, float)) else f'{self._escape_tag_value(k)}="{v}"'
-            for k, v in fields.items())
-        line = f"{measurement},{tags_str} {fields_str} {timestamp}"
-        return line
-
-    def _parse_row(self, row: List[str], start_dt: datetime) -> Optional[List[str]]:
+    def _parse_row(self, row: List[str], start_dt: datetime) -> Optional[str]:
+        """Decode one CSV row and return a single wide line protocol string, or None."""
         try:
             if len(row) < 11 or not row[0]:
                 return None
 
             relative_ms = int(row[0])
-            msg_id = int(row[2])
+            can_id = int(row[2])
             byte_values = [int(b) for b in row[3:11] if b]
-
             if len(byte_values) != 8:
                 return None
 
             timestamp_dt = (start_dt + timedelta(milliseconds=relative_ms)).astimezone(timezone.utc)
             timestamp_ns = int(timestamp_dt.timestamp() * 1e9)
 
-            message = self.db.get_message_by_frame_id(msg_id)
-            decoded = message.decode(bytes(byte_values))
+            frame = slicks.decode_frame(self.writer._db, can_id, bytes(byte_values))
+            if frame is None or not frame.signals:
+                return None
 
-            lines = []
-            for sig_name, raw_val in decoded.items():
-                if hasattr(raw_val, 'value') and hasattr(raw_val, 'name'):
-                    try:
-                        val = float(raw_val.value)
-                    except (ValueError, TypeError):
-                        continue
-                elif isinstance(raw_val, (int, float)):
-                    val = float(raw_val)
-                else:
-                    continue
-
-                tags = {
-                    "signalName": sig_name,
-                    "messageName": message.name,
-                    "canId": str(msg_id),
-                }
-                fields = {"sensorReading": val}
-                line = self._format_line_protocol("WFR25", tags, fields, timestamp_ns)
-                lines.append(line)
-            return lines
+            return slicks.frame_to_line_protocol(INFLUX_BUCKET, frame, timestamp_ns)
         except Exception:
             return None
 
@@ -361,14 +278,14 @@ class CANLineProtocolWriter:
                     current_row += 1
                     continue
                 
-                lines = self._parse_row(row, start_dt)
-                if lines:
-                    batch_lines.extend(lines)
+                line = self._parse_row(row, start_dt)
+                if line:
+                    batch_lines.append(line)
                     rows_in_batch += 1
                     current_row += 1
 
                     if len(batch_lines) >= self.batch_size:
-                        self.write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=batch_lines)
+                        self.writer.write_lines(batch_lines)
 
                         file_progress.processed_rows = current_row
                         file_progress.last_update = time.time()
@@ -389,7 +306,7 @@ class CANLineProtocolWriter:
 
             # Write remaining batch
             if batch_lines:
-                self.write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=batch_lines)
+                self.writer.write_lines(batch_lines)
                 file_progress.processed_rows = current_row
                 if on_progress:
                     on_progress(current_row, total_rows)

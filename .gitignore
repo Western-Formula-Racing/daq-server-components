@@ -206,6 +206,10 @@ installer/slackbot/logs/*
 
 installer/sandbox/prompt-guide.txt
 
+# Grafana dashboards (managed via API, not provisioning)
+installer/grafana/dashboards/VD-wide.json
+installer/grafana/dashboards/Vehicle Overview.json
+
 wfr-telemetry
 /installer/data-downloader/data
 installer/slackbot/*.png

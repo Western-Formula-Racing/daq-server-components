@@ -22,9 +22,9 @@ jobs:
           python-version: "3.11"
 
       - name: Install slicks
-        run: pip install slicks
+        run: pip install "slicks>=2.0.1"
 
-      - name: Discover sensors for June 2025
+      - name: Discover sensors for September 2025
         env:
           INFLUX_URL: ${{ secrets.INFLUX_URL }}
           INFLUX_TOKEN: ${{ secrets.INFLUX_TOKEN }}

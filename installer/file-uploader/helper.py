@@ -4,17 +4,14 @@ from typing import List, Optional, IO, Callable, Generator
 from zoneinfo import ZoneInfo
 from dataclasses import dataclass
 from pathlib import Path
-import cantools
 from influxdb_client.client.influxdb_client import InfluxDBClient
 from influxdb_client.client.write.point import Point
 from influxdb_client.client.write_api import WriteOptions, ASYNCHRONOUS
 import os
+import slicks
 
 # Global list to track temp directories for emergency cleanup
 _temp_directories = []
-DBC_ENV_VAR = "DBC_FILE_PATH"
-DBC_FILENAME = "example.dbc"
-INSTALLER_ROOT = Path(__file__).resolve().parent.parent
 
 def _rolling_cleanup():
     """Clean up temp files older than 6 hours."""
@@ -44,35 +41,6 @@ atexit.register(_rolling_cleanup)
 _rolling_cleanup()  # Clean up any old temp files from previous runs
 
 
-def _resolve_dbc_path() -> Path:
-    """Find the DBC file via env override, shared volume, or local fallback."""
-    env_override = os.getenv(DBC_ENV_VAR)
-    if env_override:
-        env_path = Path(env_override).expanduser()
-        if env_path.exists():
-            return env_path
-        print(f"⚠️  {DBC_ENV_VAR}={env_override} not found; falling back to default lookup.")
-
-    for candidate in (
-        INSTALLER_ROOT / DBC_FILENAME,
-        Path("/installer") / DBC_FILENAME,
-    ):
-        if candidate.exists():
-            return candidate
-
-    # Final fallback: search nearby for compatibility with older layouts
-    local_candidates = sorted(
-        Path(__file__).resolve().parent.glob("*.dbc"),
-        key=lambda file_path: file_path.stat().st_mtime,
-        reverse=True,
-    )
-    if local_candidates:
-        return local_candidates[0]
-
-    raise FileNotFoundError(
-        f"Could not locate {DBC_FILENAME}. Place it in the repository root or set "
-        f"{DBC_ENV_VAR} to the desired path."
-    )
 
 if os.getenv("DEBUG") is None:
     from dotenv import load_dotenv
@@ -113,8 +81,8 @@ class CANInfluxStreamer:
         self.tz_toronto = ZoneInfo("America/Toronto")
         self.url = os.getenv("INFLUXDB_URL", "http://influxdb3:8181")
 
-        dbc_path = _resolve_dbc_path()
-        self.db = cantools.database.load_file(str(dbc_path))
+        dbc_path = slicks.resolve_dbc_path()
+        self.db = slicks.load_dbc(dbc_path)
         print(f"📁 Loaded DBC file: {dbc_path}")
 
         self.client = InfluxDBClient(
@@ -367,46 +335,32 @@ class CANInfluxStreamer:
     def _parse_row_generator(
         self, row: List[str], start_dt: datetime, filename: str
     ) -> Generator[Point, None, None]:
-        # Convert to generator for lazy yielding
+        """Decode one CSV row and yield a single wide Point (one per CAN message)."""
         try:
             if len(row) < 11 or not row[0]:
                 return
 
             relative_ms = int(row[0])
-            msg_id = int(row[2])
+            can_id = int(row[2])
             byte_values = [int(b) for b in row[3:11] if b]
             if len(byte_values) != 8:
                 return
 
-            timestamp = (start_dt + timedelta(milliseconds=relative_ms)).astimezone(
-                timezone.utc
+            timestamp = (start_dt + timedelta(milliseconds=relative_ms)).astimezone(timezone.utc)
+
+            frame = slicks.decode_frame(self.db, can_id, bytes(byte_values))
+            if frame is None or not frame.signals:
+                return
+
+            pt = (
+                Point(self.bucket)
+                .tag("messageName", frame.message_name)
+                .tag("canId", str(can_id))
+                .time(timestamp)
             )
-            message = self.db.get_message_by_frame_id(msg_id)  # type:ignore
-            decoded = message.decode(bytes(byte_values))
-
-            for sig_name, raw in decoded.items():  # type:ignore
-                sig = message.get_signal_by_name(sig_name)
-                unit = getattr(sig, "unit", "N/A")
-                desc = getattr(sig, "comment", "") or "No description"
-                val = (
-                    float(raw.value)  # type:ignore
-                    if hasattr(raw, "value")
-                    else float(raw)  # type:ignore
-                )
-                label = raw.name if hasattr(raw, "name") else str(raw)  # type:ignore
-
-                pt = (
-                    Point("canBus")
-                    .tag("signalName", sig_name)
-                    .tag("messageName", message.name)
-                    .tag("canId", str(msg_id))
-                    .field("sensorReading", val)
-                    .field("unit", unit)
-                    .field("description", desc)
-                    .field("signalLabel", label)
-                    .time(timestamp)
-                )
-                yield pt
+            for sig_name, val in frame.signals.items():
+                pt = pt.field(sig_name, val)
+            yield pt
 
         except Exception:
             return
