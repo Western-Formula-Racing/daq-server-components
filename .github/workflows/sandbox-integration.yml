@@ -22,7 +22,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install slicks
-        run: pip install "slicks>=2.0.1"
+        run: pip install "slicks>=0.2.1"
 
       - name: Discover sensors for September 2025
         env:
