@@ -69,7 +69,7 @@ class RunsRepository:
 
         # Keep runs that vanished but still have notes to preserve manual metadata
         for key, run in existing.items():
-            if key not in merged:
+            if key not in merged and run.get("note"):
                 merged[key] = run
 
         runs_list = sorted(
