@@ -13,17 +13,18 @@ def _parse_origins(raw: str | None) -> List[str]:
 
 
 class SeasonConfig(BaseModel):
-    name: str  # e.g. "WFR25"
-    year: int  # e.g. 2025
+    name: str      # e.g. "WFR25"
+    year: int      # e.g. 2025
     database: str  # e.g. "WFR25"
-    color: str | None = None # e.g. "222 76 153"
+    table: str     # e.g. "WFR25" — InfluxDB table name inside the database
+    color: str | None = None
 
 
 def _parse_seasons(raw: str | None) -> List[SeasonConfig]:
     """Parse SEASONS env var: "WFR25:2025:222 76 153,WFR26:2026:..."."""
     if not raw:
         # Default fallback if not set
-        return [SeasonConfig(name="WFR25", year=2025, database="WFR25", color="#DE4C99")]
+        return [SeasonConfig(name="WFR25", year=2025, database="WFR25", table="WFR25", color="#DE4C99")]
     
     seasons = []
     for part in raw.split(","):
@@ -45,13 +46,13 @@ def _parse_seasons(raw: str | None) -> List[SeasonConfig]:
 
             color = parts[2] if len(parts) > 2 else None
             
-            # Assume DB name matches Season Name
-            seasons.append(SeasonConfig(name=name, year=year, database=name, color=color))
+            # DB and table name both match season name by convention (WFR25→WFR25, WFR26→WFR26)
+            seasons.append(SeasonConfig(name=name, year=year, database=name, table=name, color=color))
         except ValueError:
             continue
             
     if not seasons:
-         return [SeasonConfig(name="WFR25", year=2025, database="WFR25")]
+         return [SeasonConfig(name="WFR25", year=2025, database="WFR25", table="WFR25")]
          
     # Sort by year descending (newest first)
     seasons.sort(key=lambda s: s.year, reverse=True)

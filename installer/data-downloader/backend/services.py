@@ -80,14 +80,15 @@ class DataDownloaderService:
             for s in self.settings.seasons
         ]
 
-    def run_full_scan(self, source: str = "manual") -> Dict[str, dict]:
+    def run_full_scan(self, source: str = "manual", season_names: list[str] | None = None) -> Dict[str, dict]:
         self.status_repo.mark_start(source)
         results = {}
         errors = []
-        
+
         try:
-            # Sort seasons by year descending to ensure most recent is scanned first
             sorted_seasons = sorted(self.settings.seasons, key=lambda s: s.year, reverse=True)
+            if season_names is not None:
+                sorted_seasons = [s for s in sorted_seasons if s.name in season_names]
             for season in sorted_seasons:
                 try:
                     logger.info(f"Scanning season {season.name} (DB: {season.database})...")
@@ -97,7 +98,7 @@ class DataDownloaderService:
                             host=self.settings.influx_host,
                             token=self.settings.influx_token,
                             database=season.database,
-                            table=f"{self.settings.influx_schema}.{self.settings.influx_table}",
+                            table=f"{self.settings.influx_schema}.{season.table}",
                             year=season.year,
                             bin_size=self.settings.scanner_bin,
                             include_counts=self.settings.scanner_include_counts,
@@ -116,7 +117,7 @@ class DataDownloaderService:
                             token=self.settings.influx_token,
                             database=season.database,
                             schema=self.settings.influx_schema,
-                            table=self.settings.influx_table,
+                            table=season.table,
                             window_days=self.settings.sensor_window_days,
                             lookback_days=self.settings.sensor_lookback_days,
                             fallback_start=fallback_start,
@@ -136,13 +137,18 @@ class DataDownloaderService:
                     errors.append(f"{season.name}: {str(e)}")
                     # Continue scanning other seasons even if one fails
             
+            total_runs = sum(v["runs"] for v in results.values())
+            total_sensors = sum(v["sensors"] for v in results.values())
             if errors:
                 self.status_repo.mark_finish(success=False, error="; ".join(errors))
             else:
-                self.status_repo.mark_finish(success=True)
+                self.status_repo.mark_finish(
+                    success=True,
+                    runs_count=total_runs,
+                    sensors_count=total_sensors,
+                )
 
             return results
-            
         except Exception as exc:
             self.status_repo.mark_finish(success=False, error=str(exc))
             raise

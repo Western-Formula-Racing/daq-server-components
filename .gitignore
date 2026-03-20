@@ -219,3 +219,7 @@ installer/slackbot/*.jpeg
 
 # Generated CSV data files
 generated-days/
+
+# Node dependencies
+node_modules/
+.claude/settings.local.json

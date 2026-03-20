@@ -24,6 +24,7 @@ export default function App() {
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [scanState, setScanState] = useState<ScanState>("idle");
+  const [scanSeason, setScanSeason] = useState<string>("");
   const [downloaderSelection, setDownloaderSelection] = useState<DownloaderSelection | null>(null);
   const [scannerStatus, setScannerStatus] = useState<ScannerStatus | null>(null);
   const sensorsSectionRef = useRef<HTMLElement | null>(null);
@@ -43,6 +44,7 @@ export default function App() {
         if (seasonsList.length > 0 && !currentSeason) {
           currentSeason = seasonsList[0].name;
           setSelectedSeason(currentSeason);
+          setScanSeason(currentSeason);
         }
       }
 
@@ -114,7 +116,7 @@ export default function App() {
       updated_at: new Date().toISOString()
     }));
     try {
-      await triggerScan();
+      await triggerScan(scanSeason || undefined);
       setScanState("success");
       if (typeof window !== "undefined") {
         window.setTimeout(() => {
@@ -259,6 +261,18 @@ export default function App() {
       )}
 
       <div className="actions">
+        {seasons.length > 1 && (
+          <select
+            value={scanSeason}
+            onChange={(e) => setScanSeason(e.target.value)}
+            disabled={scanButtonDisabled}
+            style={{ padding: "0.5rem", borderRadius: "4px", border: "1px solid #ccc", fontSize: "0.9rem" }}
+          >
+            {seasons.map(s => (
+              <option key={s.name} value={s.name}>{s.name}</option>
+            ))}
+          </select>
+        )}
         <button className="button" onClick={handleScan} disabled={scanButtonDisabled}>
           {scanButtonLabel}
         </button>

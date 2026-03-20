@@ -69,7 +69,7 @@ class RunsRepository:
 
         # Keep runs that vanished but still have notes to preserve manual metadata
         for key, run in existing.items():
-            if key not in merged:
+            if key not in merged and run.get("note"):
                 merged[key] = run
 
         runs_list = sorted(
@@ -158,6 +158,11 @@ class ScannerStatusRepository:
             "source": None,
             "last_result": None,
             "error": None,
+            "last_successful_job_timestamp": None,
+            "error_count": 0,
+            "last_scan_runs_count": None,
+            "last_scan_sensors_count": None,
+            "last_scan_duration_seconds": None,
         }
         self.store = JSONStore(data_dir / "scanner_status.json", default)
 
@@ -178,19 +183,41 @@ class ScannerStatusRepository:
         self.store.write(payload)
         return payload
 
-    def mark_finish(self, success: bool, error: str | None = None) -> dict:
+    def mark_finish(
+        self,
+        success: bool,
+        error: str | None = None,
+        runs_count: int | None = None,
+        sensors_count: int | None = None,
+    ) -> dict:
         payload = self.store.read()
+        now = now_iso()
         payload.update(
             {
                 "scanning": False,
-                "finished_at": now_iso(),
+                "finished_at": now,
                 "last_result": "success" if success else "error",
             }
         )
         if success:
             payload.pop("error", None)
+            payload["last_successful_job_timestamp"] = now
+            if runs_count is not None:
+                payload["last_scan_runs_count"] = runs_count
+            if sensors_count is not None:
+                payload["last_scan_sensors_count"] = sensors_count
+            started_at = payload.get("started_at")
+            if started_at:
+                try:
+                    duration = (
+                        datetime.fromisoformat(now) - datetime.fromisoformat(started_at)
+                    ).total_seconds()
+                    payload["last_scan_duration_seconds"] = round(duration, 2)
+                except ValueError:
+                    pass
         else:
             payload["error"] = error or "scan failed"
-        payload["updated_at"] = now_iso()
+            payload["error_count"] = payload.get("error_count", 0) + 1
+        payload["updated_at"] = now
         self.store.write(payload)
         return payload

@@ -52,8 +52,9 @@ export function fetchScannerStatus(): Promise<ScannerStatus> {
   return request("/api/scanner-status");
 }
 
-export function triggerScan(): Promise<{ status: string }> {
-  return request("/api/scan", { method: "POST" });
+export function triggerScan(season?: string): Promise<{ status: string }> {
+  const query = season ? `?season=${encodeURIComponent(season)}` : "";
+  return request(`/api/scan${query}`, { method: "POST" });
 }
 
 export function updateNote(key: string, note: string, season?: string): Promise<RunRecord> {

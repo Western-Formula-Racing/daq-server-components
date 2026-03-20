@@ -24,8 +24,9 @@ async def run_worker():
 
     while True:
         try:
-            logging.info("Running scheduled scan...")
-            service.run_full_scan(source="periodic")
+            active_season = settings.seasons[0]  # sorted descending by year; first = active
+            logging.info(f"Running scheduled scan for active season: {active_season.name}")
+            service.run_full_scan(source="periodic", season_names=[active_season.name])
             logging.info("Finished scheduled scan.")
             
             if daily_time:

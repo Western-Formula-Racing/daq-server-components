@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
+import logging
+from typing import List
+
+import docker
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,6 +29,7 @@ class DataQueryPayload(BaseModel):
 
 settings = get_settings()
 service = DataDownloaderService(settings)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="DAQ Data Downloader API")
 app.add_middleware(
@@ -39,6 +44,36 @@ app.add_middleware(
 @app.get("/api/health")
 def healthcheck() -> dict:
     return {"status": "ok"}
+
+
+def _docker_container_running(container_name: str) -> bool:
+    """Return True if Docker container is in Running state."""
+    try:
+        docker_client = docker.from_env()
+        container = docker_client.containers.get(container_name)
+        return bool(container.attrs.get("State", {}).get("Running", False))
+    except docker.errors.NotFound:
+        return False
+    except Exception as e:
+        raise RuntimeError(f"Docker inspection failed for {container_name}: {e}") from e
+
+
+@app.get("/api/health-status")
+def health_status() -> dict:
+    """Container health derived from live Docker inspection."""
+    try:
+        scanner_status = service.get_scanner_status()
+        now = datetime.now(timezone.utc).isoformat()
+        return {
+            "influxdb3": _docker_container_running("influxdb3"),
+            "scanner": _docker_container_running("data-downloader-scanner"),
+            "last_updated": now,
+            "last_scan_duration_seconds": scanner_status.get("last_scan_duration_seconds"),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
 
 @app.get("/api/seasons")
@@ -70,8 +105,9 @@ def save_note(key: str, payload: NotePayload, season: str | None = None) -> dict
 
 
 @app.post("/api/scan")
-def trigger_scan(background_tasks: BackgroundTasks) -> dict:
-    background_tasks.add_task(service.run_full_scan, "manual")
+def trigger_scan(background_tasks: BackgroundTasks, season: str | None = None) -> dict:
+    season_names = [season] if season else None
+    background_tasks.add_task(service.run_full_scan, "manual", season_names)
     return {"status": "scheduled"}
 
 
