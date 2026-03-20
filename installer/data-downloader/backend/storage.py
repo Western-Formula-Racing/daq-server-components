@@ -162,8 +162,7 @@ class ScannerStatusRepository:
             "error_count": 0,
             "last_scan_runs_count": None,
             "last_scan_sensors_count": None,
-            "scan_interval_seconds": None,
-            "events_processed_per_minute": None,
+            "last_scan_duration_seconds": None,
         }
         self.store = JSONStore(data_dir / "scanner_status.json", default)
 
@@ -190,32 +189,35 @@ class ScannerStatusRepository:
         error: str | None = None,
         runs_count: int | None = None,
         sensors_count: int | None = None,
-        interval_seconds: int | None = None,
     ) -> dict:
         payload = self.store.read()
+        now = now_iso()
         payload.update(
             {
                 "scanning": False,
-                "finished_at": now_iso(),
+                "finished_at": now,
                 "last_result": "success" if success else "error",
             }
         )
         if success:
             payload.pop("error", None)
-            payload["last_successful_job_timestamp"] = now_iso()
+            payload["last_successful_job_timestamp"] = now
             if runs_count is not None:
                 payload["last_scan_runs_count"] = runs_count
             if sensors_count is not None:
                 payload["last_scan_sensors_count"] = sensors_count
-            if interval_seconds is not None:
-                payload["scan_interval_seconds"] = interval_seconds
-                if runs_count is not None and interval_seconds > 0:
-                    payload["events_processed_per_minute"] = round(
-                        (runs_count * 60.0) / interval_seconds, 2
-                    )
+            started_at = payload.get("started_at")
+            if started_at:
+                try:
+                    duration = (
+                        datetime.fromisoformat(now) - datetime.fromisoformat(started_at)
+                    ).total_seconds()
+                    payload["last_scan_duration_seconds"] = round(duration, 2)
+                except ValueError:
+                    pass
         else:
             payload["error"] = error or "scan failed"
             payload["error_count"] = payload.get("error_count", 0) + 1
-        payload["updated_at"] = now_iso()
+        payload["updated_at"] = now
         self.store.write(payload)
         return payload

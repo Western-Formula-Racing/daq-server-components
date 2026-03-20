@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import os
 import logging
 from typing import List
 
 import docker
-from influxdb_client_3 import InfluxDBClient3, Point
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
@@ -48,11 +46,6 @@ def healthcheck() -> dict:
     return {"status": "ok"}
 
 
-def _now_ns() -> int:
-    """Current unix time in nanoseconds (Influx write_precision='ns')."""
-    return int(datetime.now(timezone.utc).timestamp() * 1_000_000_000)
-
-
 def _docker_container_running(container_name: str) -> bool:
     """Return True if Docker container is in Running state."""
     try:
@@ -65,55 +58,17 @@ def _docker_container_running(container_name: str) -> bool:
         raise RuntimeError(f"Docker inspection failed for {container_name}: {e}") from e
 
 
-def _best_effort_write_health_to_influx(up_by_tag: dict[str, bool]) -> None:
-    """
-    Best-effort write of monitor.container.{up} points into InfluxDB.
-    Endpoint responses must not fail if InfluxDB is down.
-    """
-    influx_url = (os.getenv("INFLUXDB_URL") or os.getenv("INFLUX_URL") or "").strip().rstrip("/")
-    token = (
-        os.getenv("INFLUXDB_TOKEN")
-        or os.getenv("INFLUXDB_ADMIN_TOKEN")
-        or os.getenv("INFLUX_TOKEN")
-        or os.getenv("INFLUX_ADMIN_TOKEN")
-        or ""
-    )
-    database = os.getenv("INFLUXDB_HEALTH_DATABASE", "monitoring")
-
-    if not influx_url or not token:
-        return
-
-    try:
-        ts_ns = _now_ns()
-        with InfluxDBClient3(host=influx_url, token=token, database=database) as client:
-            for container_tag, is_up in up_by_tag.items():
-                p = (
-                    Point("monitor.container")
-                    .tag("container", container_tag)
-                    .field("up", bool(is_up))
-                    .time(ts_ns, write_precision="ns")
-                )
-                client.write(p)
-    except Exception:
-        # Intentionally ignore all write failures; health endpoint should still answer.
-        logger.debug("InfluxDB write failed during health-status request", exc_info=True)
-
-
 @app.get("/api/health-status")
-def health_status(background_tasks: BackgroundTasks) -> dict:
-    """Container health derived from live Docker inspection (with best-effort Influx writes)."""
+def health_status() -> dict:
+    """Container health derived from live Docker inspection."""
     try:
-        up_by_tag = {
-            "influxdb3": _docker_container_running("influxdb3"),
-            "data-downloader-scanner": _docker_container_running("data-downloader-scanner"),
-        }
-        background_tasks.add_task(_best_effort_write_health_to_influx, up_by_tag)
-
+        scanner_status = service.get_scanner_status()
         now = datetime.now(timezone.utc).isoformat()
         return {
-            "influxdb3": bool(up_by_tag["influxdb3"]),
-            "scanner": bool(up_by_tag["data-downloader-scanner"]),
+            "influxdb3": _docker_container_running("influxdb3"),
+            "scanner": _docker_container_running("data-downloader-scanner"),
             "last_updated": now,
+            "last_scan_duration_seconds": scanner_status.get("last_scan_duration_seconds"),
         }
     except HTTPException:
         raise

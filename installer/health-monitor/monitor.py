@@ -105,7 +105,7 @@ def collect_scanner_metrics(client: docker.DockerClient) -> dict:
     """Collect metrics for the scanner container: status and app metrics from API."""
     out = {
         "up": False,
-        "events_processed_per_minute": None,
+        "last_scan_duration_seconds": None,
         "last_successful_job_timestamp": None,
         "error_count": None,
         "api_error": None,
@@ -129,7 +129,7 @@ def collect_scanner_metrics(client: docker.DockerClient) -> dict:
         )
         r.raise_for_status()
         data = r.json()
-        out["events_processed_per_minute"] = data.get("events_processed_per_minute")
+        out["last_scan_duration_seconds"] = data.get("last_scan_duration_seconds")
         out["last_successful_job_timestamp"] = data.get("last_successful_job_timestamp")
         out["error_count"] = data.get("error_count")
     except requests.RequestException as e:
@@ -188,10 +188,10 @@ def write_health_to_influx(influx_metrics: dict, scanner_metrics: dict) -> None:
                 .field("up", scanner_metrics["up"])
                 .time(ts_ns, write_precision="ns")
             )
-            if scanner_metrics.get("events_processed_per_minute") is not None:
+            if scanner_metrics.get("last_scan_duration_seconds") is not None:
                 p_scanner_service = p_scanner_service.field(
-                    "events_processed_per_minute",
-                    scanner_metrics["events_processed_per_minute"],
+                    "last_scan_duration_seconds",
+                    scanner_metrics["last_scan_duration_seconds"],
                 )
             if scanner_metrics.get("last_successful_job_timestamp"):
                 p_scanner_service = p_scanner_service.field(

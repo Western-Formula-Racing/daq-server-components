@@ -6,11 +6,11 @@ Python service that periodically collects Docker container and application metri
 
 - **Every 60 seconds** (configurable):
   - **InfluxDB container** (`influxdb3`): Up/Down, restart count, disk usage of the data volume, write latency (and write errors if any).
-  - **Scanner container** (`data-downloader-scanner`): Up/Down, and application metrics from the data-downloader API: `events_processed_per_minute`, `last_successful_job_timestamp`, `error_count`.
+  - **Scanner container** (`data-downloader-scanner`): Up/Down, and application metrics from the data-downloader API: `last_scan_duration_seconds`, `last_successful_job_timestamp`, `error_count`.
 
 - Writes all metrics to InfluxDB 3 in the **`monitoring`** database (configurable via `INFLUXDB_HEALTH_DATABASE`):
   - **`monitor.container`** — Docker-level metrics (up, restart_count, disk_usage, write_latency) with tag `container`
-  - **`monitor.service`** — Application-level metrics (events_processed_per_minute, last_successful_job_timestamp, error_count) with tag `service`
+  - **`monitor.service`** — Application-level metrics (last_scan_duration_seconds, last_successful_job_timestamp, error_count) with tag `service`
 
 ## Requirements
 

@@ -250,6 +250,8 @@ services:
     depends_on:
       influxdb3:
         condition: service_healthy
+      data-downloader-api:
+        condition: service_started
 
   data-downloader-frontend:
     build:
