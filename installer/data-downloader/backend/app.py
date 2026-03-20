@@ -105,8 +105,9 @@ def save_note(key: str, payload: NotePayload, season: str | None = None) -> dict
 
 
 @app.post("/api/scan")
-def trigger_scan(background_tasks: BackgroundTasks) -> dict:
-    background_tasks.add_task(service.run_full_scan, "manual")
+def trigger_scan(background_tasks: BackgroundTasks, season: str | None = None) -> dict:
+    season_names = [season] if season else None
+    background_tasks.add_task(service.run_full_scan, "manual", season_names)
     return {"status": "scheduled"}
 
 
