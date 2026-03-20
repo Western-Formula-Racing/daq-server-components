@@ -303,7 +303,7 @@ services:
       GRAFANA_API_TOKEN: "${GRAFANA_API_TOKEN}"
       GRAFANA_DATASOURCE_UID: "influxdb-wfr-v2"
       GRAFANA_FOLDER_UID: "${GRAFANA_FOLDER_UID:-}"
-      CORS_ORIGIN: "https://pecan.westernformularacing.org"
+      CORS_ORIGIN: "http://localhost:3000,https://pecan.westernformularacing.org"
       INFLUX_TABLE: "${INFLUX_DATABASE:-WFR26}"
     depends_on:
       - grafana

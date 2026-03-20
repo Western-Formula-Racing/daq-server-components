@@ -4,11 +4,18 @@ const crypto = require("crypto");
 const app = express();
 app.use(express.json());
 
-// CORS — only allow requests from the Pecan frontend
-const CORS_ORIGIN =
-  process.env.CORS_ORIGIN || "https://pecan.westernformularacing.org";
+// CORS — allow multiple origins (comma-separated CORS_ORIGIN env var)
+const CORS_ORIGINS = new Set(
+  (process.env.CORS_ORIGIN || "https://pecan.westernformularacing.org")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+);
 app.use((_req, res, next) => {
-  res.header("Access-Control-Allow-Origin", CORS_ORIGIN);
+  const origin = _req.headers.origin;
+  if (origin && CORS_ORIGINS.has(origin)) {
+    res.header("Access-Control-Allow-Origin", origin);
+  }
   res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.header("Access-Control-Allow-Headers", "Content-Type");
   if (_req.method === "OPTIONS") return res.sendStatus(204);
