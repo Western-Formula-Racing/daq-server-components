@@ -103,7 +103,11 @@ function buildPanel(signalName, index) {
   };
 }
 
-app.post("/api/grafana/create-dashboard", async (req, res) => {
+// Routes are mounted at both /api/grafana (direct) and /grafana-bridge/api/grafana
+// (path-based via grafana.westernformularacing.org tunnel to avoid WAF challenges).
+const router = express.Router();
+
+router.post("/api/grafana/create-dashboard", async (req, res) => {
   const { signals } = req.body;
 
   if (!signals || !Array.isArray(signals) || signals.length === 0) {
@@ -193,13 +197,17 @@ app.post("/api/grafana/create-dashboard", async (req, res) => {
 });
 
 // Health check
-app.get("/api/grafana/health", (_req, res) => {
+router.get("/api/grafana/health", (_req, res) => {
   res.json({
     status: "ok",
     grafana: GRAFANA_EXTERNAL_URL,
     tokenConfigured: !!GRAFANA_API_TOKEN,
   });
 });
+
+// Mount at root (direct port 3001 access) and under /grafana-bridge (via grafana subdomain tunnel)
+app.use("/", router);
+app.use("/grafana-bridge", router);
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
