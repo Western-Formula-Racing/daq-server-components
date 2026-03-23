@@ -168,7 +168,14 @@ def handle_agent(user, command_full, thread_ts=None, timeout=120, channel=None):
         # Call code-generator service
         response = requests.post(
             f"{CODE_GENERATOR_URL}/api/generate-code",
-            json={"prompt": instructions},
+            json={
+                "prompt": instructions,
+                "slack_context": {
+                    "channel": channel,
+                    "thread_ts": thread_ts,
+                    "user": user,
+                },
+            },
             timeout=timeout
         )
         response.raise_for_status()
@@ -232,6 +239,15 @@ def handle_agent(user, command_full, thread_ts=None, timeout=120, channel=None):
                             thread_ts=thread_ts
                         )
             
+            # Send engineering conclusion if present
+            conclusion = result.get("conclusion", "")
+            if conclusion:
+                send_slack_message(
+                    channel,
+                    text=f"*Engineering Summary:*\n{conclusion}",
+                    thread_ts=thread_ts,
+                )
+
             # Log successful interaction
             log_interaction(user, instructions, result, "success")
         

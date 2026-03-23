@@ -97,21 +97,27 @@ DIRECT INFLUXDB QUERIES (wide schema — use when slicks helpers are insufficien
     # Each signal is its own column — no pivot needed.
     # There is NO "signalName" or "sensorReading" column; those were legacy narrow schema.
 
-INFLUXDB QUERY FILE LIMIT (CRITICAL):
+INFLUXDB QUERY FILE LIMIT AND MEMORY LIMITS (CRITICAL):
 - InfluxDB has a hard limit of 432 parquet files per query.
 - Multi-day queries WILL fail with "Query would exceed file limit" error.
-- Query in 1-6 hour windows, or use windowed loops:
+- Wide-schema queries with many columns (e.g. TORCH battery: 5 modules × many cell signals)
+  can hit memory exhaustion ("Not enough memory to continue external sort") with windows > 2h.
+- ALWAYS use 1-hour windows for multi-day scans, especially for battery/TORCH queries.
+- Wrap each window in try/except — log errors and continue rather than crashing:
     from datetime import datetime, timedelta
     import pandas as pd
 
-    start, end, window_hours = datetime(2025, 10, 4, 12), datetime(2025, 10, 5, 0), 3
+    start, end, window_hours = datetime(2025, 10, 4, 12), datetime(2025, 10, 5, 0), 1
     frames, cur = [], start
     while cur < end:
         nxt = min(cur + timedelta(hours=window_hours), end)
-        chunk = slicks.fetch_telemetry(cur, nxt, signals=["INV_Motor_Speed"],
-                                       schema="wide", filter_movement=False)
-        if chunk is not None:
-            frames.append(chunk)
+        try:
+            chunk = slicks.fetch_telemetry(cur, nxt, signals=["INV_Motor_Speed"],
+                                           schema="wide", filter_movement=False)
+            if chunk is not None and not chunk.empty:
+                frames.append(chunk)
+        except Exception as e:
+            print(f"Error fetching {cur} - {nxt}: {e}")
         cur = nxt
     df = pd.concat(frames) if frames else pd.DataFrame()
 

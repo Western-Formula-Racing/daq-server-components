@@ -4,3 +4,4 @@ python-dotenv
 cohere
 anthropic
 requests
+langgraph
