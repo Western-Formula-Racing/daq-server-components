@@ -310,7 +310,7 @@ services:
     networks:
       - datalink
 
-  # Code generator - Cohere integration for AI-powered code generation
+  # Code generator - Anthropic/MiniMax integration for AI-powered code generation
   code-generator:
     build:
       context: ./sandbox
@@ -318,8 +318,12 @@ services:
     container_name: code-generator
     restart: unless-stopped
     environment:
-      COHERE_API_KEY: ${COHERE_API_KEY}
-      COHERE_MODEL: ${COHERE_MODEL:-command-r-plus}
+      # Cohere wiring kept for quick rollback:
+      # COHERE_API_KEY: ${COHERE_API_KEY}
+      # COHERE_MODEL: ${COHERE_MODEL:-command-r-plus}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-MiniMax-M2.7}
       SANDBOX_URL: "http://sandbox:8080"
       MAX_RETRIES: ${MAX_RETRIES:-2}
       CODE_GEN_PORT: 3030

@@ -53,6 +53,7 @@ def fetch_unique_sensors(config: SensorQueryConfig) -> List[str]:
         end_time=end.replace(tzinfo=None),
         chunk_size_days=config.window_days,
         show_progress=False,
+        schema="wide",
     )
 
     if not sensors and config.fallback_start and config.fallback_end:
@@ -61,6 +62,7 @@ def fetch_unique_sensors(config: SensorQueryConfig) -> List[str]:
             end_time=config.fallback_end.replace(tzinfo=None),
             chunk_size_days=config.window_days,
             show_progress=False,
+            schema="wide",
         )
 
     return sensors

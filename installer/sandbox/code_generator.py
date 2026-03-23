@@ -1,6 +1,6 @@
 """
-Code Generation Service - Orchestrator for Cohere + Sandbox execution.
-Receives requests from Slackbot, generates code using Cohere, and executes in sandbox.
+Code Generation Service - Orchestrator for Anthropic/MiniMax + Sandbox execution.
+Receives requests from Slackbot, generates code using Anthropic-compatible API, and executes in sandbox.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from typing import Dict, Any
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import cohere
+from anthropic import Anthropic
 import requests
 
 # Load environment variables
@@ -22,18 +22,32 @@ load_dotenv()
 # ---------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------
-COHERE_API_KEY = os.getenv("COHERE_API_KEY")
-if not COHERE_API_KEY:
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+if not ANTHROPIC_API_KEY:
     raise RuntimeError(
-        "COHERE_API_KEY not found in environment. Add it to your .env or export it as an env var."
+        "ANTHROPIC_API_KEY not found in environment. Add it to your .env or export it as an env var."
     )
 
-COHERE_MODEL = os.getenv("COHERE_MODEL", "command-a-reasoning-08-2025")
+ANTHROPIC_BASE_URL = os.getenv("ANTHROPIC_BASE_URL")
+ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "MiniMax-M2.7")
 SANDBOX_URL = os.getenv("SANDBOX_URL", "http://sandbox-runner:9090")
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "2"))
 
-# Configure Cohere client
-co = cohere.Client(COHERE_API_KEY)
+# Cohere implementation kept for quick rollback:
+# COHERE_API_KEY = os.getenv("COHERE_API_KEY")
+# if not COHERE_API_KEY:
+#     raise RuntimeError(
+#         "COHERE_API_KEY not found in environment. Add it to your .env or export it as an env var."
+#     )
+#
+# COHERE_MODEL = os.getenv("COHERE_MODEL", "command-a-reasoning-08-2025")
+# co = cohere.Client(COHERE_API_KEY)
+
+# Configure Anthropic client (supports custom base URL, e.g. MiniMax Anthropic-compatible endpoint)
+anthropic_kwargs = {"api_key": ANTHROPIC_API_KEY}
+if ANTHROPIC_BASE_URL:
+    anthropic_kwargs["base_url"] = ANTHROPIC_BASE_URL
+anthropic_client = Anthropic(**anthropic_kwargs)
 
 # Paths
 BASE_DIR = Path(__file__).resolve().parent
@@ -88,18 +102,33 @@ def extract_python_code(raw_output: str) -> str:
 
 
 def request_python_code(guide: str, prompt: str) -> str:
-    """Request Python code from Cohere."""
+    """Request Python code from Anthropic-compatible API."""
     # Combine guide and user prompt
     full_prompt = f"{guide}\n\n{prompt}"
 
-    response = co.chat(
-        message=full_prompt,
-        model=COHERE_MODEL,
+    # Cohere implementation kept for quick rollback:
+    # response = co.chat(
+    #     message=full_prompt,
+    #     model=COHERE_MODEL,
+    #     temperature=0.2,
+    # )
+    # raw_output = response.text
+
+    response = anthropic_client.messages.create(
+        model=ANTHROPIC_MODEL,
+        max_tokens=4000,
         temperature=0.2,
+        system="You are an expert Python data analyst. Return only executable Python code.",
+        messages=[{"role": "user", "content": full_prompt}],
     )
 
-    # Extract Python code from response
-    raw_output = response.text
+    # Extract text blocks from Anthropic response content
+    raw_output_parts = []
+    for block in response.content:
+        if getattr(block, "type", "") == "text":
+            raw_output_parts.append(getattr(block, "text", ""))
+    raw_output = "\n".join(part for part in raw_output_parts if part)
+
     python_code = extract_python_code(raw_output)
 
     # Save generated code
@@ -288,7 +317,9 @@ def main():
     debug = os.getenv("DEBUG", "false").lower() == "true"
     
     print(f"Starting code generation service on http://0.0.0.0:{port}")
-    print(f"Cohere Model: {COHERE_MODEL}")
+    print(f"Anthropic Model: {ANTHROPIC_MODEL}")
+    if ANTHROPIC_BASE_URL:
+        print(f"Anthropic Base URL: {ANTHROPIC_BASE_URL}")
     print(f"Sandbox URL: {SANDBOX_URL}")
     print(f"Max Retries: {MAX_RETRIES}")
     

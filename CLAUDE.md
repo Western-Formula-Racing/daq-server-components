@@ -109,10 +109,29 @@ add `--query-file-limit <N>` to the `influxdb3 serve` command in `docker-compose
 
 ---
 
+## Known Good Test Data Windows
+
+Use these when debugging queries, dashboards, or sensor discovery.
+
+### WFR25 (InfluxDB database: `WFR25`)
+
+| Window | Local (America/Toronto) | UTC |
+|--------|------------------------|-----|
+| Run 1 | 2025-10-04 08:00 – 18:00 EDT | 2025-10-04 12:00 – 22:00 UTC |
+| Run 2 | 2025-10-03 17:00 – 20:00 EDT | 2025-10-03 21:00 – 2025-10-04 00:00 UTC |
+
+### WFR26 (InfluxDB database: `WFR26`)
+
+| Window | Local (America/Toronto) | UTC |
+|--------|------------------------|-----|
+| Run 1 | 2025-09-08 23:21 – 23:23 EDT | 2025-09-09 03:21 – 03:23 UTC |
+
+---
+
 ## Wide Schema Notes
 
 - Each CAN frame = one row with all decoded signals as columns (NULLs for signals not in that frame)
 - Table name = bucket name (e.g. `WFR26`)
 - Grafana SQL queries select signal columns directly: `AVG("SignalName") AS "SignalName"`
-- **WFR25 known issue**: `Accel_X/Y/Z` and `Gyro_X/Y/Z` exist in both `VCU_Front_IMU_1` and `VCU_Rear_IMU_1` messages with the same signal name → they collapse into one column in wide schema → `AVG()` blends front and rear, values trend toward 0. Fixed in WFR26 with `_Front`/`_Rear` suffixes.
+- **WFR25 (resolved)**: `Accel_X/Y/Z` and `Gyro_X/Y/Z` originally collapsed into one column in wide schema (blended front/rear). Re-uploaded with updated DBC → now stored as `Front_Accel_X`, `Rear_Accel_X`, etc., matching WFR26 convention.
 - See `installer/INFLUXDB3_OPS.md` for full ops runbook (WAL, snapshots, deleting data, OOM notes)
