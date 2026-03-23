@@ -288,10 +288,17 @@ def critic_node(state: CodeGenState) -> dict:
         model=ANTHROPIC_MODEL,
         max_tokens=800,
         temperature=0.1,
-        system="You are a senior Python code reviewer. Be concise and specific.",
+        system=(
+            "You are a senior Python code reviewer for a Formula SAE telemetry sandbox. "
+            "The sandbox has the real `slicks` library installed and InfluxDB credentials in env vars. "
+            "NEVER suggest mocks, MockSlicks, synthetic data, or get_slicks() — these are wrong. "
+            "If the code uses a wrong import or undefined function, the fix is always to use the "
+            "correct real library as shown in the implementation guide. Be concise and specific."
+        ),
         messages=[{
             "role": "user",
             "content": (
+                f"Implementation guide (environment reference):\n{state['guide']}\n\n"
                 f"Code:\n```python\n{state['current_code']}\n```\n\n"
                 f"Error:\n{state['error_message']}\n\n"
                 "Explain:\n1. Root cause\n2. What needs to change\n3. Specific fix strategy"
@@ -321,8 +328,10 @@ def conclude_node(state: CodeGenState) -> dict:
         temperature=0.3,
         system=(
             "You are a Formula SAE data engineer. Given a data analysis task and its output, "
-            "write a concise engineering summary: 2-3 sentences of key findings, then bullet-point "
-            "recommendations for further investigation. Be specific and actionable. No code."
+            "write a concise analysis summary: 2-3 sentences of key findings, then bullet-point "
+            "recommendations for further investigation. Be specific and actionable. No code.\n"
+            "Format for Slack mrkdwn: use *bold* (single asterisk) not **bold**, "
+            "use _italic_ (single underscore), use - for bullets, no ## headers."
         ),
         messages=[{
             "role": "user",

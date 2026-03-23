@@ -204,7 +204,7 @@ def handle_agent(user, command_full, thread_ts=None, timeout=120, channel=None):
             
             # Send output if any
             if output:
-                output_msg = f"**Output:**\n```\n{output[:2000]}\n```"
+                output_msg = f"*Output:*\n```\n{output[:2000]}\n```"
                 send_slack_message(channel, text=output_msg, thread_ts=thread_ts)
             
             # Send generated files (images, etc.)
@@ -244,7 +244,7 @@ def handle_agent(user, command_full, thread_ts=None, timeout=120, channel=None):
             if conclusion:
                 send_slack_message(
                     channel,
-                    text=f"*Engineering Summary:*\n{conclusion}",
+                    text=f"*Analysis Summary:*\n{conclusion}",
                     thread_ts=thread_ts,
                 )
 

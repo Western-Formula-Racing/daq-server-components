@@ -121,6 +121,11 @@ INFLUXDB QUERY FILE LIMIT AND MEMORY LIMITS (CRITICAL):
         cur = nxt
     df = pd.concat(frames) if frames else pd.DataFrame()
 
+NEVER DO THIS (common hallucinations that will break the code):
+- NEVER use get_slicks(), MockSlicks, or any synthetic/mock data. The real `import slicks` works.
+- NEVER hardcode InfluxDB credentials — they are in env vars (INFLUX_URL, INFLUX_TOKEN).
+- NEVER use narrow-schema column names like "signalName" or "sensorReading" — wide schema only.
+
 CRITICAL PYTHON SYNTAX:
 - NEVER put comments inside f-string expressions: f"{var # comment}" causes SyntaxError.
 
@@ -133,4 +138,81 @@ CRITICAL PANDAS BEST PRACTICES:
 
 Handle the user's request to generate python 3 code, only provide the code output.
 
+================================================================================
+SLICKS PACKAGE — COMPLETE API REFERENCE (authoritative, do not guess or invent methods)
+================================================================================
+The `slicks` package is our in-house telemetry library. Only the functions listed
+below exist. Do NOT call any other method on the slicks module.
+
+--- slicks.connect_influxdb3 ---
+slicks.connect_influxdb3(db=None, table=None, url=None, token=None, org=None, schema=None)
+  Set the active database before any fetch call. db and table are usually the same value.
+  Env vars (INFLUX_URL, INFLUX_TOKEN, INFLUX_DB) are already set — only pass db/table.
+  Example:
+      slicks.connect_influxdb3(db="WFR25", table="WFR25")
+
+--- slicks.fetch_telemetry ---
+slicks.fetch_telemetry(start_time, end_time, signals=None, client=None,
+                       filter_movement=True, resample="1s", schema="wide")
+  Fetch one window of data. Returns a pandas DataFrame (DatetimeIndex, UTC tz-naive)
+  or None if no data. Columns are signal names.
+  - signals: list of column names, or None for default set
+  - filter_movement: True filters to rows where the car is moving
+  - resample: pandas freq string e.g. "1s", "100ms", None for raw
+  - schema: always "wide" — never use "narrow"
+  WARNING: use windowed loops (1h windows) for multi-day ranges; single large queries OOM.
+
+--- slicks.fetch_telemetry_chunked ---
+slicks.fetch_telemetry_chunked(start_time, end_time, signals=None, client=None,
+                                filter_movement=True, resample="1s",
+                                chunk_size=timedelta(hours=6), max_workers=1,
+                                show_progress=True, schema="wide")
+  Same as fetch_telemetry but automatically splits on parquet file limit errors.
+  Prefer this for ranges > 2 hours when you don't want to write your own loop.
+  Returns combined DataFrame or None.
+
+--- slicks.discover_sensors ---
+slicks.discover_sensors(start_time, end_time, schema="wide")
+  Returns sorted list of all column names in the database. For wide schema this is
+  an instant metadata query (ignores time range). Use to find exact signal names.
+  Example:
+      sensors = slicks.discover_sensors(datetime(2025,10,4,12), datetime(2025,10,4,18))
+      torch_cells = [s for s in sensors if "Cell" in s and "Voltage" in s]
+
+--- slicks.scan_data_availability ---
+slicks.scan_data_availability(start, end, timezone="America/Toronto",
+                               table=None, bin_size="1h", include_counts=False)
+  Find all time windows that have data in a date range. Returns a ScanResult object.
+  result.calendar_view() → matplotlib Figure (save with fig.savefig("calendar.png"))
+  Example:
+      result = slicks.scan_data_availability(datetime(2025,8,1), datetime(2025,11,1))
+      fig = result.calendar_view()
+      fig.savefig("calendar.png")
+
+--- slicks.battery module ---
+slicks.battery.get_cell_statistics(df)
+  Finds all M*_Cell*_Voltage columns in df. Returns DataFrame with columns:
+    min_cell_voltage, max_cell_voltage, avg_cell_voltage,
+    pack_imbalance (max-min), lowest_cell_name
+  Returns empty DataFrame if no cell voltage columns found.
+
+slicks.battery.identify_weak_cells(df)
+  Returns DataFrame: cell_name, count, percentage — which cell was lowest most often.
+
+slicks.battery.get_pack_health(df)
+  Returns dict: max_imbalance, avg_imbalance, weakest_cell, min_pack_voltage
+
+--- slicks.calculations module ---
+slicks.calculations.calculate_g_sum(df, x_col="Accel_X", y_col="Accel_Y", lsb_per_g=81.92)
+  Returns Series of vector G-force magnitude. Use Front_Accel_X / Front_Accel_Y for WFR25+.
+
+slicks.calculations.estimate_speed_from_rpm(df, tire_radius_m, gear_ratio=1.0, rpm_col="Right_RPM")
+  Returns Series of speed in m/s. Falls back to INV_Motor_Speed if rpm_col missing.
+
+--- slicks.movement_detector functions ---
+slicks.detect_movement_ratio(df, speed_column="INV_Motor_Speed", threshold=100.0)
+slicks.filter_data_in_movement(df)   → filtered DataFrame
+slicks.get_movement_segments(df)     → list of (start, end) segment tuples
+
+================================================================================
 End of prompt
