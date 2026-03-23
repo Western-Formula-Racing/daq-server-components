@@ -339,5 +339,6 @@ services:
     volumes:
       - ./sandbox/generated:/app/generated
       - ./sandbox/prompt-guide.txt:/app/prompt-guide.txt
+      - ./data-downloader/data:/app/data-downloader:ro
     networks:
       - datalink

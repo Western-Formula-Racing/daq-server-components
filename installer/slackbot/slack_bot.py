@@ -170,6 +170,7 @@ def handle_agent(user, command_full, thread_ts=None, timeout=120, channel=None):
             f"{CODE_GENERATOR_URL}/api/generate-code",
             json={
                 "prompt": instructions,
+                "execution_timeout": max(60, timeout - 60),  # leave 60s buffer for overhead
                 "slack_context": {
                     "channel": channel,
                     "thread_ts": thread_ts,

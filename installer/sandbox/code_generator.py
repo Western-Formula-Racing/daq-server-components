@@ -31,6 +31,7 @@ if not ANTHROPIC_API_KEY:
 ANTHROPIC_BASE_URL = os.getenv("ANTHROPIC_BASE_URL")
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "MiniMax-M2.7")
 SANDBOX_URL = os.getenv("SANDBOX_URL", "http://sandbox-runner:9090")
+SANDBOX_TIMEOUT = int(os.getenv("SANDBOX_TIMEOUT", "1140"))  # default ~19 min
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "2"))
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
 
@@ -54,6 +55,7 @@ anthropic_client = Anthropic(**anthropic_kwargs)
 BASE_DIR = Path(__file__).resolve().parent
 PROMPT_GUIDE_PATH = BASE_DIR / "prompt-guide.txt"
 GENERATED_CODE_PATH = BASE_DIR / "generated_sandbox_code.py"
+DATA_DIR = BASE_DIR / "data-downloader"
 
 # ---------------------------------------------------------------------
 # Flask App Setup
@@ -76,6 +78,8 @@ class CodeGenState(TypedDict):
     retry_info: list
     conclusion: str
     slack_context: Optional[dict]  # {"channel": ..., "thread_ts": ..., "user": ...}
+    execution_timeout: int  # sandbox HTTP timeout in seconds
+    data_context: str  # pre-scanned sensor list + run windows from data-downloader
 
 
 # ---------------------------------------------------------------------
@@ -93,6 +97,85 @@ Rules:
 - Save visualizations to files (plt.savefig())
 - Include all necessary imports
 - Return only executable code"""
+
+
+def load_data_context() -> str:
+    """
+    Build a compact data-context string from the pre-scanned data-downloader JSON files.
+    Dynamically discovers all runs_WFR*.json files (WFR24, WFR25, WFR26, ...) sorted
+    newest-first. Injects exact sensor lists and run windows so the LLM never needs to
+    call discover_sensors() or guess signal names.
+    Returns an empty string if the directory is not mounted or no files are found.
+    """
+    import json as _json
+    import re
+
+    if not DATA_DIR.exists():
+        return ""
+
+    # Discover all seasons present, sorted newest-first (WFR26, WFR25, WFR24, ...)
+    season_files = sorted(DATA_DIR.glob("runs_WFR*.json"), reverse=True)
+    seasons = []
+    for p in season_files:
+        m = re.match(r"runs_(WFR\d+)\.json", p.name)
+        if m:
+            seasons.append(m.group(1))
+
+    if not seasons:
+        return ""
+
+    sections = []
+    last_updated = "unknown"
+    for season in seasons:
+        runs_path = DATA_DIR / f"runs_{season}.json"
+        sensors_path = DATA_DIR / f"sensors_{season}.json"
+
+        if not runs_path.exists():
+            print(f"Warning: runs file missing for {season}, skipping")
+            continue
+
+        try:
+            runs_data = _json.loads(runs_path.read_text())
+        except Exception as e:
+            print(f"Warning: could not parse runs for {season}: {e}")
+            continue
+
+        last_updated = runs_data.get("updated_at", last_updated)
+        runs = runs_data.get("runs", [])
+
+        run_lines = []
+        for r in runs:
+            note = f" [{r['note']}]" if r.get("note") else ""
+            run_lines.append(
+                f"  {r['start_local']} → {r['end_local']} (UTC: {r['start_utc']} → {r['end_utc']}, rows: {r['row_count']:,}){note}"
+            )
+
+        sensors_section = ""
+        if sensors_path.exists():
+            try:
+                sensors_data = _json.loads(sensors_path.read_text())
+                sensors = sensors_data.get("sensors", [])
+                sensors_section = f"\n\n=== {season} — All Available Sensors ({len(sensors)} total) ===\n" + ", ".join(sensors)
+            except Exception as e:
+                print(f"Warning: could not parse sensors for {season}: {e}")
+        else:
+            print(f"Warning: sensors file missing for {season}, omitting sensor list")
+
+        sections.append(
+            f"=== {season} — Available Run Windows ===\n"
+            + "\n".join(run_lines)
+            + sensors_section
+        )
+
+    if not sections:
+        return ""
+
+    return (
+        f"LIVE DATA CONTEXT (scanned {last_updated}):\n"
+        "Use the run windows below to select appropriate start_time/end_time. "
+        "Use the sensor list for exact signal names — do NOT invent or guess names.\n\n"
+        + "\n\n".join(sections)
+    )
 
 
 def extract_python_code(raw_output: str) -> str:
@@ -119,13 +202,13 @@ def extract_python_code(raw_output: str) -> str:
     return text
 
 
-def submit_code_to_sandbox(code: str) -> Dict[str, Any]:
+def submit_code_to_sandbox(code: str, timeout: int = SANDBOX_TIMEOUT) -> Dict[str, Any]:
     """Submit code to the custom sandbox for execution."""
     try:
         response = requests.post(
             SANDBOX_URL,
             json={"code": code},
-            timeout=60
+            timeout=timeout
         )
         response.raise_for_status()
         return response.json()
@@ -237,18 +320,21 @@ def generate_node(state: CodeGenState) -> dict:
     attempt = state["attempts"]
     print(f"--- generate_node (attempt {attempt + 1}) ---")
 
+    data_ctx = state.get("data_context", "")
     if attempt == 0:
         notify_slack(state.get("slack_context"), "_Generating code..._")
         full_prompt = (
             f"{state['guide']}\n\n"
-            f"PLAN:\n{state['plan']}\n\n"
+            + (f"{data_ctx}\n\n" if data_ctx else "")
+            + f"PLAN:\n{state['plan']}\n\n"
             f"TASK:\n{state['user_prompt']}"
         )
     else:
         notify_slack(state.get("slack_context"), f"_Regenerating code (attempt {attempt + 1})..._")
         full_prompt = (
             f"Original Task:\n{state['user_prompt']}\n\n"
-            f"Previous Plan:\n{state['plan']}\n\n"
+            + (f"{data_ctx}\n\n" if data_ctx else "")
+            + f"Previous Plan:\n{state['plan']}\n\n"
             f"Failure Analysis:\n{state['diagnosis']}\n\n"
             "Fix the code accordingly. Do not repeat the same mistake."
         )
@@ -257,7 +343,19 @@ def generate_node(state: CodeGenState) -> dict:
         model=ANTHROPIC_MODEL,
         max_tokens=4000,
         temperature=0.2,
-        system="You are an expert Python data analyst. Return only executable Python code.",
+        system=(
+            "You are an expert Python data analyst working with Formula SAE telemetry. "
+            "Return only executable Python code — no commentary, no markdown fences.\n\n"
+            "CRITICAL slicks API rules (violations will cause runtime errors):\n"
+            "- Data access: ONLY use slicks.fetch_telemetry() or slicks.fetch_telemetry_chunked(). "
+            "There is NO slicks.query(), slicks.get_data(), or any other fetch method.\n"
+            "- Always call slicks.connect_influxdb3(db=<season>, table=<season>) before fetching.\n"
+            "- Always pass schema='wide' to fetch calls.\n"
+            "- NEVER use MockSlicks, get_slicks(), or any synthetic/mock data.\n"
+            "- NEVER hardcode InfluxDB credentials — they are in env vars.\n"
+            "- Signal names: use ONLY the exact names from the provided sensor list. "
+            "Do not guess, abbreviate, or invent signal names."
+        ),
         messages=[{"role": "user", "content": full_prompt}],
     )
 
@@ -273,7 +371,7 @@ def execute_node(state: CodeGenState) -> dict:
     print("--- execute_node ---")
     notify_slack(state.get("slack_context"), "_Executing code..._")
 
-    sandbox_result = submit_code_to_sandbox(state["current_code"])
+    sandbox_result = submit_code_to_sandbox(state["current_code"], timeout=state.get("execution_timeout", SANDBOX_TIMEOUT))
     error_message = "" if sandbox_result.get("ok") else format_error_for_retry(sandbox_result)
 
     return {"sandbox_result": sandbox_result, "error_message": error_message}
@@ -395,11 +493,17 @@ def generate_code():
         data = request.get_json()
         user_prompt = data.get('prompt', '').strip()
         slack_context = data.get('slack_context')  # optional: {"channel", "thread_ts", "user"}
+        execution_timeout = int(data.get('execution_timeout', SANDBOX_TIMEOUT))
 
         if not user_prompt:
             return jsonify({"error": "Prompt is required"}), 400
 
         guide = load_prompt_guide()
+        data_context = load_data_context()
+        if data_context:
+            print(f"Data context loaded ({len(data_context)} chars)")
+        else:
+            print("Warning: data context not available (data-downloader not mounted?)")
 
         initial_state: CodeGenState = {
             "user_prompt": user_prompt,
@@ -413,6 +517,8 @@ def generate_code():
             "retry_info": [],
             "conclusion": "",
             "slack_context": slack_context,
+            "execution_timeout": execution_timeout,
+            "data_context": data_context,
         }
 
         final_state = graph.invoke(initial_state)
