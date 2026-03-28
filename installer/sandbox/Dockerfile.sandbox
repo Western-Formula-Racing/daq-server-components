@@ -30,9 +30,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements-docker.txt /tmp/requirements-docker.txt
-RUN pip install --upgrade pip \
-    && pip install --no-cache-dir -r /tmp/requirements-docker.txt \
-    && rm -rf /root/.cache/pip
+RUN pip install uv \
+    && uv pip install --system --no-cache -r /tmp/requirements-docker.txt
 
 # Tell Kaleido where Chromium lives
 ENV CHROME_PATH=/usr/bin/chromium
