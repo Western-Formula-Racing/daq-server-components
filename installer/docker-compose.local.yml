@@ -1,6 +1,6 @@
 # Minimal local/offline stack for testing: InfluxDB3, Grafana, file-uploader
-# No internet required at runtime (no plugin downloads, no pull_policy: always)
-# Pre-pull images before going offline: docker compose -f docker-compose.local.yml pull
+# Images are pulled automatically on first run (pull_policy: missing), then cached locally.
+# Once images are cached, the stack works offline — no plugin downloads, no forced re-pulls.
 
 networks:
   datalink:
@@ -14,7 +14,7 @@ services:
   influxdb3:
     image: influxdb:3-core
     container_name: influxdb3
-    pull_policy: never
+    pull_policy: missing
     command: >
       influxdb3 serve --node-id influxdb3-node --object-store file --data-dir /var/lib/influxdb3 --admin-token-file /influxdb3-admin-token.json --wal-snapshot-size 10 --snapshotted-wal-files-to-keep 10
     restart: unless-stopped
@@ -39,7 +39,7 @@ services:
   grafana:
     image: grafana/grafana:latest
     container_name: grafana
-    pull_policy: never
+    pull_policy: missing
     restart: unless-stopped
     ports:
       - "8087:3000"
@@ -83,3 +83,7 @@ services:
     depends_on:
       influxdb3:
         condition: service_healthy
+
+# PULL:  docker compose -f docker-compose.local.yml pull
+# BUILD: docker compose -f docker-compose.local.yml build file-uploader
+# UP:    docker compose -f docker-compose.local.yml up
