@@ -16,6 +16,8 @@ from anthropic import Anthropic
 import requests
 from langgraph.graph import StateGraph, END
 
+from mcp_tools import MCPTools
+
 # Load environment variables
 load_dotenv()
 
@@ -34,6 +36,7 @@ SANDBOX_URL = os.getenv("SANDBOX_URL", "http://sandbox-runner:9090")
 SANDBOX_TIMEOUT = int(os.getenv("SANDBOX_TIMEOUT", "1140"))  # default ~19 min
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "2"))
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
+ENABLE_MCP = os.getenv("ENABLE_MCP", "true").lower() == "true"
 
 # Cohere implementation kept for quick rollback:
 # COHERE_API_KEY = os.getenv("COHERE_API_KEY")
@@ -62,6 +65,7 @@ DATA_DIR = BASE_DIR / "data-downloader"
 # ---------------------------------------------------------------------
 app = Flask(__name__)
 CORS(app)
+mcp_tools = MCPTools()
 
 # ---------------------------------------------------------------------
 # LangGraph State
@@ -80,6 +84,10 @@ class CodeGenState(TypedDict):
     slack_context: Optional[dict]  # {"channel": ..., "thread_ts": ..., "user": ...}
     execution_timeout: int  # sandbox HTTP timeout in seconds
     data_context: str  # pre-scanned sensor list + run windows from data-downloader
+    mcp_context: str
+    resolved_season: str
+    mcp_error: str
+    mcp_trace: dict
 
 
 # ---------------------------------------------------------------------
@@ -293,6 +301,66 @@ def notify_slack(ctx: Optional[dict], text: str) -> None:
 # ---------------------------------------------------------------------
 # LangGraph Nodes
 # ---------------------------------------------------------------------
+def mcp_context_node(state: CodeGenState) -> dict:
+    """Phase 0: build deterministic season/sensor context through MCP tools."""
+    print("--- mcp_context_node ---")
+
+    if not ENABLE_MCP:
+        return {
+            "mcp_context": "",
+            "resolved_season": "",
+            "mcp_error": "",
+            "mcp_trace": {"enabled": False, "called_tools": []},
+        }
+
+    try:
+        mcp_result = mcp_tools.build_prompt_context(state["user_prompt"])
+        if not mcp_result.get("ok"):
+            err = mcp_result.get("error", "MCP context unavailable")
+            print(f"MCP context unavailable: {err}")
+            return {
+                "mcp_context": "",
+                "resolved_season": "",
+                "mcp_error": err,
+                "mcp_trace": {
+                    "enabled": True,
+                    "called_tools": mcp_result.get("called_tools", []),
+                    "error": err,
+                },
+            }
+
+        resolved_season = str(mcp_result.get("resolved_season", ""))
+        print(
+            "MCP context built "
+            f"(season={resolved_season}, sensors={mcp_result.get('sensors_count', 0)}, runs={mcp_result.get('runs_count', 0)})"
+        )
+        return {
+            "mcp_context": mcp_result.get("context", ""),
+            "resolved_season": resolved_season,
+            "mcp_error": "",
+            "mcp_trace": {
+                "enabled": True,
+                "resolved_season": resolved_season,
+                "resolution_reason": mcp_result.get("resolution_reason"),
+                "called_tools": mcp_result.get("called_tools", []),
+                "runs_count": mcp_result.get("runs_count", 0),
+                "sensors_count": mcp_result.get("sensors_count", 0),
+            },
+        }
+    except Exception as e:
+        print(f"MCP context node failed: {e}")
+        return {
+            "mcp_context": "",
+            "resolved_season": "",
+            "mcp_error": str(e),
+            "mcp_trace": {
+                "enabled": True,
+                "called_tools": [],
+                "error": str(e),
+            },
+        }
+
+
 def plan_node(state: CodeGenState) -> dict:
     """Phase 1: decompose the task into numbered steps before generating code."""
     print("--- plan_node ---")
@@ -321,10 +389,12 @@ def generate_node(state: CodeGenState) -> dict:
     print(f"--- generate_node (attempt {attempt + 1}) ---")
 
     data_ctx = state.get("data_context", "")
+    mcp_ctx = state.get("mcp_context", "")
     if attempt == 0:
         notify_slack(state.get("slack_context"), "_Generating code..._")
         full_prompt = (
             f"{state['guide']}\n\n"
+            + (f"{mcp_ctx}\n\n" if mcp_ctx else "")
             + (f"{data_ctx}\n\n" if data_ctx else "")
             + f"PLAN:\n{state['plan']}\n\n"
             f"TASK:\n{state['user_prompt']}"
@@ -333,6 +403,7 @@ def generate_node(state: CodeGenState) -> dict:
         notify_slack(state.get("slack_context"), f"_Regenerating code (attempt {attempt + 1})..._")
         full_prompt = (
             f"Original Task:\n{state['user_prompt']}\n\n"
+            + (f"{mcp_ctx}\n\n" if mcp_ctx else "")
             + (f"{data_ctx}\n\n" if data_ctx else "")
             + f"Previous Plan:\n{state['plan']}\n\n"
             f"Failure Analysis:\n{state['diagnosis']}\n\n"
@@ -353,6 +424,7 @@ def generate_node(state: CodeGenState) -> dict:
             "- Always pass schema='wide' to fetch calls.\n"
             "- NEVER use MockSlicks, get_slicks(), or any synthetic/mock data.\n"
             "- NEVER hardcode InfluxDB credentials — they are in env vars.\n"
+            "- Respect MCP_CONTEXT resolved season. If MCP_CONTEXT provides resolved_season, connect to that season unless user explicitly requests another season/year.\n"
             "- Signal names: use ONLY the exact names from the provided sensor list. "
             "Do not guess, abbreviate, or invent signal names."
         ),
@@ -457,13 +529,15 @@ def route_after_execute(state: CodeGenState) -> str:
 # Build LangGraph
 # ---------------------------------------------------------------------
 _workflow = StateGraph(CodeGenState)
+_workflow.add_node("mcp_context", mcp_context_node)
 _workflow.add_node("plan", plan_node)
 _workflow.add_node("generate", generate_node)
 _workflow.add_node("execute", execute_node)
 _workflow.add_node("critic", critic_node)
 _workflow.add_node("conclude", conclude_node)
 
-_workflow.set_entry_point("plan")
+_workflow.set_entry_point("mcp_context")
+_workflow.add_edge("mcp_context", "plan")
 _workflow.add_edge("plan", "generate")
 _workflow.add_edge("generate", "execute")
 _workflow.add_conditional_edges("execute", route_after_execute, {
@@ -484,6 +558,64 @@ graph = _workflow.compile()
 def health():
     """Health check endpoint."""
     return jsonify({"status": "ok", "service": "code-generator"})
+
+
+@app.route('/api/mcp/health', methods=['GET'])
+def mcp_health():
+    """MCP bridge health endpoint."""
+    status = "ok"
+    error = ""
+    seasons = []
+    if ENABLE_MCP:
+        try:
+            seasons_result = mcp_tools.list_seasons()
+            if not seasons_result.get("ok"):
+                status = "degraded"
+                error = seasons_result.get("error", "unknown")
+            seasons = seasons_result.get("seasons", [])
+        except Exception as e:
+            status = "degraded"
+            error = str(e)
+
+    return jsonify({
+        "status": status,
+        "enabled": ENABLE_MCP,
+        "service": "code-generator-mcp-bridge",
+        "tools": [t["name"] for t in mcp_tools.list_tools()],
+        "season_count": len(seasons),
+        "error": error,
+    })
+
+
+@app.route('/api/mcp/tools', methods=['GET'])
+def mcp_list_tools():
+    """Return available MCP tools and input schemas."""
+    return jsonify({"tools": mcp_tools.list_tools(), "enabled": ENABLE_MCP})
+
+
+@app.route('/api/mcp/call', methods=['POST'])
+def mcp_call_tool():
+    """Call an MCP tool through HTTP for deterministic data operations."""
+    if not ENABLE_MCP:
+        return jsonify({"ok": False, "error": "MCP bridge disabled (ENABLE_MCP=false)"}), 503
+
+    payload = request.get_json(silent=True) or {}
+    tool_name = str(payload.get("tool", "")).strip()
+    arguments = payload.get("arguments") or {}
+
+    if not tool_name:
+        return jsonify({"ok": False, "error": "'tool' is required"}), 400
+    if not isinstance(arguments, dict):
+        return jsonify({"ok": False, "error": "'arguments' must be an object"}), 400
+
+    try:
+        result = mcp_tools.call(tool_name, arguments)
+        status = 200 if result.get("ok", True) else 400
+        return jsonify(result), status
+    except requests.HTTPError as e:
+        return jsonify({"ok": False, "error": f"Upstream API error: {e}"}), 502
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route('/api/generate-code', methods=['POST'])
@@ -519,6 +651,10 @@ def generate_code():
             "slack_context": slack_context,
             "execution_timeout": execution_timeout,
             "data_context": data_context,
+            "mcp_context": "",
+            "resolved_season": "",
+            "mcp_error": "",
+            "mcp_trace": {},
         }
 
         final_state = graph.invoke(initial_state)
@@ -529,6 +665,12 @@ def generate_code():
             response_body["conclusion"] = final_state["conclusion"]
         if final_state["retry_info"]:
             response_body["retries"] = final_state["retry_info"]
+        if final_state.get("resolved_season"):
+            response_body["resolved_season"] = final_state["resolved_season"]
+        if final_state.get("mcp_error"):
+            response_body["mcp_warning"] = final_state["mcp_error"]
+        if final_state.get("mcp_trace"):
+            response_body["mcp_trace"] = final_state["mcp_trace"]
         if not final_state["sandbox_result"].get("ok") and final_state["attempts"] >= MAX_RETRIES + 1:
             response_body["max_retries_reached"] = True
 
@@ -563,6 +705,7 @@ def main():
     if ANTHROPIC_BASE_URL:
         print(f"Anthropic Base URL: {ANTHROPIC_BASE_URL}")
     print(f"Sandbox URL: {SANDBOX_URL}")
+    print(f"MCP Bridge: {'enabled' if ENABLE_MCP else 'disabled'}")
     print(f"Max Retries: {MAX_RETRIES}")
     print(f"Slack notifications: {'enabled' if SLACK_BOT_TOKEN else 'disabled (no SLACK_BOT_TOKEN)'}")
 

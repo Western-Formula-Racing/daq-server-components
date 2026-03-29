@@ -74,6 +74,12 @@ COHERE_MODEL=command-r-plus
 # Optional: Max retry attempts (default: 2)
 MAX_RETRIES=2
 
+# Optional: Enable deterministic MCP bridge (default: true)
+ENABLE_MCP=true
+
+# Optional: Data downloader API base URL used by MCP bridge
+DATA_DOWNLOADER_URL=http://data-downloader-api:8000
+
 # Optional: InfluxDB database name (default: telemetry)
 INFLUXDB_DATABASE=telemetry
 ```
@@ -232,6 +238,29 @@ Response:
   "status": "ok",
   "service": "code-generator"
 }
+```
+
+### MCP Bridge Endpoints (Port 3030)
+
+**GET /api/mcp/health**
+Returns bridge status, available tool names, and whether season metadata is reachable.
+
+**GET /api/mcp/tools**
+Returns the MCP tool catalog and input schemas.
+
+**POST /api/mcp/call**
+Call one MCP tool deterministically.
+
+Example:
+```bash
+curl -X POST http://localhost:3030/api/mcp/call \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tool": "resolve_season",
+    "arguments": {
+      "user_text": "compare accel data from 2025 finals"
+    }
+  }'
 ```
 
 ### Sandbox Runner Service (Port 8080)

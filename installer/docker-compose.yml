@@ -331,6 +331,8 @@ services:
       ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-MiniMax-M2.7}
       SANDBOX_URL: "http://sandbox:8080"
+      DATA_DOWNLOADER_URL: "http://data-downloader-api:8000"
+      ENABLE_MCP: ${ENABLE_MCP:-true}
       MAX_RETRIES: ${MAX_RETRIES:-2}
       CODE_GEN_PORT: 3030
       PYTHONUNBUFFERED: "1"
@@ -346,5 +348,30 @@ services:
       - ./sandbox/generated:/app/generated
       - ./sandbox/prompt-guide.txt:/app/prompt-guide.txt
       - ./data-downloader/data:/app/data-downloader:ro
+    networks:
+      - datalink
+
+  # Standalone MCP server for telemetry tools
+  mcp-server:
+    build:
+      context: ./mcp-server
+      dockerfile: Dockerfile
+    container_name: mcp-server
+    restart: unless-stopped
+    ports:
+      - "8085:8085"
+    environment:
+      DATA_DOWNLOADER_URL: "http://data-downloader-api:8000"
+      SANDBOX_URL: "http://sandbox:8080"
+      MCP_HTTP_TIMEOUT: ${MCP_HTTP_TIMEOUT:-8}
+      DEFAULT_AGENT_SEASON: ${DEFAULT_AGENT_SEASON:-}
+      MCP_TRANSPORT: "sse"
+      MCP_PORT: "8085"
+      PYTHONUNBUFFERED: "1"
+      INFLUX_URL: ${INFLUXDB_URL:-http://influxdb3:8181}
+      INFLUX_TOKEN: ${INFLUXDB_ADMIN_TOKEN}
+      INFLUX_DB: ${INFLUXDB_DATABASE:-telemetry}
+    depends_on:
+      - data-downloader-api
     networks:
       - datalink

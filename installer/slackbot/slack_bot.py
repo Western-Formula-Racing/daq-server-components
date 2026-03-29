@@ -60,6 +60,10 @@ def log_interaction(user, instructions, result, status, error=None):
     log_entry_dir = LOG_DIR / f"{timestamp}_{user}"
     log_entry_dir.mkdir(parents=True, exist_ok=True)
 
+    mcp_trace = result.get("mcp_trace", {})
+    if not isinstance(mcp_trace, dict):
+        mcp_trace = {}
+
     log_data = {
         "timestamp": timestamp,
         "user": user,
@@ -67,7 +71,11 @@ def log_interaction(user, instructions, result, status, error=None):
         "status": status,
         "error": error,
         "generated_code": result.get("code", ""),
-        "output": result.get("result", {}).get("output", "")
+        "output": result.get("result", {}).get("output", ""),
+        "resolved_season": result.get("resolved_season"),
+        "mcp_warning": result.get("mcp_warning"),
+        "mcp_trace": mcp_trace,
+        "mcp_tools_used": mcp_trace.get("called_tools", []),
     }
 
     # Save textual log
@@ -181,6 +189,22 @@ def handle_agent(user, command_full, thread_ts=None, timeout=120, channel=None):
         )
         response.raise_for_status()
         result = response.json()
+
+        # Announce MCP context in-thread for observability (Claude-agent-like tool trace)
+        mcp_trace = result.get("mcp_trace", {})
+        if isinstance(mcp_trace, dict) and mcp_trace.get("enabled"):
+            called_tools = mcp_trace.get("called_tools", [])
+            tools_text = ", ".join(called_tools) if called_tools else "(none)"
+            resolved_season = result.get("resolved_season") or mcp_trace.get("resolved_season") or "unknown"
+            resolution_reason = mcp_trace.get("resolution_reason") or "unknown"
+            mcp_msg = (
+                "🔎 MCP Context\n"
+                f"- resolved season: {resolved_season} ({resolution_reason})\n"
+                f"- tools used: {tools_text}"
+            )
+            if result.get("mcp_warning"):
+                mcp_msg += f"\n- warning: {result.get('mcp_warning')}"
+            send_slack_message(channel, text=mcp_msg, thread_ts=thread_ts)
         
         # Check if retries occurred
         retries = result.get("retries", [])
