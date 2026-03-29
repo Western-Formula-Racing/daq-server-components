@@ -76,6 +76,8 @@ def log_interaction(user, instructions, result, status, error=None):
         "mcp_warning": result.get("mcp_warning"),
         "mcp_trace": mcp_trace,
         "mcp_tools_used": mcp_trace.get("called_tools", []),
+        "step_summaries": result.get("step_summaries", []),
+        "total_steps": len(result.get("step_summaries", [])),
     }
 
     # Save textual log
@@ -204,8 +206,39 @@ def handle_agent(user, command_full, thread_ts=None, timeout=120, channel=None):
             )
             if result.get("mcp_warning"):
                 mcp_msg += f"\n- warning: {result.get('mcp_warning')}"
+
+            # Parse bracket-summary lines from all steps' output for tool-use reporting
+            exec_result = result.get("result", {})
+            output = exec_result.get("output", "") or ""
+            # Also collect from step summaries
+            step_outputs = [s.get("output", "") for s in result.get("step_summaries", []) if s.get("output")]
+            all_output = "\n".join(step_outputs) + "\n" + output
+            bracket_lines = []
+            seen_bracket = set()
+            for line in all_output.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("[Agent") and stripped.endswith("]") and stripped not in seen_bracket:
+                    bracket_lines.append(stripped)
+                    seen_bracket.add(stripped)
+
+            if bracket_lines:
+                mcp_msg += "\n" + "\n".join(bracket_lines)
+
             send_slack_message(channel, text=mcp_msg, thread_ts=thread_ts)
-        
+
+        # Show step-by-step progress summary
+        step_summaries = result.get("step_summaries", [])
+        if len(step_summaries) > 1:
+            steps_lines = ["*Analysis steps:*"]
+            for s in step_summaries:
+                icon = ":white_check_mark:" if s.get("ok") else ":x:"
+                desc = s.get("description", "")[:70]
+                finding = s.get("finding", "")
+                steps_lines.append(f"{icon} *Step {s.get('step', '?')}:* {desc}")
+                if finding and s.get("ok"):
+                    steps_lines.append(f"    _{finding[:120]}_")
+            send_slack_message(channel, text="\n".join(steps_lines), thread_ts=thread_ts)
+
         # Check if retries occurred
         retries = result.get("retries", [])
         if retries:
@@ -221,9 +254,12 @@ def handle_agent(user, command_full, thread_ts=None, timeout=120, channel=None):
             output = exec_result.get("output", "")
             files = exec_result.get("files", [])
             
+            step_count = len(result.get("step_summaries", []))
             success_msg = f"✅ <@{user}> Code executed successfully!"
+            if step_count > 1:
+                success_msg += f" ({step_count} analysis steps)"
             if retries:
-                success_msg += f" (after {len(retries)} retry/retries)"
+                success_msg += f" (with {len(retries)} retry/retries)"
             
             send_slack_message(channel, text=success_msg, thread_ts=thread_ts)
             

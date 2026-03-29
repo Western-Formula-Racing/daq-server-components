@@ -222,22 +222,44 @@ class MCPTools:
         }
 
     def query_signal(self, season: str, signal: str, start: str, end: str, limit: int = 2000) -> Dict[str, Any]:
-        payload = {
-            "signal": signal,
-            "start": start,
-            "end": end,
-            "limit": max(10, min(int(limit), 20000)),
-            "no_limit": False,
-        }
-        query = self._post_json("/api/query", payload, params={"season": season})
-        if isinstance(query, dict) and query.get("detail"):
-            return {"ok": False, "error": str(query["detail"])}
-        if isinstance(query, dict) and query.get("error"):
-            return {"ok": False, "error": str(query["error"])}
-        if not isinstance(query, dict):
-            return {"ok": False, "error": "Unexpected query response"}
-        query["ok"] = True
-        return query
+        """
+        Fetch one signal directly from InfluxDB via HTTP REST (/api/v3/query_sql).
+        Avoids gRPC/Arrow Flight which hits InfluxDB3 Core's parquet file limit.
+        Returns {ok, data: [row_dicts]} where each dict has 'time' and the signal column.
+        """
+        influx_url = os.getenv("INFLUX_URL", "http://influxdb3:8181").rstrip("/")
+        influx_token = os.getenv("INFLUX_TOKEN", "")
+        limit_val = max(10, min(int(limit), 20000))
+        sql = (
+            f'SELECT time, "{signal}" FROM "{season}" '
+            f"WHERE time >= '{start}' AND time <= '{end}' "
+            f'AND "{signal}" IS NOT NULL '
+            f"ORDER BY time LIMIT {limit_val}"
+        )
+        try:
+            resp = requests.post(
+                f"{influx_url}/api/v3/query_sql",
+                json={"db": season, "q": sql},
+                headers={
+                    "Authorization": f"Token {influx_token}",
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                },
+                timeout=30,
+            )
+            resp.raise_for_status()
+            rows = resp.json() or []
+            # Normalize timestamps: InfluxDB3 returns nanosecond precision strings
+            # (e.g. "2025-10-04T12:51:35.446000128") which pandas can't parse directly.
+            # Truncate to microseconds so pd.to_datetime() always works.
+            import re as _re
+            _ts_pat = _re.compile(r'(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6})\d+')
+            for row in rows:
+                if "time" in row and isinstance(row["time"], str):
+                    row["time"] = _ts_pat.sub(r'\1', row["time"])
+            return {"ok": True, "data": rows}
+        except Exception as e:
+            return {"ok": False, "error": str(e), "data": []}
 
     def validate_request(
         self,

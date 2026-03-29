@@ -106,13 +106,57 @@ def test_error_with_retry():
     print("\n" + "=" * 60 + "\n")
     return True
 
+def test_parse_plan_steps():
+    """Test the parse_plan_steps helper function (unit test — no services required)."""
+    import sys
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from code_generator import parse_plan_steps
+
+    print("Testing parse_plan_steps...")
+
+    # Standard numbered list
+    steps = parse_plan_steps("1. Fetch motor speed data\n2. Compute variance\n3. Plot results")
+    assert steps == ["Fetch motor speed data", "Compute variance", "Plot results"], f"Got: {steps}"
+    print("  ✓ Standard numbered list")
+
+    # Parenthetical numbers
+    steps = parse_plan_steps("1) Fetch battery voltages\n2) Identify weakest cell\n3) Create dashboard")
+    assert len(steps) == 3, f"Expected 3, got {len(steps)}: {steps}"
+    print("  ✓ Parenthetical numbers")
+
+    # Colon format
+    steps = parse_plan_steps("1: Scan run windows\n2: Fetch signals\n3: Visualize")
+    assert len(steps) == 3, f"Expected 3, got {len(steps)}: {steps}"
+    print("  ✓ Colon format")
+
+    # Fallback for unparseable input
+    steps = parse_plan_steps("Just do the analysis")
+    assert len(steps) == 1, f"Expected 1 fallback step, got {len(steps)}: {steps}"
+    print("  ✓ Fallback single step")
+
+    # MAX_STEPS cap
+    steps = parse_plan_steps("\n".join(f"{i}. Step {i}" for i in range(1, 12)))
+    assert len(steps) <= 8, f"Expected <= 8 (hard cap), got {len(steps)}"
+    print(f"  ✓ MAX_STEPS cap (got {len(steps)} steps)")
+
+    # Empty input
+    steps = parse_plan_steps("")
+    assert len(steps) == 1, f"Expected 1 fallback for empty, got {len(steps)}"
+    print("  ✓ Empty input fallback")
+
+    print("All parse_plan_steps tests passed!\n")
+    return True
+
+
 def main():
     """Run all tests."""
     print("=" * 60)
     print("Code Generator Service Test Suite")
     print("=" * 60 + "\n")
-    
+
     tests = [
+        ("Parse Plan Steps (unit)", test_parse_plan_steps),
         ("Health Check", test_health_check),
         ("Simple Code Generation", test_simple_code_generation),
         ("Error Handling", test_error_with_retry),

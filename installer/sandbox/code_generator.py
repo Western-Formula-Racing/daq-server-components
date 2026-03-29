@@ -1,11 +1,13 @@
 """
-Code Generation Service - LangGraph orchestrator for Anthropic/MiniMax + Sandbox execution.
+Code Generation Service - LangGraph multi-step agentic loop for data analysis.
 Receives requests from Slackbot, generates code using Anthropic-compatible API, and executes in sandbox.
 """
 
 from __future__ import annotations
 
 import os
+import re
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, Any, Optional, TypedDict
 
@@ -35,18 +37,9 @@ ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "MiniMax-M2.7")
 SANDBOX_URL = os.getenv("SANDBOX_URL", "http://sandbox-runner:9090")
 SANDBOX_TIMEOUT = int(os.getenv("SANDBOX_TIMEOUT", "1140"))  # default ~19 min
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "2"))
+MAX_STEPS = min(int(os.getenv("MAX_STEPS", "5")), 8)  # hard cap 8
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
 ENABLE_MCP = os.getenv("ENABLE_MCP", "true").lower() == "true"
-
-# Cohere implementation kept for quick rollback:
-# COHERE_API_KEY = os.getenv("COHERE_API_KEY")
-# if not COHERE_API_KEY:
-#     raise RuntimeError(
-#         "COHERE_API_KEY not found in environment. Add it to your .env or export it as an env var."
-#     )
-#
-# COHERE_MODEL = os.getenv("COHERE_MODEL", "command-a-reasoning-08-2025")
-# co = cohere.Client(COHERE_API_KEY)
 
 # Configure Anthropic client (supports custom base URL, e.g. MiniMax Anthropic-compatible endpoint)
 anthropic_kwargs = {"api_key": ANTHROPIC_API_KEY}
@@ -74,12 +67,17 @@ class CodeGenState(TypedDict):
     user_prompt: str
     guide: str
     plan: str
+    plan_steps: list           # parsed numbered step descriptions
+    current_step_index: int    # 0-based index into plan_steps
+    step_summaries: list       # [{step, description, ok, output, finding}]
+    scratchpad: str            # accumulated findings across steps
     current_code: str
     sandbox_result: dict
     error_message: str
     diagnosis: str
-    attempts: int
+    attempts: int              # attempts for the current step (resets per step)
     retry_info: list
+    all_output_files: list     # accumulated output files from all steps
     conclusion: str
     slack_context: Optional[dict]  # {"channel": ..., "thread_ts": ..., "user": ...}
     execution_timeout: int  # sandbox HTTP timeout in seconds
@@ -116,7 +114,6 @@ def load_data_context() -> str:
     Returns an empty string if the directory is not mounted or no files are found.
     """
     import json as _json
-    import re
 
     if not DATA_DIR.exists():
         return ""
@@ -298,6 +295,21 @@ def notify_slack(ctx: Optional[dict], text: str) -> None:
         print(f"Slack notify failed (non-fatal): {e}")
 
 
+def parse_plan_steps(plan_text: str) -> list:
+    """
+    Extract numbered steps from plan text.
+    Matches lines like: "1. Do X", "2) Do Y", "3: Do Z"
+    Falls back to the entire plan as a single step if no numbered format found.
+    Caps at MAX_STEPS.
+    """
+    steps = []
+    for line in plan_text.strip().splitlines():
+        m = re.match(r'^\s*\d+[.):\-]\s*(.+)', line.strip())
+        if m:
+            steps.append(m.group(1).strip())
+    return steps[:MAX_STEPS] if steps else [plan_text.strip()[:300]]
+
+
 # ---------------------------------------------------------------------
 # LangGraph Nodes
 # ---------------------------------------------------------------------
@@ -366,163 +378,546 @@ def plan_node(state: CodeGenState) -> dict:
     print("--- plan_node ---")
     notify_slack(state.get("slack_context"), "_Planning analysis..._")
 
+    mcp_ctx = state.get("mcp_context", "")
+    plan_prompt = state["user_prompt"]
+    if mcp_ctx:
+        plan_prompt = f"{mcp_ctx}\n\nUSER REQUEST:\n{state['user_prompt']}"
+
     response = anthropic_client.messages.create(
         model=ANTHROPIC_MODEL,
         max_tokens=800,
         temperature=0.2,
         system=(
             "You are a senior data analyst working with Formula SAE telemetry. "
-            "Break the task into clear, numbered steps focused on WHAT to analyze, not HOW. "
-            "Do not specify chunk sizes, time windows, query parameters, or any implementation details — "
-            "those are determined by the technical implementation guide. Be concise. Do not write code."
+            "The MCP_CONTEXT above tells you exactly which season, signals, and run windows are available — "
+            "use this to write concrete action steps. NEVER ask clarifying questions. "
+            "NEVER write steps like 'what signal names are available' — you already have the sensor list. "
+            "Break the task into clear, numbered steps (1. 2. 3. etc.). "
+            "Each step should be ONE focused operation: fetch specific named signals, compute a metric, or create a visualization. "
+            "The LAST step must always produce the visualization or final output. "
+            f"Limit to 2-{min(MAX_STEPS, 5)} steps. Focus on WHAT to analyze, not HOW. "
+            "Do not specify chunk sizes, query parameters, or implementation details. "
+            "Be concise. Do not write code."
         ),
-        messages=[{"role": "user", "content": state["user_prompt"]}],
+        messages=[{"role": "user", "content": plan_prompt}],
     )
     plan = _extract_text(response)
-    print(f"Plan:\n{plan}\n")
-    return {"plan": plan}
+    plan_steps = parse_plan_steps(plan)
+    print(f"Plan ({len(plan_steps)} steps):\n{plan}\n")
+
+    return {
+        "plan": plan,
+        "plan_steps": plan_steps,
+        "current_step_index": 0,
+        "step_summaries": [],
+        "scratchpad": "",
+        "all_output_files": [],
+        "attempts": 0,
+        "diagnosis": "",
+    }
 
 
-def generate_node(state: CodeGenState) -> dict:
-    """Phase 2: generate Python code using the plan (first attempt) or diagnosis (retries)."""
-    attempt = state["attempts"]
-    print(f"--- generate_node (attempt {attempt + 1}) ---")
+_ROLLING_CHUNK_MINUTES = 30
+_FETCH_LIMIT = 20000
+_MAX_ASSEMBLED_ROWS = 30000  # cap total rows injected into sandbox scripts (~2MB JSON)
 
-    data_ctx = state.get("data_context", "")
+
+def _fetch_signal_with_rollup(
+    mcp_tools: MCPTools,
+    season: str,
+    signal: str,
+    start_utc: str,
+    end_utc: str,
+) -> tuple[list, list]:
+    """
+    Fetch a signal over a time window with automatic rolling-window fallback.
+
+    First tries a single large fetch (FETCH_LIMIT rows). If the result is
+    exactly FETCH_LIMIT rows the window was truncated — switches to rolling
+    CHUNK_MINUTES windows, assembles all chunks, deduplicates by timestamp.
+
+    Returns (rows, bracket_lines).
+    """
+    bracket_lines: list = []
+
+    def _do_fetch(s: str, e: str, limit: int) -> list:
+        res = mcp_tools.query_signal(season=season, signal=signal, start=s, end=e, limit=limit)
+        if res.get("ok"):
+            return res.get("data", [])
+        raise RuntimeError(res.get("error", "query_signal failed"))
+
+    bracket_lines.append(f"[Agent is using query_signal to retrieve {signal} from date {start_utc} to {end_utc}]")
+    print(f"  mcp_tools.query_signal({signal}, {start_utc} → {end_utc})")
+
+    rows = _do_fetch(start_utc, end_utc, _FETCH_LIMIT)
+
+    if len(rows) < _FETCH_LIMIT:
+        # Not truncated — single fetch was sufficient
+        bracket_lines.append(f"[Agent retrieved {len(rows)} readings for {signal} sensor]")
+        print(f"  → {len(rows)} rows (single fetch)")
+        return rows, bracket_lines
+
+    # Truncated — roll through the window in CHUNK_MINUTES-sized slices
+    bracket_lines.append(
+        f"[Fetch hit {_FETCH_LIMIT}-row limit; switching to rolling {_ROLLING_CHUNK_MINUTES}-min windows]"
+    )
+    print(f"  → hit limit ({_FETCH_LIMIT}), rolling window fallback")
+
+    def _parse_utc(ts: str) -> datetime:
+        ts = ts.strip().rstrip("Z")
+        dt = datetime.fromisoformat(ts)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+
+    chunk_start = _parse_utc(start_utc)
+    window_end = _parse_utc(end_utc)
+    chunk_delta = timedelta(minutes=_ROLLING_CHUNK_MINUTES)
+
+    seen: set = set()
+    all_rows: list = []
+
+    while chunk_start < window_end:
+        chunk_end = min(chunk_start + chunk_delta, window_end)
+        cs = chunk_start.strftime("%Y-%m-%dT%H:%M:%SZ")
+        ce = chunk_end.strftime("%Y-%m-%dT%H:%M:%SZ")
+        try:
+            chunk_rows = _do_fetch(cs, ce, _FETCH_LIMIT)
+        except Exception as exc:
+            print(f"    chunk {cs}→{ce} failed: {exc}")
+            chunk_start += chunk_delta
+            continue
+
+        added = 0
+        for row in chunk_rows:
+            if len(all_rows) >= _MAX_ASSEMBLED_ROWS:
+                break
+            key = row.get("time", "")
+            if key not in seen:
+                seen.add(key)
+                all_rows.append(row)
+                added += 1
+        print(f"    chunk {cs}→{ce}: {len(chunk_rows)} fetched, {added} new (total {len(all_rows)})")
+        if len(all_rows) >= _MAX_ASSEMBLED_ROWS:
+            print(f"    hit _MAX_ASSEMBLED_ROWS={_MAX_ASSEMBLED_ROWS}, stopping early")
+            break
+        chunk_start += chunk_delta
+
+    # Sort by time after assembly
+    all_rows.sort(key=lambda r: r.get("time", ""))
+    capped = len(all_rows) >= _MAX_ASSEMBLED_ROWS
+    bracket_lines.append(
+        f"[Agent assembled {len(all_rows)} readings for {signal} sensor via rolling windows"
+        + (" (capped)" if capped else "") + "]"
+    )
+    print(f"  → {len(all_rows)} rows total after rolling assembly")
+    return all_rows, bracket_lines
+
+
+def _strip_data_preamble(code: str) -> str:
+    """
+    Remove the _RAW_DATA = _json.loads(...) line from generated code before sending
+    to the LLM critic — keeps the context window small while preserving analysis logic.
+    Replaces that line with a compact placeholder so the critic understands the structure.
+    """
+    lines = code.splitlines()
+    out = []
+    for line in lines:
+        if line.startswith("_RAW_DATA = _json.loads("):
+            out.append("_RAW_DATA = {...}  # pre-injected dict: {signal_name: [row_dicts]}")
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
+def _resolve_fetch_spec(step_desc: str, user_prompt: str, mcp_ctx: str) -> dict:
+    """
+    Ask the LLM to extract a data-fetch spec (signals + UTC time range) from a plan step.
+    Returns {"signals": [...], "start": "ISO UTC", "end": "ISO UTC"}.
+    Falls back to empty spec on parse failure.
+    """
+    import json as _json
+
+    response = anthropic_client.messages.create(
+        model=ANTHROPIC_MODEL,
+        max_tokens=600,
+        system=(
+            "You are a data query planner. Given a telemetry analysis step and MCP context, "
+            "output ONLY valid JSON — no other text:\n"
+            '{"signals": ["ExactName1", "ExactName2"], "start": "YYYY-MM-DDTHH:MM:SSZ", "end": "YYYY-MM-DDTHH:MM:SSZ"}\n\n'
+            "Rules:\n"
+            "- signals: pick 1-4 exact names from sensors_exact_names in MCP_CONTEXT relevant to the step\n"
+            "- start/end: pick UTC times from the run with the HIGHEST row_count in MCP_CONTEXT (most data); limit the window to 2 hours max to keep queries fast\n"
+            "- If this step is visualization/analysis-only with no new data needed, output: "
+            '{"signals": [], "start": "", "end": ""}'
+        ),
+        messages=[{"role": "user", "content": f"{mcp_ctx}\n\nStep: {step_desc}\nTask: {user_prompt}"}],
+    )
+    raw = _extract_text(response).strip()
+    print(f"  _resolve_fetch_spec stop_reason={response.stop_reason} raw: {raw[:400]}")
+    try:
+        # Try direct parse first
+        spec = _json.loads(raw)
+        print(f"  _resolve_fetch_spec parsed directly: signals={spec.get('signals')}")
+        return spec
+    except Exception:
+        pass
+    try:
+        # Try extracting JSON object (may contain arrays, so allow nested [] but not {})
+        m = re.search(r'\{.*?\}', raw, re.DOTALL)
+        if m:
+            spec = _json.loads(m.group())
+            print(f"  _resolve_fetch_spec parsed via regex: signals={spec.get('signals')}")
+            return spec
+    except Exception as e:
+        print(f"  fetch spec parse error: {e} — raw: {raw[:200]}")
+    return {"signals": [], "start": "", "end": ""}
+
+
+def fetch_step_node(state: CodeGenState) -> dict:
+    """
+    Two-phase step:
+      Phase 1 (Python): resolve fetch spec → call mcp_tools.query_signal() directly
+      Phase 2 (LLM+sandbox): generate analysis-only code with data pre-injected, execute
+    The sandbox never calls data-downloader-api — all data access is done here in Python.
+    """
+    import json as _json
+
+    step_idx = state["current_step_index"]
+    plan_steps = state["plan_steps"]
+
+    if step_idx >= len(plan_steps):
+        print(f"--- fetch_step_node: step_idx {step_idx} out of bounds, skipping ---")
+        return {}
+
+    step_desc = plan_steps[step_idx]
+    attempts = state["attempts"]
+    is_last_step = step_idx == len(plan_steps) - 1
+    total_steps = len(plan_steps)
+
+    print(f"--- fetch_step_node (step {step_idx + 1}/{total_steps}, attempt {attempts + 1}) ---")
+
+    if attempts == 0:
+        notify_slack(state.get("slack_context"), f"_Step {step_idx + 1}/{total_steps}: {step_desc[:60]}..._")
+    else:
+        notify_slack(state.get("slack_context"), f"_Retrying step {step_idx + 1} (attempt {attempts + 1})..._")
+
     mcp_ctx = state.get("mcp_context", "")
-    if attempt == 0:
-        notify_slack(state.get("slack_context"), "_Generating code..._")
-        full_prompt = (
-            f"{state['guide']}\n\n"
-            + (f"{mcp_ctx}\n\n" if mcp_ctx else "")
-            + (f"{data_ctx}\n\n" if data_ctx else "")
-            + f"PLAN:\n{state['plan']}\n\n"
-            f"TASK:\n{state['user_prompt']}"
+    resolved_season = state.get("resolved_season", "")
+    scratchpad = state.get("scratchpad", "")
+    diagnosis = state.get("diagnosis", "")
+
+    # ------------------------------------------------------------------
+    # Phase 1: Fetch data via mcp_tools (Python level, not sandbox code)
+    # ------------------------------------------------------------------
+    spec = _resolve_fetch_spec(step_desc, state["user_prompt"], mcp_ctx)
+    signals = spec.get("signals") or []
+    start_utc = spec.get("start", "")
+    end_utc = spec.get("end", "")
+
+    fetched_data: Dict[str, list] = {}
+    bracket_lines: list = []
+
+    for signal in signals:
+        if not signal or not start_utc or not end_utc:
+            continue
+        try:
+            rows, sig_brackets = _fetch_signal_with_rollup(
+                mcp_tools, resolved_season, signal, start_utc, end_utc
+            )
+            fetched_data[signal] = rows
+            bracket_lines.extend(sig_brackets)
+        except Exception as fetch_exc:
+            err = str(fetch_exc)
+            bracket_lines.append(f"[Agent failed to retrieve {signal}: {err}]")
+            print(f"  → failed: {err}")
+
+    data_summary = (
+        ", ".join(f"{sig}: {len(rows)} rows" for sig, rows in fetched_data.items())
+        if fetched_data else "no signals fetched for this step"
+    )
+    print(f"  Data summary: {data_summary}")
+
+    # Serialize fetched data for injection into sandbox code
+    data_json_str = _json.dumps(fetched_data)
+
+    # Preamble injected at top of every generated script
+    # _RAW_DATA: {signal_name: [{"time": ISO, signal_name: value, ...}, ...]}
+    data_preamble = (
+        "import json as _json, pandas as _pd, matplotlib, traceback\n"
+        "matplotlib.use('Agg')\n"
+        f"_RAW_DATA = _json.loads({repr(data_json_str)})\n"
+        "# _RAW_DATA keys are signal names; each value is a list of row dicts from InfluxDB wide schema.\n"
+        "# Timestamps are ISO 8601 UTC strings (microsecond precision). Build a DataFrame per signal:\n"
+        "#   df = _pd.DataFrame(_RAW_DATA['SignalName'])\n"
+        "#   df['time'] = _pd.to_datetime(df['time'], utc=True).dt.tz_convert('America/Toronto')\n"
+        "#   df = df.set_index('time').sort_index()\n"
+    )
+    bracket_prints = "\n".join(f"print({repr(line)})" for line in bracket_lines)
+
+    # ------------------------------------------------------------------
+    # Phase 2: Generate analysis/visualization code (no data fetching)
+    # ------------------------------------------------------------------
+    output_instruction = (
+        "This is the FINAL step. Save your visualization to output.png and print a brief summary."
+        if is_last_step else
+        "This is an intermediate analysis step. Print key statistics and findings. Do NOT call plt.savefig()."
+    )
+
+    if diagnosis:
+        code_prompt = (
+            f"Data already fetched ({data_summary}).\n\n"
+            + (f"PREVIOUS FINDINGS:\n{scratchpad[:1500]}\n\n" if scratchpad else "")
+            + f"STEP: {step_desc}\n{output_instruction}\n\n"
+            + f"PREVIOUS ATTEMPT FAILED:\n{diagnosis}\n\n"
+            + "Fix the code. Do not call any HTTP APIs — data is already in _RAW_DATA."
         )
     else:
-        notify_slack(state.get("slack_context"), f"_Regenerating code (attempt {attempt + 1})..._")
-        full_prompt = (
-            f"Original Task:\n{state['user_prompt']}\n\n"
-            + (f"{mcp_ctx}\n\n" if mcp_ctx else "")
-            + (f"{data_ctx}\n\n" if data_ctx else "")
-            + f"Previous Plan:\n{state['plan']}\n\n"
-            f"Failure Analysis:\n{state['diagnosis']}\n\n"
-            "Fix the code accordingly. Do not repeat the same mistake."
+        code_prompt = (
+            f"Data already fetched ({data_summary}).\n\n"
+            + (f"PREVIOUS FINDINGS:\n{scratchpad[:1500]}\n\n" if scratchpad else "")
+            + f"STEP: {step_desc}\n{output_instruction}\n\n"
+            + f"TASK: {state['user_prompt']}"
         )
+
+    # Build a compact preamble description — never send the full JSON to the LLM
+    # (it can be 100KB+ and exceeds the model's context window)
+    preamble_summary_lines = [
+        "import json as _json, pandas as _pd, matplotlib, traceback",
+        "matplotlib.use('Agg')",
+        "# _RAW_DATA is pre-injected as a Python literal — do NOT redefine it.",
+        "# _RAW_DATA structure: {signal_name: [row_dict, ...]}",
+        "# Each row_dict has 'time' (ISO UTC microsecond string) and signal value columns.",
+        "# Use: pd.to_datetime(df['time'], utc=True) to parse timestamps.",
+    ]
+    for sig, rows in fetched_data.items():
+        sample_val = rows[0].get(sig) if rows else "N/A"
+        preamble_summary_lines.append(
+            f"# _RAW_DATA['{sig}']: {len(rows)} rows, e.g. {{'time': '{rows[0]['time'] if rows else ''}', '{sig}': {sample_val}}}"
+        )
+    preamble_summary = "\n".join(preamble_summary_lines)
 
     response = anthropic_client.messages.create(
         model=ANTHROPIC_MODEL,
         max_tokens=4000,
-        temperature=0.2,
         system=(
             "You are an expert Python data analyst working with Formula SAE telemetry. "
             "Return only executable Python code — no commentary, no markdown fences.\n\n"
-            "CRITICAL slicks API rules (violations will cause runtime errors):\n"
-            "- Data access: ONLY use slicks.fetch_telemetry() or slicks.fetch_telemetry_chunked(). "
-            "There is NO slicks.query(), slicks.get_data(), or any other fetch method.\n"
-            "- Always call slicks.connect_influxdb3(db=<season>, table=<season>) before fetching.\n"
-            "- Always pass schema='wide' to fetch calls.\n"
-            "- NEVER use MockSlicks, get_slicks(), or any synthetic/mock data.\n"
-            "- NEVER hardcode InfluxDB credentials — they are in env vars.\n"
-            "- Respect MCP_CONTEXT resolved season. If MCP_CONTEXT provides resolved_season, connect to that season unless user explicitly requests another season/year.\n"
-            "- Signal names: use ONLY the exact names from the provided sensor list. "
-            "Do not guess, abbreviate, or invent signal names."
-        ),
-        messages=[{"role": "user", "content": full_prompt}],
-    )
-
-    python_code = extract_python_code(_extract_text(response))
-    GENERATED_CODE_PATH.write_text(python_code, encoding="utf-8")
-    print(f"Generated code written to {GENERATED_CODE_PATH}")
-
-    return {"current_code": python_code, "attempts": attempt + 1}
-
-
-def execute_node(state: CodeGenState) -> dict:
-    """Phase 3: run the generated code in the sandbox."""
-    print("--- execute_node ---")
-    notify_slack(state.get("slack_context"), "_Executing code..._")
-
-    sandbox_result = submit_code_to_sandbox(state["current_code"], timeout=state.get("execution_timeout", SANDBOX_TIMEOUT))
-    error_message = "" if sandbox_result.get("ok") else format_error_for_retry(sandbox_result)
-
-    return {"sandbox_result": sandbox_result, "error_message": error_message}
-
-
-def critic_node(state: CodeGenState) -> dict:
-    """Phase 4 (on failure): diagnose root cause and suggest a concrete fix strategy."""
-    print("--- critic_node ---")
-    notify_slack(state.get("slack_context"), "_Analysing failure, preparing fix..._")
-
-    response = anthropic_client.messages.create(
-        model=ANTHROPIC_MODEL,
-        max_tokens=800,
-        temperature=0.1,
-        system=(
-            "You are a senior Python code reviewer for a Formula SAE telemetry sandbox. "
-            "The sandbox has the real `slicks` library installed and InfluxDB credentials in env vars. "
-            "NEVER suggest mocks, MockSlicks, synthetic data, or get_slicks() — these are wrong. "
-            "If the code uses a wrong import or undefined function, the fix is always to use the "
-            "correct real library as shown in the implementation guide. Be concise and specific."
+            "The data has already been fetched and is available in _RAW_DATA (a dict injected before your code). "
+            "DO NOT call requests, urllib, or any HTTP API — data access is complete.\n"
+            "DO NOT import requests.\n\n"
+            "_RAW_DATA format: {signal_name: [row_dict, ...]} where each row_dict has 'time' (ISO UTC string) "
+            "and signal columns from InfluxDB wide schema.\n\n"
+            "CRITICAL: In every except block, always call traceback.print_exc() then re-raise with `raise`. "
+            "Never silently swallow exceptions — always re-raise so the sandbox reports a non-zero exit code. "
+            "This is debug mode — verbose errors and non-zero exit on failure are required.\n\n"
+            "If _RAW_DATA is empty or a signal has 0 rows, print a clear message and handle gracefully."
         ),
         messages=[{
             "role": "user",
             "content": (
-                f"Implementation guide (environment reference):\n{state['guide']}\n\n"
-                f"Code:\n```python\n{state['current_code']}\n```\n\n"
-                f"Error:\n{state['error_message']}\n\n"
-                "Explain:\n1. Root cause\n2. What needs to change\n3. Specific fix strategy"
+                f"Preamble already prepended to your code (do not repeat or redefine _RAW_DATA):\n"
+                f"```python\n{preamble_summary}\n```\n\n"
+                + code_prompt
             ),
         }],
     )
-    diagnosis = _extract_text(response)
-    print(f"Diagnosis:\n{diagnosis}\n")
 
-    updated_retry_info = state["retry_info"] + [{
-        "attempt": state["attempts"],
-        "error": state["error_message"],
-        "diagnosis": diagnosis,
-    }]
-    return {"diagnosis": diagnosis, "retry_info": updated_retry_info}
+    analysis_code = extract_python_code(_extract_text(response))
+
+    # Assemble full script: preamble + bracket prints + analysis
+    full_code = data_preamble + "\n" + bracket_prints + ("\n\n" if bracket_prints else "") + analysis_code
+    GENERATED_CODE_PATH.write_text(full_code, encoding="utf-8")
+    print(f"Generated analysis code for step {step_idx + 1} (data: {len(data_json_str)} bytes embedded)")
+
+    sandbox_result = submit_code_to_sandbox(full_code, timeout=state.get("execution_timeout", SANDBOX_TIMEOUT))
+    error_message = "" if sandbox_result.get("ok") else format_error_for_retry(sandbox_result)
+
+    return {
+        "current_code": full_code,
+        "sandbox_result": sandbox_result,
+        "error_message": error_message,
+        "attempts": attempts + 1,
+    }
+
+
+def analyze_step_node(state: CodeGenState) -> dict:
+    """Examine step result: update scratchpad and decide routing."""
+    step_idx = state["current_step_index"]
+    plan_steps = state["plan_steps"]
+    step_desc = plan_steps[step_idx] if step_idx < len(plan_steps) else ""
+    sandbox_ok = state["sandbox_result"].get("ok", False)
+    stdout = state["sandbox_result"].get("std_out", "").strip()
+
+    print(f"--- analyze_step_node (step {step_idx + 1}, ok={sandbox_ok}, attempts={state['attempts']}) ---")
+
+    if not sandbox_ok:
+        if state["attempts"] <= MAX_RETRIES:
+            # Diagnose and retry
+            notify_slack(state.get("slack_context"), f"_Step {step_idx + 1} failed, diagnosing..._")
+            response = anthropic_client.messages.create(
+                model=ANTHROPIC_MODEL,
+                max_tokens=800,
+                temperature=0.1,
+                system=(
+                    "You are a senior Python code reviewer for a Formula SAE telemetry sandbox. "
+                    "Data has already been fetched and pre-injected as _RAW_DATA at the top of the script — "
+                    "the sandbox code must NOT call requests or any HTTP API. "
+                    "Focus on fixing pandas, matplotlib, or logic errors in the analysis code. "
+                    "Be concise and specific."
+                ),
+                messages=[{
+                    "role": "user",
+                    "content": (
+                        f"Code (analysis portion only — _RAW_DATA preamble omitted):\n"
+                        f"```python\n{_strip_data_preamble(state['current_code'])}\n```\n\n"
+                        f"Error:\n{state['error_message']}\n\n"
+                        "Explain:\n1. Root cause\n2. What needs to change\n3. Specific fix strategy"
+                    ),
+                }],
+            )
+            diagnosis = _extract_text(response)
+            print(f"Diagnosis:\n{diagnosis}\n")
+
+            return {
+                "diagnosis": diagnosis,
+                "retry_info": state["retry_info"] + [{
+                    "step": step_idx + 1,
+                    "attempt": state["attempts"],
+                    "error": state["error_message"],
+                    "diagnosis": diagnosis,
+                }],
+            }
+        else:
+            # Max retries exhausted — record failure and advance
+            notify_slack(state.get("slack_context"), f"_Step {step_idx + 1} failed after {state['attempts']} attempts, moving on..._")
+            step_summary = {
+                "step": step_idx + 1,
+                "description": step_desc,
+                "ok": False,
+                "output": state["error_message"][:500],
+                "finding": f"Step failed after {state['attempts']} attempts.",
+            }
+            updated_scratchpad = state.get("scratchpad", "")
+            if updated_scratchpad:
+                updated_scratchpad += "\n\n"
+            updated_scratchpad += f"Step {step_idx + 1} ({step_desc}): FAILED — {state['error_message'][:200]}"
+            # Cap scratchpad at 4000 chars, keeping the tail (most recent findings)
+            if len(updated_scratchpad) > 4000:
+                updated_scratchpad = updated_scratchpad[-4000:]
+
+            return {
+                "step_summaries": state["step_summaries"] + [step_summary],
+                "scratchpad": updated_scratchpad,
+                "current_step_index": step_idx + 1,
+                "attempts": 0,
+                "diagnosis": "",
+            }
+
+    # Step succeeded — summarize findings
+    notify_slack(state.get("slack_context"), f"_Step {step_idx + 1} complete ✓_")
+
+    # Include any stderr (warnings, tracebacks that didn't cause exit ≠ 0) in output
+    stderr = state["sandbox_result"].get("std_err", "").strip()
+    combined_output = stdout
+    if stderr:
+        combined_output = (stdout + "\n--- STDERR ---\n" + stderr).strip()
+
+    # Lightweight LLM summary of findings
+    if combined_output:
+        response = anthropic_client.messages.create(
+            model=ANTHROPIC_MODEL,
+            max_tokens=300,
+            temperature=0.1,
+            system="Summarize the data analysis output in 1-2 concise sentences. Focus on key numerical values and findings. No code.",
+            messages=[{
+                "role": "user",
+                "content": f"Step goal: {step_desc}\nOutput:\n{combined_output[:2000]}",
+            }],
+        )
+        finding = _extract_text(response)
+    else:
+        finding = "Step completed with no printed output."
+
+    step_summary = {
+        "step": step_idx + 1,
+        "description": step_desc,
+        "ok": True,
+        "output": combined_output[:1000],
+        "finding": finding,
+    }
+
+    # Accumulate scratchpad
+    updated_scratchpad = state.get("scratchpad", "")
+    if updated_scratchpad:
+        updated_scratchpad += "\n\n"
+    updated_scratchpad += f"Step {step_idx + 1} ({step_desc}): {finding}"
+    if len(updated_scratchpad) > 4000:
+        updated_scratchpad = updated_scratchpad[-4000:]
+
+    # Collect output files from this step
+    new_files = list(state.get("all_output_files", []))
+    for f in state["sandbox_result"].get("output_files", []):
+        new_files.append(f)
+
+    return {
+        "step_summaries": state["step_summaries"] + [step_summary],
+        "scratchpad": updated_scratchpad,
+        "current_step_index": step_idx + 1,
+        "attempts": 0,
+        "diagnosis": "",
+        "all_output_files": new_files,
+    }
 
 
 def conclude_node(state: CodeGenState) -> dict:
-    """Phase 5 (on success): synthesize findings and provide engineering recommendations."""
+    """Synthesize findings from all steps into a final analysis summary."""
     print("--- conclude_node ---")
     notify_slack(state.get("slack_context"), "_Summarising findings..._")
 
-    stdout = state["sandbox_result"].get("std_out", "").strip()
+    scratchpad = state.get("scratchpad", "").strip()
+    step_summaries = state.get("step_summaries", [])
+    successful_steps = [s for s in step_summaries if s.get("ok")]
+
+    if not successful_steps and not scratchpad:
+        return {"conclusion": "Analysis could not be completed — all steps failed."}
+
+    # Include final step stdout for context if available
+    final_stdout = state["sandbox_result"].get("std_out", "").strip()
+    content = (
+        f"Task:\n{state['user_prompt']}\n\n"
+        f"Step-by-step findings:\n{scratchpad[:3000]}"
+        + (f"\n\nFinal step output:\n{final_stdout[:1000]}" if final_stdout else "")
+    )
+
     response = anthropic_client.messages.create(
         model=ANTHROPIC_MODEL,
         max_tokens=600,
         temperature=0.3,
         system=(
-            "You are a Formula SAE data engineer. Given a data analysis task and its output, "
-            "write a concise analysis summary: 2-3 sentences of key findings, then bullet-point "
+            "You are a Formula SAE data engineer. Given analysis findings from multiple steps, "
+            "write a concise summary: 2-3 sentences of key findings, then bullet-point "
             "recommendations for further investigation. Be specific and actionable. No code.\n"
             "Format for Slack mrkdwn: use *bold* (single asterisk) not **bold**, "
             "use _italic_ (single underscore), use - for bullets, no ## headers."
         ),
-        messages=[{
-            "role": "user",
-            "content": (
-                f"Task:\n{state['user_prompt']}\n\n"
-                f"Analysis output:\n{stdout[:3000]}"
-            ),
-        }],
+        messages=[{"role": "user", "content": content}],
     )
     conclusion = _extract_text(response)
     print(f"Conclusion:\n{conclusion}\n")
     return {"conclusion": conclusion}
 
 
-def route_after_execute(state: CodeGenState) -> str:
-    """Conditional edge: conclude on success, critic on failure with retries, else end."""
-    if state["sandbox_result"].get("ok"):
-        return "conclude"
-    if state["attempts"] < MAX_RETRIES + 1:
-        return "critic"
-    return "end"
+def route_after_analyze(state: CodeGenState) -> str:
+    """Conditional edge: retry current step, advance to next, or conclude."""
+    # Retry: diagnosis set, within retry budget
+    if state.get("diagnosis") and state["attempts"] <= MAX_RETRIES:
+        return "fetch_step"
+    # More steps remaining
+    if state["current_step_index"] < len(state["plan_steps"]):
+        return "fetch_step"
+    # All steps done (or last step failed past retries)
+    return "conclude"
 
 
 # ---------------------------------------------------------------------
@@ -531,22 +926,19 @@ def route_after_execute(state: CodeGenState) -> str:
 _workflow = StateGraph(CodeGenState)
 _workflow.add_node("mcp_context", mcp_context_node)
 _workflow.add_node("plan", plan_node)
-_workflow.add_node("generate", generate_node)
-_workflow.add_node("execute", execute_node)
-_workflow.add_node("critic", critic_node)
+_workflow.add_node("fetch_step", fetch_step_node)
+_workflow.add_node("analyze_step", analyze_step_node)
 _workflow.add_node("conclude", conclude_node)
 
 _workflow.set_entry_point("mcp_context")
 _workflow.add_edge("mcp_context", "plan")
-_workflow.add_edge("plan", "generate")
-_workflow.add_edge("generate", "execute")
-_workflow.add_conditional_edges("execute", route_after_execute, {
+_workflow.add_edge("plan", "fetch_step")
+_workflow.add_edge("fetch_step", "analyze_step")
+_workflow.add_conditional_edges("analyze_step", route_after_analyze, {
+    "fetch_step": "fetch_step",
     "conclude": "conclude",
-    "critic": "critic",
-    "end": END,
 })
 _workflow.add_edge("conclude", END)
-_workflow.add_edge("critic", "generate")
 
 graph = _workflow.compile()
 
@@ -620,7 +1012,7 @@ def mcp_call_tool():
 
 @app.route('/api/generate-code', methods=['POST'])
 def generate_code():
-    """Generate and execute Python code based on user prompt with LangGraph orchestration."""
+    """Generate and execute Python code based on user prompt with multi-step LangGraph orchestration."""
     try:
         data = request.get_json()
         user_prompt = data.get('prompt', '').strip()
@@ -641,12 +1033,17 @@ def generate_code():
             "user_prompt": user_prompt,
             "guide": guide,
             "plan": "",
+            "plan_steps": [],
+            "current_step_index": 0,
+            "step_summaries": [],
+            "scratchpad": "",
             "current_code": "",
             "sandbox_result": {},
             "error_message": "",
             "diagnosis": "",
             "attempts": 0,
             "retry_info": [],
+            "all_output_files": [],
             "conclusion": "",
             "slack_context": slack_context,
             "execution_timeout": execution_timeout,
@@ -658,20 +1055,51 @@ def generate_code():
         }
 
         final_state = graph.invoke(initial_state)
+
+        # Build result from last sandbox execution
         result = format_sandbox_result(final_state["sandbox_result"])
 
+        # Merge all_output_files from all steps into the result files.
+        # Deduplicate by filename, keeping the latest version (last in list wins).
+        all_files_raw = final_state.get("all_output_files", [])
+        if all_files_raw:
+            seen: dict = {}
+            for f in all_files_raw:
+                fname = f.get("filename", "")
+                seen[fname] = {
+                    "name": fname,
+                    "data": f.get("b64_data"),
+                    "type": "image" if fname.endswith((".png", ".jpg", ".jpeg", ".gif", ".svg")) else "file",
+                }
+            result["files"] = list(seen.values())
+
+        # If any step succeeded, mark overall status as success
+        step_summaries = final_state.get("step_summaries", [])
+        if any(s.get("ok") for s in step_summaries):
+            result["status"] = "success"
+
         response_body = {"code": final_state["current_code"], "result": result}
+
+        if step_summaries:
+            response_body["step_summaries"] = step_summaries
+
         if final_state.get("conclusion"):
             response_body["conclusion"] = final_state["conclusion"]
+
         if final_state["retry_info"]:
             response_body["retries"] = final_state["retry_info"]
+
         if final_state.get("resolved_season"):
             response_body["resolved_season"] = final_state["resolved_season"]
+
         if final_state.get("mcp_error"):
             response_body["mcp_warning"] = final_state["mcp_error"]
+
         if final_state.get("mcp_trace"):
             response_body["mcp_trace"] = final_state["mcp_trace"]
-        if not final_state["sandbox_result"].get("ok") and final_state["attempts"] >= MAX_RETRIES + 1:
+
+        failed_steps = [s for s in step_summaries if not s.get("ok")]
+        if failed_steps and len(failed_steps) == len(step_summaries):
             response_body["max_retries_reached"] = True
 
         return jsonify(response_body)
@@ -707,6 +1135,7 @@ def main():
     print(f"Sandbox URL: {SANDBOX_URL}")
     print(f"MCP Bridge: {'enabled' if ENABLE_MCP else 'disabled'}")
     print(f"Max Retries: {MAX_RETRIES}")
+    print(f"Max Steps: {MAX_STEPS}")
     print(f"Slack notifications: {'enabled' if SLACK_BOT_TOKEN else 'disabled (no SLACK_BOT_TOKEN)'}")
 
     app.run(host='0.0.0.0', port=port, debug=debug)
