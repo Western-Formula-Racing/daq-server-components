@@ -61,8 +61,8 @@ class CANInfluxStreamer:
     def __init__(
         self, bucket: str, batch_size: int = 500, max_concurrent_uploads: int = 5,
         enable_progress_counting: bool = True, max_queue_size: int = 100,
-        rate_limit_delay: float = 0.01, max_retries: int = 3, 
-        adaptive_backoff: bool = True
+        rate_limit_delay: float = 0.01, max_retries: int = 3,
+        adaptive_backoff: bool = True, dbc_path: Optional[str] = None
     ):
 
         self.batch_size = batch_size
@@ -81,9 +81,9 @@ class CANInfluxStreamer:
         self.tz_toronto = ZoneInfo("America/Toronto")
         self.url = os.getenv("INFLUXDB_URL", "http://influxdb3:8181")
 
-        dbc_path = slicks.resolve_dbc_path()
-        self.db = slicks.load_dbc(dbc_path)
-        print(f"📁 Loaded DBC file: {dbc_path}")
+        resolved_dbc = Path(dbc_path) if dbc_path else slicks.resolve_dbc_path()
+        self.db = slicks.load_dbc(resolved_dbc)
+        print(f"📁 Loaded DBC file: {resolved_dbc}")
 
         self.client = InfluxDBClient(
             url=self.url,

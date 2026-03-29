@@ -11,6 +11,11 @@ document.addEventListener("DOMContentLoaded", () => {
 		.getElementById("drop_zone")
 		.addEventListener("dragover", dragOverHandler);
 
+	document.getElementById("dbc-input").addEventListener("change", (e) => {
+		const file = e.target.files[0];
+		document.getElementById("dbc-name-label").innerText = file ? file.name : "";
+	});
+
 	if (document.getElementById("task-id-label").innerText) {
 		handleProgress(document.getElementById("task-id-label").innerText);
 	}
@@ -68,6 +73,8 @@ function clickHandler(e) {
 		form.append("file", files[i]);
 	}
 	form.append("bucket", selected_bucket);
+	const dbcFile = document.getElementById("dbc-input").files[0];
+	if (dbcFile) form.append("dbc", dbcFile);
 
 	fetch("/upload", {
 		method: "POST",
@@ -146,6 +153,8 @@ function dropHandler(e) {
 		form.append("file", files[i]);
 	}
 	form.append("bucket", selected_bucket);
+	const dbcFile = document.getElementById("dbc-input").files[0];
+	if (dbcFile) form.append("dbc", dbcFile);
 
 	fetch("/upload", {
 		method: "POST",
@@ -177,6 +186,52 @@ function dropHandler(e) {
 
 function dragOverHandler(e) {
 	e.preventDefault();
+}
+
+function createBucket() {
+	const name = document.getElementById("new-bucket-input").value.trim();
+	const msg = document.getElementById("create-bucket-msg");
+	const btn = document.getElementById("create-bucket-btn");
+	if (!name) {
+		msg.innerText = "Enter a name first.";
+		msg.style.color = "salmon";
+		return;
+	}
+	btn.disabled = true;
+	msg.style.color = "";
+	msg.innerText = "Creating...";
+	fetch("/create-bucket", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ name }),
+	})
+		.then((res) => res.json())
+		.then((data) => {
+			if (data.error) {
+				msg.innerText = data.error;
+				msg.style.color = "salmon";
+				btn.disabled = false;
+				return;
+			}
+			// Add to dropdown and select it
+			const select = document.getElementById("bucket-select");
+			const opt = document.createElement("option");
+			opt.value = data.name;
+			opt.innerText = data.name;
+			opt.selected = true;
+			select.appendChild(opt);
+			document.getElementById("new-bucket-input").value = "";
+			msg.innerText = "Created!";
+			msg.style.color = "lightgreen";
+			btn.disabled = false;
+			setTimeout(() => { msg.innerText = ""; }, 3000);
+		})
+		.catch((err) => {
+			msg.innerText = "Error (check console)";
+			msg.style.color = "salmon";
+			btn.disabled = false;
+			console.error(err);
+		});
 }
 
 function handleProgress(task_id) {

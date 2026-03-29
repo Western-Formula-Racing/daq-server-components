@@ -17,6 +17,7 @@ if os.getenv("DEBUG") is None:
 error_logger = logging.getLogger(__name__)
 
 ALLOWED_EXTENSIONS = {"csv"}
+ALLOWED_DBC_EXTENSIONS = {"dbc"}
 PROGRESS = {}
 CURRENT_FILE = {"name": "", "task_id": "", "bucket": ""}
 WEBHOOK_URL = (
@@ -35,16 +36,16 @@ def allowed_file(filename):
 
 
 def getBuckets() -> list[str]:
-    api_url = f"{INFLUXDB_URL.rstrip('/')}/api/v2/buckets"
-    res = requests.get(
+    api_url = f"{INFLUXDB_URL.rstrip('/')}/api/v3/query_sql"
+    res = requests.post(
         api_url,
-        headers={"Authorization": f"Token {INFLUXDB_TOKEN}"},
+        headers={"Authorization": f"Token {INFLUXDB_TOKEN}", "Content-Type": "application/json"},
+        json={"db": "_internal", "q": "SELECT database_name FROM system.databases WHERE deleted = false", "format": "json"},
         timeout=10,
     )
     res.raise_for_status()
-    payload = res.json()
-    names: list[str] = [bucket["name"] for bucket in payload.get("buckets", [])]
-    return names
+    internal = {"_internal", "monitoring"}
+    return [row["database_name"] for row in res.json() if row["database_name"] not in internal]
 
 
 # This function can send Slack messages to a channel
@@ -71,6 +72,23 @@ def index():
     )
 
 
+@app.route("/create-bucket", methods=["POST"])
+def create_bucket():
+    name = (request.json or {}).get("name", "").strip()
+    if not name:
+        return jsonify({"error": "No bucket name provided"}), 400
+    api_url = f"{INFLUXDB_URL.rstrip('/')}/api/v3/configure/database"
+    res = requests.post(
+        api_url,
+        headers={"Authorization": f"Token {INFLUXDB_TOKEN}", "Content-Type": "application/json"},
+        json={"db": name},
+        timeout=10,
+    )
+    if res.status_code in (200, 201, 204):
+        return jsonify({"name": name})
+    return jsonify({"error": res.text}), res.status_code
+
+
 @app.route("/upload", methods=["POST"])
 def upload_file():
     if request.method == "POST":
@@ -87,11 +105,23 @@ def upload_file():
         if not bucket or bucket == "":
             return "No Bucket Provided", 400
         
+        # Handle optional custom DBC file
+        dbc_temp_path = None
+        dbc_file = request.files.get("dbc")
+        if dbc_file and dbc_file.filename:
+            if not dbc_file.filename.lower().endswith(".dbc"):
+                return "Invalid DBC file type. Only .dbc files allowed.", 400
+            import tempfile
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".dbc") as tmp:
+                dbc_file.save(tmp)
+                dbc_temp_path = tmp.name
+            error_logger.info(f"Custom DBC uploaded: {dbc_file.filename} -> {dbc_temp_path}")
+
         # Handle multiple CSV files
         files = request.files.getlist("file")
         if not files or len(files) == 0:
             return "No Files Provided", 400
-        
+
         # Validate all files are CSV
         for f in files:
             if not f or not f.filename or f.filename == "":
@@ -109,7 +139,7 @@ def upload_file():
             total_size += len(data)
             file_data.append((f.filename or "unknown.csv", data))
             f.seek(0)  # Reset for potential re-read
-            
+
         task_id = str(uuid.uuid4())
         PROGRESS[task_id] = {"pct": 0, "msg": "Starting...", "done": False}
         file_names = [f.filename or "unknown.csv" for f in files]
@@ -138,8 +168,8 @@ def upload_file():
         def worker():
             # Auto-configure streamer for file size with InfluxDB-safe settings
             file_size_mb = total_size / (1024 * 1024)
-            streamer = CANInfluxStreamer(bucket)
-            
+            streamer = CANInfluxStreamer(bucket, dbc_path=dbc_temp_path)
+
             try:
                 # Process multiple CSV files using the new method
                 asyncio.run(
@@ -161,6 +191,11 @@ def upload_file():
                 except Exception as e:
                     print("error closing streamer", e)
                     pass
+                if dbc_temp_path and os.path.exists(dbc_temp_path):
+                    try:
+                        os.unlink(dbc_temp_path)
+                    except Exception:
+                        pass
 
         threading.Thread(target=worker, daemon=True).start()
         return jsonify({"task_id": task_id})

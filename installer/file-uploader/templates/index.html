@@ -7,7 +7,7 @@
 			rel="stylesheet"
 			href="{{ url_for('static', filename='style.css') }}"
 		/>
-		<script src="{{ url_for('static', filename='index.js') }}"></script>
+		<script src="{{ url_for('static', filename='index.js') }}?v={{ range(1, 99999) | random }}"></script>
 		<title>InfluxDB Uploader</title>
 	</head>
 	<body>
@@ -27,6 +27,16 @@
 							<option value="{{name}}">{{name}}</option>
 							{% endif %} {% endfor %}
 						</select>
+					</span>
+					<span id="create-bucket_span" style="margin-top: 8px; display: flex; align-items: center; gap: 8px;">
+						<input type="text" id="new-bucket-input" placeholder="New bucket name..." style="padding: 4px 8px; border-radius: 4px; border: 1px solid #555; background: #2a2a2a; color: white; font-size: 0.9em;" />
+						<button id="create-bucket-btn" onclick="createBucket()" style="padding: 4px 12px; border-radius: 4px; border: none; background: #444; color: white; cursor: pointer; font-size: 0.9em;">Create</button>
+						<span id="create-bucket-msg" style="font-size: 0.85em; opacity: 0.7;"></span>
+					</span>
+					<span id="dbc-upload_span" style="margin-top: 10px; display: flex; align-items: center; gap: 8px;">
+						<label for="dbc-input" style="cursor: pointer; white-space: nowrap;">DBC file (optional):</label>
+						<input type="file" accept=".dbc" id="dbc-input" />
+						<span id="dbc-name-label" style="font-size: 0.85em; opacity: 0.7;"></span>
 					</span>
 					<h2 style="margin-top: 15px">
 						File: <span id="file-name-label">{{ file_name }}</span>
