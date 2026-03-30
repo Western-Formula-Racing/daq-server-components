@@ -21,6 +21,7 @@ def fetch_signal_series(
     end: datetime,
     limit: int | None,
     database: str | None = None,
+    table: str | None = None,
     schema: str = "wide",
 ) -> dict:
     """
@@ -39,7 +40,8 @@ def fetch_signal_series(
         limit = max(10, min(limit, 20000))
         limit_clause = f" LIMIT {limit}"
 
-    table_ref = quote_table(f"{settings.influx_schema}.{settings.influx_table}")
+    target_table = table if table else settings.influx_table
+    table_ref = quote_table(f"{settings.influx_schema}.{target_table}")
 
     if schema == "wide":
         # Wide format: signal is a column name, query directly

@@ -170,7 +170,7 @@ class DataDownloaderService:
         # For now, let's assume fetch_signal_series uses settings.influx_database. 
         # We need to pass the correct DB.
         
-        return fetch_signal_series(self.settings, signal, start, end, limit, database=season_cfg.database)
+        return fetch_signal_series(self.settings, signal, start, end, limit, database=season_cfg.database, table=season_cfg.table)
 
     def _default_season(self) -> str:
         # Default to the first (newest) season if available
