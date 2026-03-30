@@ -1,5 +1,41 @@
 # DAQ Server Components — Claude Notes
 
+## Sister Repo: daq-radio
+
+`daq-server-components` and `daq-radio` (`~/GitHub/daq-radio`) form the full DAQ pipeline. Understanding both is often necessary.
+
+| Repo | Role |
+|---|---|
+| **daq-server-components** | Cloud/server stack. Canonical InfluxDB3 + Grafana, file-uploader for post-run CSV ingestion, grafana-bridge for auto-generating Grafana dashboards, slackbot, lap-detector. |
+| **daq-radio** | On-car and base-station RPi software. Reads `can0`, streams UDP over Ubiquiti radio link, bridges to Redis/WebSocket/PECAN dashboard, writes live telemetry to a **local** InfluxDB3 on the base RPi. |
+
+### Shared contracts — must stay in sync
+
+**InfluxDB3 wide schema** — both repos use `slicks` to decode CAN frames into wide-format rows (one row per message, all signals as columns). The schema must be identical or Grafana queries break.
+
+- `daq-server-components` writes via `slicks.decode_frame` → `influxdb_client.Point` in `installer/file-uploader/helper.py`
+- `daq-radio` writes via `slicks.WideWriter` in `universal-telemetry-software/src/influx_bridge.py`
+
+**Table name separation** — critical, never mix these:
+
+| Table | Written by | Contains |
+|---|---|---|
+| `WFR26` | `daq-server-components` file-uploader | Uploaded post-run CSVs — **source of truth, read-only after upload** |
+| `WFR26_base` (or `WFR27_base` etc.) | `daq-radio` (live radio) | Real-time telemetry from test days |
+
+`daq-radio` enforces the `_base` suffix in all its compose files. Never ingest CSV data into `WFR26_base` or configure daq-radio to write into the bare `WFR26` table.
+
+**DBC file** — `installer/example.dbc` (this repo) and `universal-telemetry-software/example.dbc` (daq-radio) must be consistent. Changes to signal names, IDs, or bit layout must be applied to both. `daq-radio` has a `test_dbc_consistency.py` test that validates alignment.
+
+**Grafana queries** — `installer/grafana-bridge/server.js` generates dashboards with `SELECT AVG(t."${signalName}") FROM "iox"."${INFLUX_TABLE}"`. Signal names come from the DBC. Any DBC rename will break existing Grafana panels against historical data.
+
+### InfluxDB3 token note
+
+- `installer/influxdb3-admin-token.json` — dev/server token: `apiv3_dev-influxdb-admin-token`
+- `daq-radio/universal-telemetry-software/influxdb3-admin-token.json` — RPi local token: `apiv3_local-telemetry-token`
+
+These are intentionally different; they are separate InfluxDB3 instances (cloud vs. on-RPi).
+
 ## Project Structure
 
 - `installer/` — Docker Compose stack: InfluxDB3, Grafana, startup-data-loader, file-uploader, slackbot, sandbox, grafana-bridge

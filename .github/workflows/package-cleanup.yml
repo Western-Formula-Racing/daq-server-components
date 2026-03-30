@@ -1,0 +1,28 @@
+name: Automated Package Cleanup
+
+on:
+  schedule:
+    - cron: '30 0 * * 0' # Every Sunday at 00:30 UTC
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+
+    strategy:
+      matrix:
+        package: [slackbot, lap-detector, startup-data-loader, file-uploader, car-to-influx, data-downloader, data-downloader-frontend]
+
+    steps:
+      - name: Delete old package versions
+        uses: snok/container-retention-policy@v2
+        with:
+          image-names: ${{ matrix.package }}
+          cut-off: 5 versions
+          keep-at-least: 5
+          skip-tags: latest
+          account-type: org
+          org-name: Western-Formula-Racing
+          token: ${{ secrets.GITHUB_TOKEN }}
