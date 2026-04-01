@@ -56,7 +56,9 @@ services:
     volumes:
       - grafana-storage:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      # Set GRAFANA_DASHBOARDS_PATH to load dashboards from an external directory
+      # e.g. export GRAFANA_DASHBOARDS_PATH=~/daq-internal/grafana-dashboards
+      - ${GRAFANA_DASHBOARDS_PATH:-./grafana/dashboards}:/var/lib/grafana/dashboards:ro
     networks:
       - datalink
 
@@ -86,4 +88,4 @@ services:
 
 # PULL:  docker compose -f docker-compose.local.yml pull
 # BUILD: docker compose -f docker-compose.local.yml build file-uploader
-# UP:    docker compose -f docker-compose.local.yml up
+# UP:    docker compose -f docker-compose.local.yml up -d

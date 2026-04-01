@@ -34,6 +34,39 @@ The DBC file is the fallback used when no custom DBC is uploaded via the UI.
 
 ---
 
+## Syncing dashboards from production (optional)
+
+User-built dashboards live in Grafana's internal database, not in this repo. Use `backup-dashboards.py` to export them before going offline.
+
+```bash
+# Save to a local directory (e.g. a private repo)
+python installer/backup-dashboards.py \
+    --output ~/daq-internal/grafana-dashboards \
+    --git-push
+```
+
+Then point the local stack at that directory:
+
+```bash
+export GRAFANA_DASHBOARDS_PATH=~/daq-internal/grafana-dashboards
+docker compose -f docker-compose.local.yml up
+```
+
+If `GRAFANA_DASHBOARDS_PATH` is not set, the stack falls back to `./grafana/dashboards` (the provisioned dashboards checked into this repo).
+
+**Authentication** — the script reads from `.env` automatically:
+- `GRAFANA_API_TOKEN` (preferred — service account token)
+- `GRAFANA_ADMIN_PASSWORD` (fallback — basic auth as `admin`)
+
+**Server cron** — to automatically back up and push daily at 2am:
+```bash
+crontab -e
+# Add:
+0 2 * * * cd /home/ubuntu/projects/daq-internal && python /home/ubuntu/projects/daq-server-components/installer/backup-dashboards.py --output ./grafana-dashboards --git-push >> /var/log/grafana-backup.log 2>&1
+```
+
+---
+
 ## Starting the stack (offline)
 
 ```bash
