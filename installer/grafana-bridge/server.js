@@ -31,10 +31,32 @@ const GRAFANA_EXTERNAL_URL =
   "https://grafana.westernformularacing.org";
 const GRAFANA_API_TOKEN = process.env.GRAFANA_API_TOKEN;
 const GRAFANA_FOLDER_UID = process.env.GRAFANA_FOLDER_UID || "";
-const DATASOURCE_UID = process.env.GRAFANA_DATASOURCE_UID || "influxdb-wfr-v2";
 
 // Only allow CAN signal name characters (alphanumeric, underscore, hyphen, dot)
 const SIGNAL_NAME_RE = /^[A-Za-z0-9_.\-]+$/;
+
+// Regex to extract season name from InfluxDB datasource database field (e.g., "WFR26" from "WFR26@iox")
+const SEASON_RE = /^(WFR\d+)/;
+
+// Fetch all InfluxDB datasources from Grafana and find the one matching the given season
+async function findDatasourceUidForSeason(season) {
+  const response = await fetch(`${GRAFANA_INTERNAL_URL}/api/datasources`, {
+    headers: { Authorization: `Bearer ${GRAFANA_API_TOKEN}` },
+  });
+  if (!response.ok) {
+    throw new Error(`Grafana datasources API error: ${response.status}`);
+  }
+  const datasources = await response.json();
+  for (const ds of datasources) {
+    if (ds.type === "influxdb" && ds.name) {
+      const match = SEASON_RE.exec(ds.name);
+      if (match && match[1] === season) {
+        return ds.uid;
+      }
+    }
+  }
+  throw new Error(`No InfluxDB datasource found for season: ${season}`);
+}
 
 function validateSignalName(name) {
   if (typeof name !== "string" || name.length === 0 || name.length > 128) {
@@ -43,39 +65,38 @@ function validateSignalName(name) {
   return SIGNAL_NAME_RE.test(name);
 }
 
-const INFLUX_TABLE = process.env.INFLUX_TABLE || "WFR26";
-
-function buildQuery(signalName) {
+function buildQuery(signalName, season) {
   return [
     "SELECT",
-    '  DATE_BIN(INTERVAL \'100 milliseconds\', t."time", TIMESTAMP \'1970-01-01 00:00:00\') AS "time",',
-    `  AVG(t."${signalName}") AS "value"`,
+    '  DATE_BIN(INTERVAL \'100 milliseconds\', "time", TIMESTAMP \'1970-01-01 00:00:00\') AS "time",',
+    `  AVG("${signalName}") AS "${signalName}"`,
     "FROM",
-    `  "iox"."${INFLUX_TABLE}" AS t`,
+    `  "iox"."${season}"`,
     "WHERE",
-    '  t."time" >= $__timeFrom()',
-    '  AND t."time" <= $__timeTo()',
+    '  "time" >= $__timeFrom()',
+    '  AND "time" <= $__timeTo()',
     "GROUP BY",
-    '  1',
+    '  DATE_BIN(INTERVAL \'100 milliseconds\', "time", TIMESTAMP \'1970-01-01 00:00:00\')',
     "ORDER BY",
     '  "time" ASC',
   ].join("\n");
 }
 
-function buildPanel(signalName, index) {
+function buildPanel(signalName, index, dsUid, season) {
   return {
     type: "timeseries",
     title: signalName,
-    datasource: {
-      type: "influxdb",
-      uid: DATASOURCE_UID,
-    },
     targets: [
       {
         refId: "A",
-        query: buildQuery(signalName),
+        dataset: "iox",
+        datasource: {
+          type: "influxdb",
+          uid: dsUid,
+        },
         rawQuery: true,
-        resultFormat: "time_series",
+        rawSql: buildQuery(signalName, season),
+        format: "time_series",
       },
     ],
     gridPos: {
@@ -140,9 +161,19 @@ router.post("/api/grafana/create-dashboard", async (req, res) => {
 
   const uid = "pecan_" + crypto.randomBytes(4).toString("hex");
   const now = new Date();
+  const currentSeason = `WFR${now.getFullYear() % 100}`;
   const title = `PECAN Analysis - ${now.toISOString().replace("T", " ").substring(0, 16)}`;
 
-  const panels = signalNames.map((name, i) => buildPanel(name, i));
+  // Fetch the real datasource UID for the current season
+  let dsUid;
+  try {
+    dsUid = await findDatasourceUidForSeason(currentSeason);
+  } catch (err) {
+    console.error("Failed to find datasource UID:", err.message);
+    return res.status(500).json({ error: `Failed to resolve datasource for ${currentSeason}: ${err.message}` });
+  }
+
+  const panels = signalNames.map((name, i) => buildPanel(name, i, dsUid, currentSeason));
 
   const payload = {
     dashboard: {
@@ -154,7 +185,26 @@ router.post("/api/grafana/create-dashboard", async (req, res) => {
       schemaVersion: 39,
       version: 0,
       panels,
-      time: { from: "now-1h", to: "now" },
+      time: { from: "now-24h", to: "now" },
+      variables: {
+        list: [
+          {
+            kind: "DatasourceVariable",
+            spec: {
+              name: "year",
+              label: "Year",
+              current: { text: currentSeason, value: dsUid },
+              hide: "",
+              multi: false,
+              includeAll: false,
+              pluginId: "influxdb",
+              regex: "WFR2[0-9]+",
+              skipUrlSync: false,
+              refresh: 1,
+            },
+          },
+        ],
+      },
     },
     overwrite: false,
   };
