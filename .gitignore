@@ -223,3 +223,6 @@ generated-days/
 # Node dependencies
 node_modules/
 .claude/settings.local.json
+
+# Superpowers (AI agent specs/plans - not for version control)
+docs/superpowers/
