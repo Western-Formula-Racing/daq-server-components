@@ -28,6 +28,7 @@ WEBHOOK_URL = (
 DEBUG: bool = bool(int(os.getenv("DEBUG") or 0))
 INFLUXDB_TOKEN = os.getenv("INFLUXDB_TOKEN")
 INFLUXDB_URL = os.getenv("INFLUXDB_URL", "http://influxdb3:8181")
+INFLUXDB_DATABASE = os.getenv("INFLUXDB_DATABASE", "WFR")
 app = Flask(__name__)
 
 
@@ -35,17 +36,28 @@ def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
-def getBuckets() -> list[str]:
+def _seasons_from_env() -> list[str]:
+    """Fallback: parse SEASONS env var (format: 'WFR25:2025,WFR26:2026')."""
+    raw = os.getenv("SEASONS", "")
+    seasons = [part.split(":")[0].strip() for part in raw.split(",") if part.strip()]
+    return sorted(seasons, reverse=True) if seasons else ["WFR26", "WFR25"]
+
+
+def getSeasons() -> list[str]:
+    """Return list of season/table names from the WFR database, falling back to env var."""
     api_url = f"{INFLUXDB_URL.rstrip('/')}/api/v3/query_sql"
-    res = requests.post(
-        api_url,
-        headers={"Authorization": f"Token {INFLUXDB_TOKEN}", "Content-Type": "application/json"},
-        json={"db": "_internal", "q": "SELECT database_name FROM system.databases WHERE deleted = false", "format": "json"},
-        timeout=10,
-    )
-    res.raise_for_status()
-    internal = {"_internal", "monitoring"}
-    return [row["database_name"] for row in res.json() if row["database_name"] not in internal]
+    try:
+        res = requests.post(
+            api_url,
+            headers={"Authorization": f"Token {INFLUXDB_TOKEN}", "Content-Type": "application/json"},
+            json={"db": INFLUXDB_DATABASE, "q": "SELECT DISTINCT table_name FROM information_schema.tables", "format": "json"},
+            timeout=10,
+        )
+        res.raise_for_status()
+        seasons = [row["table_name"] for row in res.json() if not row["table_name"].startswith("_")]
+        return sorted(seasons, reverse=True) if seasons else _seasons_from_env()
+    except Exception:
+        return _seasons_from_env()
 
 
 # This function can send Slack messages to a channel
@@ -68,7 +80,7 @@ def index():
         file_name=CURRENT_FILE["name"],
         task_id=CURRENT_FILE["task_id"],
         current_bucket=CURRENT_FILE["bucket"],
-        bucket_names=getBuckets(),
+        bucket_names=getSeasons(),
     )
 
 
@@ -168,7 +180,7 @@ def upload_file():
         def worker():
             # Auto-configure streamer for file size with InfluxDB-safe settings
             file_size_mb = total_size / (1024 * 1024)
-            streamer = CANInfluxStreamer(bucket, dbc_path=dbc_temp_path)
+            streamer = CANInfluxStreamer(bucket=INFLUXDB_DATABASE, table=bucket, dbc_path=dbc_temp_path)
 
             try:
                 # Process multiple CSV files using the new method

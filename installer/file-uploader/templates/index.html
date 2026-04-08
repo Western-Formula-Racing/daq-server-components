@@ -18,9 +18,9 @@
 					<h1>Upload Files to InfluxDB</h1>
 					<h2>(multiple csv files supported)</h2>
 					<span id="bucket-select_span">
-						<label for="bucket-select">Bucket:</label>
+						<label for="bucket-select">Season:</label>
 						<select name="bucket" id="bucket-select">
-							<option value="">Select A Bucket</option>
+							<option value="">Select A Season</option>
 							{% for name in bucket_names %} {% if current_bucket == name %}
 							<option value="{{name}}" selected>{{name}}</option>
 							{% else %}
@@ -29,8 +29,8 @@
 						</select>
 					</span>
 					<span id="create-bucket_span" style="margin-top: 8px; display: flex; align-items: center; gap: 8px;">
-						<input type="text" id="new-bucket-input" placeholder="New bucket name..." style="padding: 4px 8px; border-radius: 4px; border: 1px solid #555; background: #2a2a2a; color: white; font-size: 0.9em;" />
-						<button id="create-bucket-btn" onclick="createBucket()" style="padding: 4px 12px; border-radius: 4px; border: none; background: #444; color: white; cursor: pointer; font-size: 0.9em;">Create</button>
+						<input type="text" id="new-bucket-input" placeholder="New season name (e.g. WFR26-test)..." style="padding: 4px 8px; border-radius: 4px; border: 1px solid #555; background: #2a2a2a; color: white; font-size: 0.9em;" />
+						<button id="create-bucket-btn" onclick="createBucket()" style="padding: 4px 12px; border-radius: 4px; border: none; background: #444; color: white; cursor: pointer; font-size: 0.9em;">Add Season</button>
 						<span id="create-bucket-msg" style="font-size: 0.85em; opacity: 0.7;"></span>
 					</span>
 					<span id="dbc-upload_span" style="margin-top: 10px; display: flex; align-items: center; gap: 8px;">

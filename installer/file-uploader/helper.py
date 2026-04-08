@@ -59,7 +59,7 @@ class ProgressStats:
 class CANInfluxStreamer:
 
     def __init__(
-        self, bucket: str, batch_size: int = 500, max_concurrent_uploads: int = 5,
+        self, bucket: str, table: str, batch_size: int = 500, max_concurrent_uploads: int = 5,
         enable_progress_counting: bool = True, max_queue_size: int = 100,
         rate_limit_delay: float = 0.01, max_retries: int = 3,
         adaptive_backoff: bool = True, dbc_path: Optional[str] = None
@@ -67,7 +67,8 @@ class CANInfluxStreamer:
 
         self.batch_size = batch_size
         self.max_concurrent_uploads = max_concurrent_uploads
-        self.bucket = bucket
+        self.bucket = bucket   # InfluxDB database name (e.g. "WFR")
+        self.table = table     # Measurement/table name (e.g. "WFR26")
         self.enable_progress_counting = enable_progress_counting
         self.max_queue_size = max_queue_size
         self.rate_limit_delay = rate_limit_delay
@@ -353,7 +354,7 @@ class CANInfluxStreamer:
                 return
 
             pt = (
-                Point(self.bucket)
+                Point(self.table)
                 .tag("messageName", frame.message_name)
                 .tag("canId", str(can_id))
                 .time(timestamp)
