@@ -36,6 +36,10 @@ services:
       timeout: 5s
       retries: 5
       start_period: 300s
+    deploy:
+      resources:
+        limits:
+          memory: 4096M
 
   influxdb3-explorer:
     image: influxdata/influxdb3-ui:latest
@@ -54,6 +58,10 @@ services:
       - datalink
     depends_on:
       - influxdb3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
   grafana:
     image: grafana/grafana
@@ -88,6 +96,10 @@ services:
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     networks:
       - datalink
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   slackbot:
     build: ./slackbot
@@ -122,11 +134,17 @@ services:
     networks:
       - datalink
       - default
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
   lap-detector:
     build: ./lap-detector
     container_name: lap-detector
-    restart: unless-stopped
+    restart: "no"
+    profiles:
+      - disabled
     ports:
       - "8050:8050"
     working_dir: /app
@@ -135,6 +153,10 @@ services:
     command: python lap-detector.py
     networks:
       - datalink
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   startup-data-loader:
     build: ./startup-data-loader
@@ -161,6 +183,10 @@ services:
       sh -c "echo 'Waiting additional 5 seconds for InfluxDB 3 to stabilize...' &&
              sleep 5 &&
              python load_data.py"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   file-uploader:
     build: ./file-uploader
@@ -184,7 +210,7 @@ services:
       resources:
         limits:
           cpus: "1"
-          memory: 1024M
+          memory: 1536M
 
   data-downloader-api:
     build:
@@ -210,6 +236,10 @@ services:
     depends_on:
       influxdb3:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
 
   data-downloader-scanner:
     build:
@@ -234,6 +264,10 @@ services:
     depends_on:
       data-downloader-api:
         condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   health-monitor:
     build: ./health-monitor
@@ -256,6 +290,10 @@ services:
         condition: service_healthy
       data-downloader-api:
         condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
   data-downloader-frontend:
     build:
@@ -272,6 +310,10 @@ services:
     depends_on:
       data-downloader-api:
         condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: 128M
 
   # Custom sandbox execution container (with internet access for InfluxDB queries)
   sandbox:
@@ -293,6 +335,10 @@ services:
       - influxdb3
     networks:
       - datalink
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
 
   # Grafana bridge - Pecan → Grafana dashboard creation API
   grafana-bridge:
@@ -312,6 +358,10 @@ services:
       - grafana
     networks:
       - datalink
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
   # Code generator - Cohere integration for AI-powered code generation
   code-generator:
@@ -338,3 +388,7 @@ services:
       - ./sandbox/prompt-guide.txt:/app/prompt-guide.txt
     networks:
       - datalink
+    deploy:
+      resources:
+        limits:
+          memory: 512M
