@@ -24,7 +24,7 @@ def _parse_seasons(raw: str | None) -> List[SeasonConfig]:
     """Parse SEASONS env var: "WFR25:2025:222 76 153,WFR26:2026:..."."""
     if not raw:
         # Default fallback if not set
-        return [SeasonConfig(name="WFR25", year=2025, database="WFR25", table="WFR25", color="#DE4C99")]
+        return [SeasonConfig(name="WFR25", year=2025, database=os.getenv("INFLUX_DATABASE", "WFR"), table="WFR25", color="#DE4C99")]
     
     seasons = []
     for part in raw.split(","):
@@ -46,13 +46,14 @@ def _parse_seasons(raw: str | None) -> List[SeasonConfig]:
 
             color = parts[2] if len(parts) > 2 else None
             
-            # DB and table name both match season name by convention (WFR25→WFR25, WFR26→WFR26)
-            seasons.append(SeasonConfig(name=name, year=year, database=name, table=name, color=color))
+            # All seasons share one database; table name matches season name (WFR25, WFR26, etc.)
+            shared_db = os.getenv("INFLUX_DATABASE", "WFR")
+            seasons.append(SeasonConfig(name=name, year=year, database=shared_db, table=name, color=color))
         except ValueError:
             continue
             
     if not seasons:
-         return [SeasonConfig(name="WFR25", year=2025, database="WFR25", table="WFR25")]
+         return [SeasonConfig(name="WFR25", year=2025, database=os.getenv("INFLUX_DATABASE", "WFR"), table="WFR25")]
          
     # Sort by year descending (newest first)
     seasons.sort(key=lambda s: s.year, reverse=True)

@@ -77,6 +77,9 @@ services:
       - INFLUXDB_TOKEN=${INFLUXDB_ADMIN_TOKEN:-apiv3_dev-influxdb-admin-token}
       - INFLUXDB_URL=${INFLUXDB_URL:-http://influxdb3:8181}
       - DBC_FILE_PATH=/installer/example.dbc
+      - GITHUB_DBC_TOKEN=${GITHUB_DBC_TOKEN:-}
+      - GITHUB_DBC_REPO=${GITHUB_DBC_REPO:-Western-Formula-Racing/DBC}
+      - GITHUB_DBC_BRANCH=${GITHUB_DBC_BRANCH:-main}
     deploy:
       resources:
         limits:

@@ -137,13 +137,13 @@ h2 {
 	}
 }
 
-#bucket-select_span {
+#season-select_span {
 	font-size: xx-large;
 	font-weight: 600;
 	margin-top: 15px
 }
 
-#bucket-select {
+#season-select {
 	font-size: large;
 	vertical-align: middle;
 	border-radius: 15px;
@@ -152,15 +152,15 @@ h2 {
 	border: 3px solid white;
 }
 
-#bucket-select:hover {
+#season-select:hover {
     border: 3px solid rebeccapurple;
 }
-#bucket-select:focus {
+#season-select:focus {
 	border: 3px solid rebeccapurple;
     box-shadow: 0 3px 5px 0 rgba(0,0,0,.2);
     outline: none;
 }
-#bucket-select:disabled {
+#season-select:disabled {
 	cursor: not-allowed;
 	background-color: #ffffff95;
 	border: 3px solid rgba(255, 0, 0, 0.509);
