@@ -43,6 +43,23 @@ def _seasons_from_env() -> list[str]:
     return sorted(seasons, reverse=True) if seasons else ["WFR26", "WFR25"]
 
 
+def _table_create_conflict(response: requests.Response) -> bool:
+    """True if Influx rejected create because the table already exists (idempotent Add Season)."""
+    if response.status_code not in (400, 409):
+        return False
+    lowered = response.text.lower()
+    if any(s in lowered for s in ("already exists", "already exist", "duplicate")):
+        return True
+    try:
+        data = response.json()
+        err = str(data.get("error", "")).lower()
+        if any(s in err for s in ("already exists", "already exist", "duplicate")):
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def getSeasons() -> list[str]:
     """Return list of season/table names from the WFR database, falling back to env var."""
     api_url = f"{INFLUXDB_URL.rstrip('/')}/api/v3/query_sql"
@@ -86,17 +103,30 @@ def index():
 
 @app.route("/create-bucket", methods=["POST"])
 def create_bucket():
+    """Create a new table (season) inside INFLUXDB_DATABASE, not a new InfluxDB database."""
     name = (request.json or {}).get("name", "").strip()
     if not name:
         return jsonify({"error": "No bucket name provided"}), 400
-    api_url = f"{INFLUXDB_URL.rstrip('/')}/api/v3/configure/database"
+    if len(name) > 256:
+        return jsonify({"error": "Name too long (max 256 characters)"}), 400
+
+    api_url = f"{INFLUXDB_URL.rstrip('/')}/api/v3/configure/table"
+    # Tags must match CANInfluxStreamer line protocol (helper._parse_row_generator).
+    payload = {
+        "db": INFLUXDB_DATABASE,
+        "table": name,
+        "tags": ["messageName", "canId"],
+        "fields": [],
+    }
     res = requests.post(
         api_url,
         headers={"Authorization": f"Token {INFLUXDB_TOKEN}", "Content-Type": "application/json"},
-        json={"db": name},
+        json=payload,
         timeout=10,
     )
     if res.status_code in (200, 201, 204):
+        return jsonify({"name": name})
+    if _table_create_conflict(res):
         return jsonify({"name": name})
     return jsonify({"error": res.text}), res.status_code
 
