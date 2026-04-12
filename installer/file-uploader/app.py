@@ -31,6 +31,26 @@ DEBUG: bool = bool(int(os.getenv("DEBUG") or 0))
 INFLUXDB_TOKEN = os.getenv("INFLUXDB_TOKEN")
 INFLUXDB_URL = os.getenv("INFLUXDB_URL", "http://influxdb3:8181")
 INFLUXDB_DATABASE = os.getenv("INFLUXDB_DATABASE", "WFR")
+# information_schema / catalog tables — not user telemetry seasons
+_INFLUX_SYSTEM_TABLE_NAMES = frozenset(
+    {
+        "views",
+        "tables",
+        "schemata",
+        "routines",
+        "queries",
+        "processing_engine_triggers",
+        "processing_engine_trigger_arguments",
+        "processing_engine_logs",
+        "parquet_files",
+        "parameters",
+        "last_caches",
+        "influxdb_schema",
+        "distinct_caches",
+        "df_settings",
+        "columns",
+    }
+)
 GITHUB_DBC_TOKEN = os.getenv("GITHUB_DBC_TOKEN", "").strip()
 GITHUB_DBC_REPO = os.getenv("GITHUB_DBC_REPO", "Western-Formula-Racing/DBC").strip()
 GITHUB_DBC_BRANCH = os.getenv("GITHUB_DBC_BRANCH", "main").strip()
@@ -142,7 +162,14 @@ def getSeasons() -> list[str]:
             timeout=10,
         )
         res.raise_for_status()
-        seasons = [row["table_name"] for row in res.json() if not row["table_name"].startswith("_")]
+        seasons = []
+        for row in res.json():
+            name = row.get("table_name") or ""
+            if not name or name.startswith("_"):
+                continue
+            if name.lower() in _INFLUX_SYSTEM_TABLE_NAMES:
+                continue
+            seasons.append(name)
         return sorted(seasons, reverse=True) if seasons else _seasons_from_env()
     except Exception:
         return _seasons_from_env()
