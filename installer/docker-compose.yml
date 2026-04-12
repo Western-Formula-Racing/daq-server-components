@@ -206,6 +206,10 @@ services:
       - FILE_UPLOADER_WEBHOOK_URL=${FILE_UPLOADER_WEBHOOK_URL:-}
       # Fixed container path only
       - DBC_FILE_PATH=/installer/example.dbc
+      # Optional: PAT with repo read to list/download .dbc from GitHub (never sent to browser)
+      - GITHUB_DBC_TOKEN=${GITHUB_DBC_TOKEN:-}
+      - GITHUB_DBC_REPO=${GITHUB_DBC_REPO:-Western-Formula-Racing/DBC}
+      - GITHUB_DBC_BRANCH=${GITHUB_DBC_BRANCH:-main}
     deploy:
       resources:
         limits:

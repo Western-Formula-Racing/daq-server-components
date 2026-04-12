@@ -1,5 +1,195 @@
 let canSubmit = true;
 
+function applyDbcSelectMode() {
+	const select = document.getElementById("dbc-select");
+	const input = document.getElementById("dbc-input");
+	if (!select || !input) return;
+	const v = select.value;
+	if (v === "custom") {
+		input.disabled = false;
+	} else {
+		input.disabled = true;
+		input.value = "";
+		const label = document.getElementById("dbc-name-label");
+		if (label) label.innerText = "";
+	}
+}
+
+async function loadDbcList() {
+	const select = document.getElementById("dbc-select");
+	const hint = document.getElementById("dbc-list-hint");
+	if (!select || !hint) return;
+	select.innerHTML = "";
+	hint.innerText = "Loading team DBC list…";
+	try {
+		const res = await fetch("/dbc/list");
+		const data = await res.json();
+		const optDefault = document.createElement("option");
+		optDefault.value = "default";
+		optDefault.textContent = "Default (container DBC)";
+		const optCustom = document.createElement("option");
+		optCustom.value = "custom";
+		optCustom.textContent = "Custom upload…";
+
+		if (!data.token_configured) {
+			select.appendChild(optDefault);
+			select.appendChild(optCustom);
+			select.value = "default";
+			hint.innerText =
+				data.message ||
+				"Set GITHUB_DBC_TOKEN on the server to list DBCs from Western-Formula-Racing/DBC.";
+			applyDbcSelectMode();
+			return;
+		}
+
+		if (data.error) {
+			hint.innerText = data.error;
+		} else {
+			hint.innerText = "";
+		}
+
+		const items = data.items || [];
+		for (const path of items) {
+			const opt = document.createElement("option");
+			opt.value = "github:" + path;
+			opt.textContent = path;
+			select.appendChild(opt);
+		}
+		select.appendChild(optCustom);
+
+		if (items.length === 0) {
+			select.value = "custom";
+			hint.innerText =
+				(hint.innerText ? hint.innerText + " " : "") +
+				"No .dbc files in repo; upload a custom file.";
+		} else if (items.length === 1) {
+			select.value = "github:" + items[0];
+		} else {
+			select.value = "github:" + items[0];
+		}
+		applyDbcSelectMode();
+	} catch (e) {
+		console.error(e);
+		hint.innerText = "Could not load team DBC list.";
+		const optDefault = document.createElement("option");
+		optDefault.value = "default";
+		optDefault.textContent = "Default (container DBC)";
+		const optCustom = document.createElement("option");
+		optCustom.value = "custom";
+		optCustom.textContent = "Custom upload…";
+		select.appendChild(optDefault);
+		select.appendChild(optCustom);
+		select.value = "default";
+		applyDbcSelectMode();
+	}
+}
+
+function appendDbcToForm(form) {
+	const select = document.getElementById("dbc-select");
+	const dbcFile = document.getElementById("dbc-input")?.files?.[0];
+	if (!select) return;
+	const v = select.value;
+	if (v.startsWith("github:")) {
+		form.append("dbc_github_path", v.slice(7));
+	} else if (v === "custom" && dbcFile) {
+		form.append("dbc", dbcFile);
+	}
+}
+
+async function parseUploadResponse(res) {
+	const text = await res.text();
+	try {
+		return JSON.parse(text);
+	} catch {
+		return { error: text || res.statusText, _notJson: true };
+	}
+}
+
+function submitCsvUpload(files) {
+	const name_label = document.getElementById("file-name-label");
+	const selected_bucket = document.getElementById("bucket-select").value;
+
+	if (!selected_bucket || selected_bucket == "") {
+		alert("Please Select A Season/Table From The Dropdown Menu");
+		return;
+	}
+
+	if (!files || files.length === 0) {
+		name_label.innerText = "No Files Selected";
+		name_label.style = "color: red;";
+		alert("No Files Selected");
+		return;
+	}
+
+	for (let i = 0; i < files.length; i++) {
+		const file = files[i];
+		if (file.type !== "text/csv" && !file.name.toLowerCase().endsWith(".csv")) {
+			name_label.innerText = `File ${file.name} is not a CSV file`;
+			name_label.style = "color: red;";
+			alert(`File ${file.name} is not a CSV file. Only CSV files are allowed.`);
+			return;
+		}
+	}
+
+	const sel = document.getElementById("dbc-select");
+	if (sel && sel.value === "custom") {
+		const dbcFile = document.getElementById("dbc-input")?.files?.[0];
+		const hasGithub = Array.from(sel.options).some((o) => o.value.startsWith("github:"));
+		const hasDefault = Array.from(sel.options).some((o) => o.value === "default");
+		if (!dbcFile) {
+			if (hasGithub) {
+				alert("Select a team DBC from the list, or choose a custom .dbc file.");
+				return;
+			}
+			if (!hasDefault) {
+				alert("Upload a custom .dbc file.");
+				return;
+			}
+		}
+	}
+
+	const fileNames = Array.from(files).map((f) => f.name);
+	if (files.length === 1) {
+		name_label.innerText = fileNames[0];
+	} else {
+		name_label.innerText = `${files.length} CSV files: ${fileNames.slice(0, 3).join(", ")}${files.length > 3 ? "..." : ""}`;
+	}
+	name_label.style = "color: white;";
+
+	const form = new FormData();
+	for (let i = 0; i < files.length; i++) {
+		form.append("file", files[i]);
+	}
+	form.append("bucket", selected_bucket);
+	appendDbcToForm(form);
+
+	fetch("/upload", {
+		method: "POST",
+		body: form,
+	})
+		.then((res) => parseUploadResponse(res))
+		.then((data) => {
+			if (data.error) {
+				alert(data.error);
+				location.reload();
+				return;
+			}
+			if (data.task_id) {
+				handleProgress(data.task_id);
+				document.getElementById("task-id-label").innerText = data.task_id;
+			} else {
+				console.error("No task_id", data);
+				name_label.innerText = "There was an error (check console)";
+				name_label.style = "color: red;";
+			}
+		})
+		.catch((err) => {
+			console.error("error", err);
+			name_label.innerText = "There was an error (check console)";
+			name_label.style = "color: red;";
+		});
+}
+
 document.addEventListener("DOMContentLoaded", () => {
 	document.getElementById("drop_zone").addEventListener("drop", dropHandler);
 
@@ -16,6 +206,12 @@ document.addEventListener("DOMContentLoaded", () => {
 		document.getElementById("dbc-name-label").innerText = file ? file.name : "";
 	});
 
+	const dbcSelect = document.getElementById("dbc-select");
+	if (dbcSelect) {
+		dbcSelect.addEventListener("change", applyDbcSelectMode);
+	}
+	loadDbcList();
+
 	if (document.getElementById("task-id-label").innerText) {
 		handleProgress(document.getElementById("task-id-label").innerText);
 	}
@@ -27,78 +223,7 @@ function clickHandler(e) {
 		alert("File Currently Uploading");
 		return;
 	}
-	console.log("files uploaded");
-	const name_label = document.getElementById("file-name-label");
-	const selected_bucket = document.getElementById("bucket-select").value;
-
-	if (!selected_bucket || selected_bucket == "") {
-		console.error("no bucket selected");
-		alert("Please Select A Bucket From The Dropdown Menu");
-		return;
-	}
-
-	const files = e.target.files;
-	if (!files || files.length === 0) {
-		console.error("no files");
-		name_label.innerText = "No Files Selected";
-		name_label.style = "color: red;";
-		alert("No Files Selected");
-		return;
-	}
-
-	// Validate all files are CSV
-	for (let i = 0; i < files.length; i++) {
-		const file = files[i];
-		if (file.type !== "text/csv" && !file.name.toLowerCase().endsWith('.csv')) {
-			console.error("File not CSV type");
-			name_label.innerText = `File ${file.name} is not a CSV file`;
-			name_label.style = "color: red;";
-			alert(`File ${file.name} is not a CSV file. Only CSV files are allowed.`);
-			return;
-		}
-	}
-
-	// Display file names
-	const fileNames = Array.from(files).map(f => f.name);
-	if (files.length === 1) {
-		name_label.innerText = fileNames[0];
-	} else {
-		name_label.innerText = `${files.length} CSV files: ${fileNames.slice(0, 3).join(', ')}${files.length > 3 ? '...' : ''}`;
-	}
-	name_label.style = "color: white;";
-
-	const form = new FormData();
-	// Append all files with the same field name
-	for (let i = 0; i < files.length; i++) {
-		form.append("file", files[i]);
-	}
-	form.append("bucket", selected_bucket);
-	const dbcFile = document.getElementById("dbc-input").files[0];
-	if (dbcFile) form.append("dbc", dbcFile);
-
-	fetch("/upload", {
-		method: "POST",
-		body: form,
-	})
-		.then((res) => res.json())
-		.then((data) => {
-			// console.log("response ", data);
-			if (data.error) {
-				alert(data.error);
-				location.reload();
-			}
-			if (data.task_id) {
-				handleProgress(data.task_id);
-				document.getElementById("task-id-label").innerText = data.task_id;
-			} else {
-				console.error("No task_id");
-			}
-		})
-		.catch((err) => {
-			console.error("error", err);
-			name_label.innerText = "There was an error (check console)";
-			name_label.style = "color: red;";
-		});
+	submitCsvUpload(e.target.files);
 }
 
 function dropHandler(e) {
@@ -107,81 +232,7 @@ function dropHandler(e) {
 		alert("File Currently Uploading");
 		return;
 	}
-	console.log("files dropped");
-	const name_label = document.getElementById("file-name-label");
-	const selected_bucket = document.getElementById("bucket-select").value;
-
-	if (!selected_bucket || selected_bucket == "") {
-		console.error("no bucket selected");
-		alert("Please Select A Bucket From The Dropdown Menu");
-		return;
-	}
-
-	const files = e.dataTransfer?.files;
-	if (!files || files.length === 0) {
-		console.log("no files");
-		name_label.innerText = "No Files Selected";
-		name_label.style = "color: red;";
-		alert("No Files Selected");
-		return;
-	}
-
-	// Validate all files are CSV
-	for (let i = 0; i < files.length; i++) {
-		const file = files[i];
-		if (file.type !== "text/csv" && !file.name.toLowerCase().endsWith('.csv')) {
-			console.log("File not CSV type");
-			name_label.innerText = `File ${file.name} is not a CSV file`;
-			name_label.style = "color: red;";
-			alert(`File ${file.name} is not a CSV file. Only CSV files are allowed.`);
-			return;
-		}
-	}
-
-	// Display file names
-	const fileNames = Array.from(files).map(f => f.name);
-	if (files.length === 1) {
-		name_label.innerText = fileNames[0];
-	} else {
-		name_label.innerText = `${files.length} CSV files: ${fileNames.slice(0, 3).join(', ')}${files.length > 3 ? '...' : ''}`;
-	}
-	name_label.style = "color: white;";
-
-	const form = new FormData();
-	// Append all files with the same field name
-	for (let i = 0; i < files.length; i++) {
-		form.append("file", files[i]);
-	}
-	form.append("bucket", selected_bucket);
-	const dbcFile = document.getElementById("dbc-input").files[0];
-	if (dbcFile) form.append("dbc", dbcFile);
-
-	fetch("/upload", {
-		method: "POST",
-		body: form,
-	})
-		.then((res) => res.json())
-		.then((data) => {
-			// console.log("response ", data);
-			if (data.error) {
-				alert(data.error);
-				location.reload();
-			}
-
-			if (data.task_id) {
-				handleProgress(data.task_id);
-				document.getElementById("task-id-label").innerText = data.task_id;
-			} else {
-				console.error("No task_id");
-				name_label.innerText = "There was an error (check console)";
-				name_label.style = "color: red;";
-			}
-		})
-		.catch((err) => {
-			console.error("error", err);
-			name_label.innerText = "There was an error (check console)";
-			name_label.style = "color: red;";
-		});
+	submitCsvUpload(e.dataTransfer?.files);
 }
 
 function dragOverHandler(e) {
@@ -213,7 +264,6 @@ function createBucket() {
 				btn.disabled = false;
 				return;
 			}
-			// Add to dropdown and select it
 			const select = document.getElementById("bucket-select");
 			const opt = document.createElement("option");
 			opt.value = data.name;
@@ -224,7 +274,9 @@ function createBucket() {
 			msg.innerText = "Created!";
 			msg.style.color = "lightgreen";
 			btn.disabled = false;
-			setTimeout(() => { msg.innerText = ""; }, 3000);
+			setTimeout(() => {
+				msg.innerText = "";
+			}, 3000);
 		})
 		.catch((err) => {
 			msg.innerText = "Error (check console)";
@@ -235,7 +287,6 @@ function createBucket() {
 }
 
 function handleProgress(task_id) {
-	console.log("running this");
 	const eventSource = new EventSource(`/progress/${task_id}`);
 	canSubmit = false;
 	document.getElementById("drop_zone").innerHTML = `
@@ -253,25 +304,27 @@ function handleProgress(task_id) {
 	`;
 	eventSource.onmessage = (e) => {
 		const data = JSON.parse(e.data);
-		// console.log(data);
 
-		document.getElementById(
-			"progress-bar"
-		).style = `justify-content: baseline;`;
+		document.getElementById("progress-bar").style = `justify-content: baseline;`;
 		document.getElementById("progress-bar").style = `width: ${data.pct}%;`;
 		document.getElementById("progress-bar_pct").innerText = data.pct + "%";
-		document.getElementById(
-			"progress-bar_count"
-		).innerText = `${data.sent} / ${data.total} rows`;
+		document.getElementById("progress-bar_count").innerText = `${data.sent} / ${data.total} rows`;
 
 		document.getElementById("drop_zone-input").disabled = true;
 		document.getElementById("bucket-select").disabled = true;
+		const dbcSel = document.getElementById("dbc-select");
+		if (dbcSel) dbcSel.disabled = true;
+		const dbcIn = document.getElementById("dbc-input");
+		if (dbcIn) dbcIn.disabled = true;
 
 		if (data.done) {
 			eventSource.close();
 			document.getElementById("progress-bar_pct").innerText = "Done";
 			document.getElementById("drop_zone-input").disabled = false;
 			document.getElementById("bucket-select").disabled = false;
+			if (dbcSel) dbcSel.disabled = false;
+			if (dbcIn) dbcIn.disabled = false;
+			applyDbcSelectMode();
 			canSubmit = true;
 			document.getElementById("drop_zone").innerHTML = `
 			<svg
@@ -290,6 +343,8 @@ function handleProgress(task_id) {
 							/>
 						</svg>
 						<h3>Click to upload CSV files or drag and drop</h3>`;
+			document.getElementById("drop_zone").addEventListener("drop", dropHandler);
+			document.getElementById("drop_zone").addEventListener("dragover", dragOverHandler);
 		}
 	};
 }

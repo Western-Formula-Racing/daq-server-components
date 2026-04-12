@@ -6,7 +6,9 @@ from flask import (
     stream_with_context,
     Response,
 )
-import uuid, time, threading, json, io, logging, requests, os, asyncio
+import uuid, time, threading, json, logging, requests, os, asyncio
+from typing import Optional, Tuple, List
+from urllib.parse import quote
 from helper import CANInfluxStreamer
 import traceback
 
@@ -29,7 +31,76 @@ DEBUG: bool = bool(int(os.getenv("DEBUG") or 0))
 INFLUXDB_TOKEN = os.getenv("INFLUXDB_TOKEN")
 INFLUXDB_URL = os.getenv("INFLUXDB_URL", "http://influxdb3:8181")
 INFLUXDB_DATABASE = os.getenv("INFLUXDB_DATABASE", "WFR")
+GITHUB_DBC_TOKEN = os.getenv("GITHUB_DBC_TOKEN", "").strip()
+GITHUB_DBC_REPO = os.getenv("GITHUB_DBC_REPO", "Western-Formula-Racing/DBC").strip()
+GITHUB_DBC_BRANCH = os.getenv("GITHUB_DBC_BRANCH", "main").strip()
 app = Flask(__name__)
+
+
+def _github_repo_parts() -> Tuple[str, str]:
+    owner, slash, repo = GITHUB_DBC_REPO.partition("/")
+    if not slash or not owner or not repo:
+        raise ValueError("GITHUB_DBC_REPO must be owner/repo")
+    return owner, repo
+
+
+def _github_headers() -> dict:
+    h = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if GITHUB_DBC_TOKEN:
+        h["Authorization"] = f"Bearer {GITHUB_DBC_TOKEN}"
+    return h
+
+
+def list_github_dbc_paths() -> Tuple[List[str], Optional[str]]:
+    """
+    List .dbc blob paths under GITHUB_DBC_REPO at GITHUB_DBC_BRANCH (recursive tree).
+    Returns (paths_sorted, error_message_or_none).
+    """
+    if not GITHUB_DBC_TOKEN:
+        return [], None
+    try:
+        owner, repo = _github_repo_parts()
+    except ValueError as e:
+        return [], str(e)
+    url = f"https://api.github.com/repos/{owner}/{repo}/git/trees/{GITHUB_DBC_BRANCH}?recursive=1"
+    try:
+        r = requests.get(url, headers=_github_headers(), timeout=20)
+        if r.status_code != 200:
+            return [], f"GitHub tree {r.status_code}: {r.text[:300]}"
+        tree = r.json().get("tree") or []
+        paths = [
+            x["path"]
+            for x in tree
+            if x.get("type") == "blob" and str(x.get("path", "")).lower().endswith(".dbc")
+        ]
+        return sorted(paths), None
+    except requests.RequestException as e:
+        return [], str(e)
+
+
+def download_github_dbc_to_temp(repo_path: str) -> str:
+    """Download a repo-relative .dbc path to a temp file; return filesystem path."""
+    owner, repo = _github_repo_parts()
+    enc = quote(repo_path, safe="")
+    url = f"https://api.github.com/repos/{owner}/{repo}/contents/{enc}?ref={GITHUB_DBC_BRANCH}"
+    r = requests.get(
+        url,
+        headers={**_github_headers(), "Accept": "application/vnd.github.raw"},
+        timeout=120,
+    )
+    if r.status_code != 200:
+        raise RuntimeError(f"GitHub download {r.status_code}: {r.text[:400]}")
+    import tempfile
+
+    fd, tmp = tempfile.mkstemp(suffix=".dbc")
+    try:
+        os.write(fd, r.content)
+    finally:
+        os.close(fd)
+    return tmp
 
 
 def allowed_file(filename):
@@ -101,6 +172,24 @@ def index():
     )
 
 
+@app.route("/dbc/list", methods=["GET"])
+def dbc_list():
+    """List .dbc files from the configured GitHub repo (token never exposed to the client)."""
+    if not GITHUB_DBC_TOKEN:
+        return jsonify(
+            {
+                "token_configured": False,
+                "items": [],
+                "message": "GITHUB_DBC_TOKEN is not set; using optional custom upload or container default DBC.",
+            }
+        )
+    paths, err = list_github_dbc_paths()
+    if err:
+        error_logger.warning("dbc_list GitHub error: %s", err)
+        return jsonify({"token_configured": True, "items": [], "error": err})
+    return jsonify({"token_configured": True, "items": paths, "error": None})
+
+
 @app.route("/create-bucket", methods=["POST"])
 def create_bucket():
     """Create a new table (season) inside INFLUXDB_DATABASE, not a new InfluxDB database."""
@@ -146,18 +235,62 @@ def upload_file():
         bucket = request.form.get("bucket")
         if not bucket or bucket == "":
             return "No Bucket Provided", 400
-        
-        # Handle optional custom DBC file
+
+        dbc_github_path = (request.form.get("dbc_github_path") or "").strip()
         dbc_temp_path = None
         dbc_file = request.files.get("dbc")
-        if dbc_file and dbc_file.filename:
-            if not dbc_file.filename.lower().endswith(".dbc"):
-                return "Invalid DBC file type. Only .dbc files allowed.", 400
-            import tempfile
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".dbc") as tmp:
-                dbc_file.save(tmp)
-                dbc_temp_path = tmp.name
-            error_logger.info(f"Custom DBC uploaded: {dbc_file.filename} -> {dbc_temp_path}")
+        team_paths, _team_err = list_github_dbc_paths()
+        token_on = bool(GITHUB_DBC_TOKEN)
+
+        if token_on:
+            if dbc_github_path:
+                if dbc_github_path not in team_paths:
+                    return jsonify({"error": "Invalid or unknown team DBC path; refresh the page and pick again."}), 400
+                try:
+                    dbc_temp_path = download_github_dbc_to_temp(dbc_github_path)
+                except Exception as e:
+                    error_logger.error(e)
+                    return jsonify({"error": f"Could not download DBC from GitHub: {e}"}), 400
+                error_logger.info("DBC from GitHub: %s -> %s", dbc_github_path, dbc_temp_path)
+            elif dbc_file and dbc_file.filename:
+                if not dbc_file.filename.lower().endswith(".dbc"):
+                    return jsonify({"error": "Invalid DBC file type. Only .dbc files allowed."}), 400
+                import tempfile
+
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".dbc") as tmp:
+                    dbc_file.save(tmp)
+                    dbc_temp_path = tmp.name
+                error_logger.info("Custom DBC uploaded: %s -> %s", dbc_file.filename, dbc_temp_path)
+            else:
+                if len(team_paths) >= 1:
+                    return (
+                        jsonify(
+                            {
+                                "error": "Select a team DBC from the list or upload a custom .dbc file.",
+                            }
+                        ),
+                        400,
+                    )
+                return (
+                    jsonify(
+                        {
+                            "error": "No .dbc files found in the team repo; upload a custom .dbc file.",
+                        }
+                    ),
+                    400,
+                )
+        else:
+            if dbc_github_path:
+                return jsonify({"error": "GitHub DBC is not configured on this server."}), 400
+            if dbc_file and dbc_file.filename:
+                if not dbc_file.filename.lower().endswith(".dbc"):
+                    return "Invalid DBC file type. Only .dbc files allowed.", 400
+                import tempfile
+
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".dbc") as tmp:
+                    dbc_file.save(tmp)
+                    dbc_temp_path = tmp.name
+                error_logger.info(f"Custom DBC uploaded: {dbc_file.filename} -> {dbc_temp_path}")
 
         # Handle multiple CSV files
         files = request.files.getlist("file")
