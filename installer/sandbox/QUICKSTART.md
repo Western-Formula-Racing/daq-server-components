@@ -6,7 +6,7 @@ This guide helps you set up and test the AI-powered code generation feature for 
 
 - Docker and Docker Compose installed
 - Cohere API key (get one at https://cohere.com)
-- InfluxDB with telemetry data (or use the sample data)
+- TimescaleDB with telemetry data (or use the sample data)
 
 ## Setup Steps
 
@@ -47,7 +47,7 @@ From the `installer/` directory:
 docker compose up -d
 
 # Or start only the AI/sandbox services for testing
-docker compose up -d influxdb3 sandbox code-generator
+docker compose up -d postgresdb3 sandbox code-generator
 ```
 
 ### 3. Verify Services are Running
@@ -98,7 +98,7 @@ In your Slack channel:
 
 ## Example Queries for Telemetry Data
 
-Once you have telemetry data in InfluxDB, try these prompts:
+Once you have telemetry data in TimescaleDB, try these prompts:
 
 **Basic Queries:**
 ```
@@ -126,12 +126,12 @@ Once you have telemetry data in InfluxDB, try these prompts:
 1. **User sends prompt** via Slack (`!agent`) or HTTP API
 2. **Code Generator**:
    - Receives prompt
-   - Loads system prompt with InfluxDB connection details
+   - Loads system prompt with TimescaleDB connection details
    - Calls Cohere AI to generate Python code
 3. **Custom Sandbox**:
    - Receives generated code
    - Executes in isolated Python subprocess
-   - Has internet access for InfluxDB queries and API calls
+   - Has internet access for TimescaleDB queries and API calls
    - Returns stdout, stderr, and generated files
 4. **On Success**:
    - Returns output text and generated files (plots, data)
@@ -174,9 +174,9 @@ docker compose exec code-generator cat generated_sandbox_code.py
 - Increase retries: `MAX_RETRIES=3` in `.env`
 - View the system prompt: `cat installer/sandbox/prompt-guide.txt`
 
-**"No data returned from InfluxDB"**
+**"No data returned from TimescaleDB"**
 - Verify database name: `INFLUXDB_DATABASE=telemetry` in `.env`
-- Check InfluxDB has data: http://localhost:8888
+- Check TimescaleDB has data: http://localhost:8888
 - Verify token is correct: `INFLUXDB_ADMIN_TOKEN` in `.env`
 
 ## Architecture
@@ -201,7 +201,7 @@ docker compose exec code-generator cat generated_sandbox_code.py
 ┌─────────────────────────────┐
 │  Custom Sandbox             │
 │  • Execute code             │
-│  • Query InfluxDB (remote)  │
+│  • Query TimescaleDB (remote)  │
 │  • Generate plots           │
 └──────────┬────────────────┘
            │ Results (stdout, files)
@@ -224,18 +224,18 @@ docker compose exec code-generator cat generated_sandbox_code.py
 ## Security Notes
 
 - Code executes in isolated Python subprocess with configurable timeout
-- **Has internet access** for InfluxDB queries via `slicks` and API calls
+- **Has internet access** for TimescaleDB queries via `slicks` and API calls
 - Maximum runtime: 30 seconds (configurable via SANDBOX_TIMEOUT)
 - Maximum file size: 5 MB per file (configurable via SANDBOX_MAX_FILE_MB)
 - Maximum files: 10 files (configurable via SANDBOX_MAX_FILES)
-- InfluxDB credentials passed via environment only (consumed by `slicks` automatically)
+- TimescaleDB credentials passed via environment only (consumed by `slicks` automatically)
 - Generated code is logged for audit purposes
 
 ## Resources
 
 - Cohere Documentation: https://docs.cohere.com
 - Custom Sandbox Source: /Users/hz/GitHub/sandbox
-- InfluxDB 3 Docs: https://docs.influxdata.com/influxdb/
+- TimescaleDB Docs: https://docs.postgresdata.com/postgresdb/
 - Slack API: https://api.slack.com
 
 ## Support

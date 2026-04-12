@@ -4,64 +4,35 @@ networks:
 
 volumes:
   grafana-storage:
-  influxdb3-data:
-  influxdb3-explorer-db:
-
+  timescaledb-data:
 
 services:
-  influxdb3:
-    image: influxdb:3-core
-    container_name: influxdb3
-    command: >
-      influxdb3 serve --node-id influxdb3-node --object-store file --data-dir /var/lib/influxdb3 --admin-token-file /influxdb3-admin-token.json --wal-snapshot-size 10 --snapshotted-wal-files-to-keep 10
+  # ── TimescaleDB (primary time-series store) ─────────────────────────────────
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: timescaledb
     restart: unless-stopped
     ports:
-      - "9000:8181"
+      - "5432:5432"
     environment:
-      INFLUX_URL: "${INFLUXDB_URL:-http://influxdb3:8181}"
-      INFLUXDB_INIT_USERNAME: "${INFLUXDB_INIT_USERNAME:-admin}"
-      INFLUXDB_INIT_PASSWORD: "${INFLUXDB_INIT_PASSWORD:-dev-influxdb-password}"
+      POSTGRES_USER: "${POSTGRES_USER:-wfr}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-wfr_password}"
+      POSTGRES_DB: "${POSTGRES_DB:-wfr}"
     volumes:
-      - influxdb3-data:/var/lib/influxdb3
-      - ./influxdb3-admin-token.json:/influxdb3-admin-token.json:ro
+      - timescaledb-data:/var/lib/postgresql/data
+      - ./timescaledb/init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
     networks:
       - datalink
-    ulimits:
-      nofile:
-        soft: 65536
-        hard: 65536
     healthcheck:
-      test: [ "CMD-SHELL", "timeout 1 bash -c 'cat < /dev/null > /dev/tcp/localhost/8181' || exit 1" ]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wfr} -d ${POSTGRES_DB:-wfr}"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 300s
+      start_period: 30s
     deploy:
       resources:
         limits:
-          memory: 4096M
-
-  influxdb3-explorer:
-    image: influxdata/influxdb3-ui:latest
-    container_name: influxdb3-explorer
-    restart: unless-stopped
-    pull_policy: always
-    ports:
-      - "8888:80"
-    environment:
-      SESSION_SECRET_KEY: "${EXPLORER_SESSION_SECRET:-dev-explorer-session-key}"
-    volumes:
-      - influxdb3-explorer-db:/db:rw
-      - ./influxdb3-explorer-config:/app-root/config:ro
-    command: [ "--mode=admin" ]
-    networks:
-      - datalink
-    depends_on:
-      - influxdb3
-    deploy:
-      resources:
-        limits:
-          memory: 256M
+          memory: 2048M
 
   grafana:
     image: grafana/grafana
@@ -90,6 +61,9 @@ services:
       GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
       GF_PATHS_PROVISIONING: /etc/grafana/provisioning
       GF_DASHBOARDS_MIN_REFRESH_INTERVAL: 100ms
+      # Passed through so datasource provisioning can expand $POSTGRES_USER / $POSTGRES_PASSWORD
+      POSTGRES_USER: "${POSTGRES_USER:-wfr}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-wfr_password}"
     volumes:
       - grafana-storage:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
@@ -112,8 +86,6 @@ services:
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
       SLACK_DEFAULT_CHANNEL: ${SLACK_DEFAULT_CHANNEL:-C0123456789}
       ENABLE_SLACK: ${ENABLE_SLACK:-false}
-      INFLUXDB_ADMIN_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-apiv3_dev-influxdb-admin-token}"
-      INFLUXDB_URL: "${INFLUXDB_URL:-http://influxdb3:8181}"
       CODE_GENERATOR_URL: "http://code-generator:3030"
     volumes:
       - ./slackbot:/app
@@ -158,36 +130,6 @@ services:
         limits:
           memory: 512M
 
-  startup-data-loader:
-    build: ./startup-data-loader
-    container_name: startup-data-loader
-    restart: "no"
-    environment:
-      INFLUXDB_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-apiv3_dev-influxdb-admin-token}"
-      INFLUXDB_URL: "${INFLUXDB_URL:-http://influxdb3:8181}"
-      INFLUXDB_BUCKET: "${INFLUX_DATABASE:-WFR26}"
-      # Removed BACKFILL env var as it's now the default/only mode
-      CSV_RESTART_INTERVAL: "${CSV_RESTART_INTERVAL:-10}"
-      # Fixed container path, host path remains flexible
-      DBC_FILE_PATH: "/installer/example.dbc"
-    volumes:
-      # Host can name DBC file anything they want
-      - ./${DBC_FILE_PATH:-example.dbc}:/installer/example.dbc:ro
-      - ./startup-data-loader/data:/data:ro
-    working_dir: /app
-    networks:
-      - datalink
-    depends_on:
-      - influxdb3
-    command: >
-      sh -c "echo 'Waiting additional 5 seconds for InfluxDB 3 to stabilize...' &&
-             sleep 5 &&
-             python load_data.py"
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-
   file-uploader:
     build: ./file-uploader
     container_name: file-uploader
@@ -201,8 +143,7 @@ services:
     networks:
       - datalink
     environment:
-      - INFLUXDB_TOKEN=${INFLUXDB_ADMIN_TOKEN:-apiv3_dev-influxdb-admin-token}
-      - INFLUXDB_URL=${INFLUXDB_URL:-http://influxdb3:8181}
+      - POSTGRES_DSN=${POSTGRES_DSN:-postgresql://wfr:wfr_password@timescaledb:5432/wfr}
       - FILE_UPLOADER_WEBHOOK_URL=${FILE_UPLOADER_WEBHOOK_URL:-}
       # Fixed container path only
       - DBC_FILE_PATH=/installer/example.dbc
@@ -210,6 +151,12 @@ services:
       - GITHUB_DBC_TOKEN=${GITHUB_DBC_TOKEN:-}
       - GITHUB_DBC_REPO=${GITHUB_DBC_REPO:-Western-Formula-Racing/DBC}
       - GITHUB_DBC_BRANCH=${GITHUB_DBC_BRANCH:-main}
+      # Slack live progress updates (edits message in-place every 10%)
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
+      - SLACK_DEFAULT_CHANNEL=${SLACK_DEFAULT_CHANNEL:-}
+    depends_on:
+      timescaledb:
+        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -224,10 +171,7 @@ services:
     env_file:
       - .env
     environment:
-      # Ensure slicks child processes can self-configure
-      INFLUX_URL: ${INFLUXDB_URL:-http://influxdb3:8181}
-      INFLUX_TOKEN: ${INFLUXDB_ADMIN_TOKEN}
-      INFLUX_DB: ${INFLUX_DATABASE:-WFR26}
+      POSTGRES_DSN: "${POSTGRES_DSN:-postgresql://wfr:wfr_password@timescaledb:5432/wfr}"
       SEASONS: "${SEASONS:-WFR26:2026}"
     ports:
       - "8000:8000"
@@ -238,7 +182,7 @@ services:
     networks:
       - datalink
     depends_on:
-      influxdb3:
+      timescaledb:
         condition: service_healthy
     deploy:
       resources:
@@ -253,10 +197,7 @@ services:
     env_file:
       - .env
     environment:
-      # Ensure slicks child processes can self-configure
-      INFLUX_URL: ${INFLUXDB_URL:-http://influxdb3:8181}
-      INFLUX_TOKEN: ${INFLUXDB_ADMIN_TOKEN}
-      INFLUX_DB: ${INFLUX_DATABASE:-WFR26}
+      POSTGRES_DSN: "${POSTGRES_DSN:-postgresql://wfr:wfr_password@timescaledb:5432/wfr}"
       SEASONS: "${SEASONS:-WFR26:2026}"
       SCAN_DAILY_TIME: "${SCAN_DAILY_TIME}"
     command: [ "python", "-m", "backend.periodic_worker" ]
@@ -279,10 +220,8 @@ services:
     restart: unless-stopped
     environment:
       HEALTH_MONITOR_INTERVAL_SECONDS: "${HEALTH_MONITOR_INTERVAL_SECONDS:-60}"
-      INFLUXDB_URL: "${INFLUXDB_URL:-http://influxdb3:8181}"
-      INFLUXDB_ADMIN_TOKEN: "${INFLUXDB_ADMIN_TOKEN:-apiv3_dev-influxdb-admin-token}"
-      INFLUXDB_HEALTH_DATABASE: "${INFLUXDB_HEALTH_DATABASE:-monitoring}"
-      HEALTH_MONITOR_INFLUXDB_CONTAINER: "${HEALTH_MONITOR_INFLUXDB_CONTAINER:-influxdb3}"
+      POSTGRES_DSN: "${POSTGRES_DSN:-postgresql://wfr:wfr_password@timescaledb:5432/wfr}"
+      HEALTH_MONITOR_TIMESCALEDB_CONTAINER: "${HEALTH_MONITOR_TIMESCALEDB_CONTAINER:-timescaledb}"
       HEALTH_MONITOR_SCANNER_CONTAINER: "${HEALTH_MONITOR_SCANNER_CONTAINER:-data-downloader-scanner}"
       HEALTH_MONITOR_SCANNER_API_URL: "${HEALTH_MONITOR_SCANNER_API_URL:-http://data-downloader-api:8000}"
     volumes:
@@ -290,7 +229,7 @@ services:
     networks:
       - datalink
     depends_on:
-      influxdb3:
+      timescaledb:
         condition: service_healthy
       data-downloader-api:
         condition: service_started
@@ -319,7 +258,7 @@ services:
         limits:
           memory: 128M
 
-  # Custom sandbox execution container (with internet access for InfluxDB queries)
+  # Custom sandbox execution container
   sandbox:
     build:
       context: ./sandbox
@@ -331,12 +270,11 @@ services:
       SANDBOX_TIMEOUT: 120
       SANDBOX_MAX_FILE_MB: 20
       SANDBOX_MAX_FILES: 20
-      # slicks package reads these env vars automatically
-      INFLUX_URL: ${INFLUXDB_URL:-http://influxdb3:8181}
-      INFLUX_TOKEN: ${INFLUXDB_ADMIN_TOKEN}
-      INFLUX_DB: ${INFLUXDB_DATABASE:-telemetry}
+      # TimescaleDB connection for user scripts (follow-up: add psycopg2 boilerplate)
+      POSTGRES_DSN: "${POSTGRES_DSN:-postgresql://wfr:wfr_password@timescaledb:5432/wfr}"
     depends_on:
-      - influxdb3
+      timescaledb:
+        condition: service_healthy
     networks:
       - datalink
     deploy:
@@ -357,7 +295,8 @@ services:
       GRAFANA_API_TOKEN: "${GRAFANA_API_TOKEN}"
       GRAFANA_FOLDER_UID: "${GRAFANA_FOLDER_UID:-}"
       CORS_ORIGIN: "http://localhost:3000,https://pecan.westernformularacing.org,https://pecan-dev.westernformularacing.org"
-      INFLUX_TABLE: "${INFLUX_DATABASE:-WFR26}"
+      # Season table name for dashboard SQL generation
+      DEFAULT_SEASON_TABLE: "${DEFAULT_SEASON_TABLE:-wfr26}"
     depends_on:
       - grafana
     networks:
@@ -380,13 +319,11 @@ services:
       SANDBOX_URL: "http://sandbox:8080"
       MAX_RETRIES: ${MAX_RETRIES:-2}
       CODE_GEN_PORT: 3030
-      # slicks package reads these env vars automatically
-      INFLUX_URL: ${INFLUXDB_URL:-http://influxdb3:8181}
-      INFLUX_TOKEN: ${INFLUXDB_ADMIN_TOKEN}
-      INFLUX_DB: ${INFLUXDB_DATABASE:-telemetry}
+      # TimescaleDB connection for code generation context
+      POSTGRES_DSN: "${POSTGRES_DSN:-postgresql://wfr:wfr_password@timescaledb:5432/wfr}"
     depends_on:
       - sandbox
-      - influxdb3
+      - timescaledb
     volumes:
       - ./sandbox/generated:/app/generated
       - ./sandbox/prompt-guide.txt:/app/prompt-guide.txt

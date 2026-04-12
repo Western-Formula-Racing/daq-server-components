@@ -4,13 +4,13 @@ This project packages the DAQ data-downloader experience into a small stack:
 
 - **React frontend** (`frontend/`) for browsing historic runs, triggering scans, and annotating runs.
 - **FastAPI backend** (`backend/`) that reads/writes JSON state, exposes REST endpoints, and can launch scans on demand.
-- **Scanner worker** (separate Docker service) that periodically runs the InfluxDB availability scan plus the unique sensor collector and exports the results to `data/runs.json` and `data/sensors.json`.
+- **Scanner worker** (separate Docker service) that periodically runs the TimescaleDB availability scan plus the unique sensor collector and exports the results to `data/runs.json` and `data/sensors.json`.
 
 Both JSON files are shared through the `./data` directory so every service (frontend, API, scanner) sees the latest state. Notes added in the UI are stored in the same JSON payload next to the run entry.
 
 ## Getting started
 
-1. Duplicate the sample env file and fill in the InfluxDB credentials:
+1. Duplicate the sample env file and fill in the TimescaleDB credentials:
    ```bash
    cp .env.example .env
    ```
@@ -27,7 +27,7 @@ sequenceDiagram
     participant Service as DataDownloaderService
     participant Scanner as server_scanner.py
     participant Slicks as slicks library
-    participant InfluxDB as InfluxDB3
+    participant TimescaleDB as TimescaleDB3
     participant Storage as JSON Storage
 
     Worker->>Service: run_full_scan(source="periodic")
@@ -35,17 +35,17 @@ sequenceDiagram
 
     loop For each season (WFR25, WFR26)
         Service->>Scanner: scan_runs(ScannerConfig{<br/>database: season.database,<br/>year: season.year})
-        Scanner->>Slicks: connect_influxdb3(url, token, db)
+        Scanner->>Slicks: connect_timescaledb(url, token, db)
         Scanner->>Slicks: scan_data_availability(start, end, table, bin_size)
 
         loop Adaptive scanning (inside slicks)
-            Slicks->>InfluxDB: Try query_grouped_bins()<br/>(DATE_BIN + COUNT(*))
+            Slicks->>TimescaleDB: Try query_grouped_bins()<br/>(DATE_BIN + COUNT(*))
             alt Success
-                InfluxDB-->>Slicks: Return bins with counts
+                TimescaleDB-->>Slicks: Return bins with counts
             else Failure (timeout/size)
                 Slicks->>Slicks: Binary subdivision
-                Slicks->>InfluxDB: query_exists_per_bin()<br/>(SELECT 1 LIMIT 1 per bin)
-                InfluxDB-->>Slicks: Return existence flags
+                Slicks->>TimescaleDB: query_exists_per_bin()<br/>(SELECT 1 LIMIT 1 per bin)
+                TimescaleDB-->>Slicks: Return existence flags
             end
         end
 

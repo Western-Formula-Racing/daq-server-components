@@ -55,14 +55,12 @@ cleanup() {
 trap 'cleanup $?' EXIT
 
 ENABLED_SERVICES=(
-  influxdb3
-  influxdb3-explorer
+  timescaledb
   grafana
   data-downloader-api
   data-downloader-scanner
   data-downloader-frontend
   lap-detector
-  startup-data-loader
   file-uploader
 )
 
@@ -104,14 +102,7 @@ while (( SECONDS < ready_timeout_seconds )); do
     status=$(echo "$container_info" | awk '{print $2}')
     code=$(echo "$container_info" | awk '{print $3}')
 
-    if [[ "$service" == "startup-data-loader" ]]; then
-      if [[ "$status" == "exited" && "$code" -eq 0 ]]; then
-        ready_summary+=("$service=exited(0)")
-      else
-        not_ready+=("$service=$status/$code")
-      fi
-      continue
-    fi
+
 
     if [[ "$status" != "running" ]]; then
       not_ready+=("$service=$status")

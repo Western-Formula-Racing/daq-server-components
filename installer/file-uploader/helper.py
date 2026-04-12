@@ -1,1051 +1,513 @@
-import zipfile, csv, io, time, asyncio, tempfile, subprocess, shutil, atexit
-from datetime import datetime, timedelta, timezone
-from typing import List, Optional, IO, Callable, Generator
-from zoneinfo import ZoneInfo
-from dataclasses import dataclass
-from pathlib import Path
-from influxdb_client.client.influxdb_client import InfluxDBClient
-from influxdb_client.client.write.point import Point
-from influxdb_client.client.write_api import WriteOptions, ASYNCHRONOUS
-import os
-import slicks
+"""
+CANTimescaleStreamer — write CAN CSV data to TimescaleDB.
 
-# Global list to track temp directories for emergency cleanup
-_temp_directories = []
+Design:
+- Schema is fully expandable: signal columns are added lazily via
+  ALTER TABLE ... ADD COLUMN IF NOT EXISTS.  No DBC signals are
+  hardcoded anywhere.
+- Writes use psycopg2 execute_values() for efficient batched inserts.
+- One connection is held per streamer instance (not a pool, because
+  uploads are single-user-at-a-time).
+- Async producers / sync consumers: CSV parsing is async-friendly but
+  actual DB writes are synchronous (Postgres is fast enough at this
+  write rate).
+"""
+
+import csv
+import io
+import os
+import time
+import asyncio
+import tempfile
+import shutil
+import atexit
+import glob
+from datetime import datetime, timedelta, timezone
+from typing import Callable, Generator, List, Optional, Set, Tuple
+from zoneinfo import ZoneInfo
+from pathlib import Path
+
+import psycopg2
+import psycopg2.extras
+import psycopg2.pool
+import slicks
+import threading
+import concurrent.futures
+from contextlib import contextmanager
+
+# ---------------------------------------------------------------------------
+# Temp-dir rolling cleanup (survives crashes)
+# ---------------------------------------------------------------------------
+_temp_directories: List[str] = []
+
 
 def _rolling_cleanup():
-    """Clean up temp files older than 6 hours."""
-    import glob
-    temp_patterns = ['/tmp/csv_upload_*', '/var/tmp/csv_upload_*']
-    current_time = time.time()
-    six_hours = 6 * 60 * 60  # 6 hours in seconds
-    
-    cleaned_count = 0
-    for pattern in temp_patterns:
-        for temp_dir in glob.glob(pattern):
+    """Remove upload temp dirs older than 6 hours."""
+    now = time.time()
+    six_hours = 6 * 3600
+    cleaned = 0
+    for pattern in ("/tmp/csv_upload_*", "/var/tmp/csv_upload_*"):
+        for d in glob.glob(pattern):
             try:
-                # Check if directory is older than 6 hours
-                dir_mtime = os.path.getmtime(temp_dir)
-                if current_time - dir_mtime > six_hours:
-                    shutil.rmtree(temp_dir, ignore_errors=True)
-                    cleaned_count += 1
-                    print(f"🧹 Purged old temp directory: {temp_dir}")
-            except Exception as e:
-                print(f"⚠️ Failed to purge {temp_dir}: {e}")
-    
-    if cleaned_count > 0:
-        print(f"🧹 Rolling cleanup: purged {cleaned_count} directories older than 6 hours")
+                if now - os.path.getmtime(d) > six_hours:
+                    shutil.rmtree(d, ignore_errors=True)
+                    cleaned += 1
+            except Exception:
+                pass
+    if cleaned:
+        print(f"🧹 Rolling cleanup: removed {cleaned} old temp directories")
 
-# Register rolling cleanup on process exit and run it once at startup
+
 atexit.register(_rolling_cleanup)
-_rolling_cleanup()  # Clean up any old temp files from previous runs
+_rolling_cleanup()
 
+
+# ---------------------------------------------------------------------------
+# Path helpers
+# ---------------------------------------------------------------------------
 
 def _safe_csv_temp_path(temp_dir: str, relative_csv_path: str) -> str:
-    """Resolve temp_dir + relative path for a CSV; reject zip-slip / traversal."""
+    """Resolve and validate a relative CSV path under temp_dir."""
     base = os.path.abspath(temp_dir)
     rel = relative_csv_path.replace("\\", "/").lstrip("/")
-    if not rel or rel.startswith("/"):
-        raise ValueError("invalid relative path")
+    if not rel:
+        raise ValueError("empty relative path")
     for part in rel.split("/"):
         if part == "..":
             raise ValueError("path traversal in relative path")
     joined = os.path.normpath(os.path.join(base, rel))
     if joined != base and not joined.startswith(base + os.sep):
         raise ValueError("path escapes upload temp directory")
-    parent = os.path.dirname(joined)
-    if parent != base:
-        os.makedirs(parent, exist_ok=True)
+    os.makedirs(os.path.dirname(joined), exist_ok=True)
     return joined
 
 
 def _iter_csv_files_under_dir(csv_dir: str):
-    """Yield (full_path, basename) for every .csv under csv_dir (recursive)."""
+    """Yield (full_path, basename) for every .csv under csv_dir."""
     base = os.path.abspath(csv_dir)
     for root, _dirs, files in os.walk(base):
-        for name in files:
-            if not name.lower().endswith(".csv"):
-                continue
-            yield os.path.join(root, name), name
+        for name in sorted(files):
+            if name.lower().endswith(".csv"):
+                yield os.path.join(root, name), name
 
 
-if os.getenv("DEBUG") is None:
-    from dotenv import load_dotenv
+# ---------------------------------------------------------------------------
+# Core streamer
+# ---------------------------------------------------------------------------
 
-    load_dotenv()
+class CANTimescaleStreamer:
+    """
+    Stream CAN CSV data into a TimescaleDB hypertable.
 
-@dataclass
-class ProgressStats:
-    total_rows: int = 0
-    processed_rows: int = 0
-    failed_rows: int = 0
-    start_time: float = 0
-    pending_writes: int = 0  # Track async operations in flight
+    The table must already exist with at least (time, message_name, can_id).
+    Signal columns are created on demand — no DBC pre-scan required.
+    """
 
-
-class CANInfluxStreamer:
+    TZ_TORONTO = ZoneInfo("America/Toronto")
 
     def __init__(
-        self, database: str, table: str, batch_size: int = 500, max_concurrent_uploads: int = 5,
-        enable_progress_counting: bool = True, max_queue_size: int = 100,
-        rate_limit_delay: float = 0.01, max_retries: int = 3,
-        adaptive_backoff: bool = True, dbc_path: Optional[str] = None
+        self,
+        postgres_dsn: str,
+        table: str,                       # e.g. "wfr26"
+        dbc_path: Optional[str] = None,
+        batch_size: int = 500,
     ):
-
+        self.postgres_dsn = postgres_dsn
+        self.table = table.lower()        # Postgres names are lowercase
         self.batch_size = batch_size
-        self.max_concurrent_uploads = max_concurrent_uploads
-        # InfluxDB 3 database; the Python client still names this parameter `bucket` on write_api.write().
-        self.database = database
-        self.table = table  # Table / measurement (e.g. season WFR26)
-        self.enable_progress_counting = enable_progress_counting
-        self.max_queue_size = max_queue_size
-        self.rate_limit_delay = rate_limit_delay
-        self.max_retries = max_retries
-        self.adaptive_backoff = adaptive_backoff
-        self._consecutive_failures = 0
-        self._last_error_time = 0
-        self._write_callbacks = {}  # Track async write callbacks
-        self._callback_lock = asyncio.Lock()
-        self.org = "WFR"
-        self.tz_toronto = ZoneInfo("America/Toronto")
-        self.url = os.getenv("INFLUXDB_URL", "http://influxdb3:8181")
 
+        # DBC parsing (CAN decoding only — no DB dependency)
         resolved_dbc = Path(dbc_path) if dbc_path else slicks.resolve_dbc_path()
         self.db = slicks.load_dbc(resolved_dbc)
         print(f"📁 Loaded DBC file: {resolved_dbc}")
 
-        self.client = InfluxDBClient(
-            url=self.url,
-            token=os.getenv("INFLUXDB_TOKEN") or "",
-            org=self.org,
-            enable_gzip=True,
-        )
-        # Setup async write API with success/error callbacks
-        def success_callback(conf, data):
-            # Called when write succeeds
-            self._on_write_success(conf, data)
-            
-        def error_callback(conf, data, error):
-            # Called when write fails  
-            self._on_write_error(conf, data, error)
-            
-        def retry_callback(conf, data, error):
-            # Called when write is retried
-            self._on_write_retry(conf, data, error)
+        # Postgres connection pooling
+        self._pool = psycopg2.pool.ThreadedConnectionPool(1, 10, self.postgres_dsn)
 
-        self.write_api = self.client.write_api(
-            write_options=ASYNCHRONOUS,
-            success_callback=success_callback,
-            error_callback=error_callback,
-            retry_callback=retry_callback
-        )
-
-    def _save_upload_to_disk(self, file: IO[bytes], suffix: str = ".zip") -> str:
-        """Save uploaded file to temporary location on disk and return the path."""
-        # Create temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
-            # Reset file position to beginning
-            try:
-                file.seek(0)
-            except Exception:
-                pass
-            
-            # Copy file content to disk
-            shutil.copyfileobj(file, temp_file)
-            temp_file_path = temp_file.name
-            
-        return temp_file_path
-    
-    def _extract_zip_to_temp_dir(self, zip_path: str) -> str:
-        """Extract zip file to temporary directory using Linux unzip command."""
-        # Create temporary directory
-        temp_dir = tempfile.mkdtemp(prefix="can_data_")
+        # Cache of signal column names we have already ensured exist in Postgres.
+        # Avoids ALTER TABLE round-trips for signals already seen this session.
+        self._known_signals: Set[str] = set()
+        self._signals_lock = threading.Lock()
         
+        # Thread lock for progress bar
+        self._progress_lock = threading.Lock()
+
+    # ------------------------------------------------------------------
+    # Connection management
+    # ------------------------------------------------------------------
+
+    @contextmanager
+    def _get_conn(self):
+        conn = self._pool.getconn()
         try:
-            # Use Linux unzip command to extract
-            result = subprocess.run(
-                ["unzip", "-j", zip_path, "*.csv", "-d", temp_dir],
-                check=True,
-                capture_output=True,
-                text=True
-            )
-            print(f"📁 Extracted zip to: {temp_dir}")
-            return temp_dir
-        except subprocess.CalledProcessError as e:
-            # Clean up on error
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            raise RuntimeError(f"Failed to extract zip file: {e.stderr}") from e
-    
-    def _cleanup_temp_files(self, *paths: str):
-        """Simple cleanup - just try to remove, don't worry about failures."""
-        for path in paths:
-            if path and os.path.exists(path):
-                try:
-                    if os.path.isdir(path):
-                        shutil.rmtree(path, ignore_errors=True)
-                        print(f"🧹 Cleaned up directory: {path}")
-                    else:
-                        os.unlink(path)
-                        print(f"🧹 Cleaned up file: {path}")
-                except Exception as e:
-                    print(f"⚠️ Cleanup failed for {path}: {e} (will be purged in 6 hours)")
-    
-    def count_total_messages_from_disk(self, csv_dir: str, estimate: bool = False) -> int:
-        """Count total messages from CSV files on disk."""
-        if not self.enable_progress_counting:
-            return 0
-            
-        total = 0
-        for file_path, filename in _iter_csv_files_under_dir(csv_dir):
-            # Filename must be a timestamp we can parse
-            try:
-                datetime.strptime(filename[:-4], "%Y-%m-%d-%H-%M-%S")
-            except ValueError:
-                continue  # Skip files that don't match expected format
-            sample_count = 0
-            valid_rows = 0
-            
-            try:
-                with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-                    reader = csv.reader(f)
-                    for row in reader:
-                        if estimate and sample_count > 1000:  # Sample first 1000 rows
-                            # Estimate based on file position
-                            file_size = os.path.getsize(file_path)
-                            file_pos = f.tell()
-                            if file_pos > 0:
-                                estimated_total = int((valid_rows * file_size) / file_pos)
-                                total += estimated_total
-                                break
-                        
-                        sample_count += 1
-                        # Basic validation same as original
-                        if len(row) < 11 or not row[0]:
-                            continue
-                        try:
-                            byte_values = [int(b) for b in row[3:11] if b]
-                        except Exception:
-                            continue
-                        if len(byte_values) != 8:
-                            continue
-                        try:
-                            msg_id = int(row[2])
-                            self.db.get_message_by_frame_id(msg_id)
-                        except Exception:
-                            continue
-                        total += 1
-                        valid_rows += 1
-            except Exception as e:
-                print(f"⚠️ Error counting messages in {filename}: {e}")
-                continue
-                
-        return total
+            conn.autocommit = False
+            yield conn
+        finally:
+            self._pool.putconn(conn)
 
-    def count_total_messages(self, file: IO[bytes], is_csv: bool = False, estimate: bool = False) -> int:
-        """Count total messages in file. If estimate=True, samples first portion for speed."""
-        if not self.enable_progress_counting:
-            return 0  # Skip counting entirely for very large files
-            
-        total = 0
-        # Ensure we're at the start for reading
+    def close(self):
         try:
-            file.seek(0)
-        except Exception:
-            pass
+            self._pool.closeall()
+        except Exception as e:
+            print(f"⚠️ Error closing DB pool: {e}")
 
-        if not is_csv:
-            with zipfile.ZipFile(file, "r") as z:
-                for file_info in z.infolist():
-                    if not file_info.filename.endswith(".csv"):
-                        continue
+    # ------------------------------------------------------------------
+    # Schema management — expandable columns
+    # ------------------------------------------------------------------
 
-                    # Filename must be a timestamp we can parse, same as process_file
-                    filename = os.path.basename(file_info.filename)
-                    try:
-                        datetime.strptime(filename[:-4], "%Y-%m-%d-%H-%M-%S")
-                    except ValueError:
-                        # Skip files that process_file would skip
-                        continue
-
-                    with z.open(file_info) as f:
-                        text_iter = (
-                            line.replace("\x00", "")
-                            for line in io.TextIOWrapper(
-                                f, encoding="utf-8", errors="replace", newline=""
-                            )
-                        )
-                        reader = csv.reader(text_iter)
-                        sample_count = 0
-                        valid_rows = 0
-                        for row in reader:
-                            if estimate and sample_count > 1000:  # Sample first 1000 rows
-                                # Estimate based on file size ratio
-                                file_pos = f.tell() if hasattr(f, 'tell') else 0
-                                if file_pos > 0:
-                                    estimated_total = int((valid_rows * file_info.file_size) / file_pos)
-                                    return estimated_total
-                                break
-                            sample_count += 1
-                            # Basic row shape + timestamp column present
-                            if len(row) < 11 or not row[0]:
-                                continue
-                            # Must have exactly 8 byte columns
-                            try:
-                                byte_values = [int(b) for b in row[3:11] if b]
-                            except Exception:
-                                continue
-                            if len(byte_values) != 8:
-                                continue
-                            # Message id must exist in the DBC
-                            try:
-                                msg_id = int(row[2])
-                                # Will raise if not found
-                                self.db.get_message_by_frame_id(msg_id)  # type:ignore
-                            except Exception:
-                                continue
-                            total += 1
-                            valid_rows += 1
-        else:
-            # Treat file as a binary stream containing a single CSV
-            wrapper_created = False
-            text_stream = file
-            if not isinstance(file, io.TextIOBase):
-                text_stream = io.TextIOWrapper(
-                    file, encoding="utf-8", errors="replace", newline=""
-                )
-                wrapper_created = True
-
-            # Best-effort filename parsing if available
-            filename = os.path.basename(getattr(file, "name", ""))
-            if filename.endswith(".csv"):
-                try:
-                    datetime.strptime(filename[:-4], "%Y-%m-%d-%H-%M-%S")
-                except ValueError:
-                    pass
-
-            try:
-                for line in text_stream:
-                    line = str(line).replace("\x00", "")
-                    row = next(csv.reader([line]))
-                    if len(row) < 11 or not row[0]:
-                        continue
-                    try:
-                        byte_values = [int(b) for b in row[3:11] if b]
-                    except Exception:
-                        continue
-                    if len(byte_values) != 8:
-                        continue
-
-                    try:
-                        msg_id = int(row[2])
-                        self.db.get_message_by_frame_id(msg_id)  # type:ignore
-                    except Exception:
-                        continue
-                    total += 1
-            finally:
-                if wrapper_created:
-                    # Prevent closing the underlying BytesIO when the wrapper is garbage collected
-                    try:
-                        text_stream.detach()  # type:ignore
-                    except:
-                        pass
-
-        # Rewind for subsequent reads
-        try:
-            file.seek(0)
-        except Exception:
-            pass
-        return total
-
-    def _parse_row_generator(
-        self, row: List[str], start_dt: datetime, filename: str
-    ) -> Generator[Point, None, None]:
-        """Decode one CSV row and yield a single wide Point (one per CAN message)."""
-        try:
-            if len(row) < 11 or not row[0]:
+    def _ensure_signal_columns(self, signal_names: Set[str]) -> None:
+        """
+        Add any signal columns that don't exist yet.
+        Uses IF NOT EXISTS so it's safe to call concurrently/repeatedly.
+        Only issues ALTER TABLE for columns not in self._known_signals.
+        """
+        with self._signals_lock:
+            new_signals = signal_names - self._known_signals
+            if not new_signals:
                 return
 
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    for sig in sorted(new_signals):
+                        cur.execute(
+                            f'ALTER TABLE {self.table} '
+                            f'ADD COLUMN IF NOT EXISTS "{sig}" DOUBLE PRECISION'
+                        )
+                conn.commit()
+            self._known_signals.update(new_signals)
+
+    # ------------------------------------------------------------------
+    # Season management helpers (called by app.py)
+    # ------------------------------------------------------------------
+
+    def ensure_season_table(self) -> None:
+        """
+        Create the hypertable for self.table if it doesn't exist.
+        Mirrors the create_season_table() SQL function in init.sql.
+        """
+        with self._get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(f"""
+                    CREATE TABLE IF NOT EXISTS {self.table} (
+                        time         TIMESTAMPTZ NOT NULL,
+                        message_name TEXT,
+                        can_id       INTEGER
+                    )
+                """)
+                # Make it a hypertable (no-op if already one)
+                cur.execute("""
+                    SELECT create_hypertable(%s, 'time',
+                        chunk_time_interval => INTERVAL '1 day',
+                        if_not_exists => TRUE)
+                """, (self.table,))
+                cur.execute(f"""
+                    ALTER TABLE {self.table} SET (
+                        timescaledb.compress,
+                        timescaledb.compress_segmentby = 'message_name',
+                        timescaledb.compress_orderby   = 'time DESC'
+                    )
+                """)
+                try:
+                    cur.execute("""
+                        SELECT add_compression_policy(%s, INTERVAL '2 days',
+                            if_not_exists => TRUE)
+                    """, (self.table,))
+                except Exception:
+                    pass  # Already set
+                cur.execute(
+                    f'CREATE INDEX IF NOT EXISTS {self.table}_time_idx '
+                    f'ON {self.table} (time DESC)'
+                )
+                # Dedup index: required for ON CONFLICT (time, message_name) DO UPDATE
+                cur.execute(
+                    f'CREATE UNIQUE INDEX IF NOT EXISTS {self.table}_dedup_idx '
+                    f'ON {self.table} (time, message_name)'
+                )
+            conn.commit()
+        print(f"✅ Season table '{self.table}' ready")
+
+    # ------------------------------------------------------------------
+    # Row parsing
+    # ------------------------------------------------------------------
+
+    def _parse_row(
+        self, row: List[str], start_dt: datetime
+    ) -> Optional[Tuple[datetime, str, int, dict]]:
+        """
+        Decode one CSV row.
+
+        CSV format:  relative_ms, CAN, can_id, b0, b1, b2, b3, b4, b5, b6, b7
+
+        Returns (timestamp, message_name, can_id, {signal: value}) or None.
+        """
+        try:
+            if len(row) < 11 or not row[0]:
+                return None
             relative_ms = int(row[0])
             can_id = int(row[2])
             byte_values = [int(b) for b in row[3:11] if b]
             if len(byte_values) != 8:
-                return
+                return None
 
-            timestamp = (start_dt + timedelta(milliseconds=relative_ms)).astimezone(timezone.utc)
+            timestamp = (
+                start_dt + timedelta(milliseconds=relative_ms)
+            ).astimezone(timezone.utc)
 
             frame = slicks.decode_frame(self.db, can_id, bytes(byte_values))
             if frame is None or not frame.signals:
-                return
+                return None
 
-            pt = (
-                Point(self.table)
-                .tag("messageName", frame.message_name)
-                .tag("canId", str(can_id))
-                .time(timestamp)
-            )
-            for sig_name, val in frame.signals.items():
-                pt = pt.field(sig_name, val)
-            yield pt
-
+            return (timestamp, frame.message_name, can_id, dict(frame.signals))
         except Exception:
-            return
+            return None
 
-    def _stream_csv_rows(self, text_iter, start_dt: datetime, filename: str):
-        """Generator that yields points one by one to avoid memory buildup"""
-        reader = csv.reader(text_iter)
-        for row in reader:
-            yield from self._parse_row_generator(row, start_dt, filename)
+    # ------------------------------------------------------------------
+    # Batch writing
+    # ------------------------------------------------------------------
 
-    async def process_csv_file_from_disk(
+    def _write_batch(
         self,
-        csv_file_path: str,
-        queue,
-        semaphore,
-    ):
-        """Process a single CSV file from disk."""
-        async with semaphore:
-            filename = os.path.basename(csv_file_path)
-            try:
-                start_dt = datetime.strptime(
-                    filename[:-4], "%Y-%m-%d-%H-%M-%S"
-                ).replace(tzinfo=self.tz_toronto)
-            except ValueError:
-                print(f"Skipping bad filename format: {filename}")
-                return
+        rows: List[Tuple[datetime, str, int, dict]],
+        on_progress: Optional[Callable[[int, int], None]] = None,
+        stats: Optional[dict] = None,
+    ) -> int:
+        """
+        Write a batch of decoded rows to TimescaleDB.
 
-            try:
-                with open(csv_file_path, 'r', encoding='utf-8', errors='replace') as f:
-                    # Stream points in smaller batches to prevent memory buildup
-                    batch = []
-                    rows_in_batch = 0
-                    
-                    reader = csv.reader(f)
-                    for row in reader:
-                        for point in self._parse_row_generator(row, start_dt, filename):
-                            batch.append(point)
-                            rows_in_batch += 1
-                            if len(batch) >= self.batch_size:
-                                # Wait for queue space if needed
-                                while queue.qsize() >= self.max_queue_size:
-                                    await asyncio.sleep(0.01)
-                                await queue.put((batch.copy(), rows_in_batch))
-                                batch.clear()
-                                rows_in_batch = 0
-                    
-                    if batch:
-                        await queue.put((batch, rows_in_batch))
-                        
-            except Exception as e:
-                print(f"❌ Error processing {filename}: {e}")
-    
-    async def process_file(
-        self,
-        file_info,
-        z: Optional[zipfile.ZipFile],
-        queue,
-        semaphore,
-        provided_filename: Optional[str] = None,
-    ):
-        if z:
-            async with semaphore:
-                filename = os.path.basename(file_info.filename)
-                try:
-                    start_dt = datetime.strptime(
-                        filename[:-4], "%Y-%m-%d-%H-%M-%S"
-                    ).replace(tzinfo=self.tz_toronto)
-                except ValueError:
-                    print(f"Skipping bad filename format: {filename}")
-                    return
+        Gathers unique signals in the batch, ensures columns exist,
+        then does a single execute_values() call.
 
-                with z.open(file_info) as f:
-                    text_iter = (
-                        line.replace("\x00", "")
-                        for line in io.TextIOWrapper(
-                            f, encoding="utf-8", errors="replace", newline=""
-                        )
-                    )
-                    
-                    # Stream points in smaller batches to prevent memory buildup
-                    batch = []
-                    rows_in_batch = 0
-                    for point in self._stream_csv_rows(text_iter, start_dt, filename):
-                        batch.append(point)
-                        rows_in_batch += 1
-                        if len(batch) >= self.batch_size:
-                            # Wait for queue space if needed to prevent unlimited memory growth
-                            while queue.qsize() >= self.max_queue_size:
-                                await asyncio.sleep(0.01)
-                            await queue.put((batch.copy(), rows_in_batch))
-                            batch.clear()
-                            rows_in_batch = 0
-                    if batch:
-                        await queue.put((batch, rows_in_batch))
+        Returns number of rows written.
+        """
+        if not rows:
+            return 0
+
+        # Collect all signal names that appear in this batch
+        batch_signals: Set[str] = set()
+        for _, _, _, signals in rows:
+            batch_signals.update(signals.keys())
+
+        # Lazily add any new columns
+        self._ensure_signal_columns(batch_signals)
+
+        # Build the INSERT statement with only the columns present in this batch
+        fixed_cols = ["time", "message_name", "can_id"]
+        sig_cols = sorted(batch_signals)
+        all_cols = fixed_cols + sig_cols
+
+        col_sql = ", ".join(f'"{c}"' for c in all_cols)
+
+        # ON CONFLICT DO UPDATE makes re-uploads idempotent:
+        # same timestamp+message = update signal values (useful if DBC is corrected).
+        if sig_cols:
+            update_sql = ", ".join(f'"{s}" = EXCLUDED."{s}"' for s in sig_cols)
+            update_sql += ', "can_id" = EXCLUDED."can_id"'
         else:
-            async with semaphore:
-                filename = os.path.basename(
-                    provided_filename or getattr(file_info, "name", "")
-                )
-                try:
-                    start_dt = datetime.strptime(
-                        filename[:-4], "%Y-%m-%d-%H-%M-%S"
-                    ).replace(tzinfo=self.tz_toronto)
-                except ValueError:
-                    print(f"Skipping bad filename format: {filename}")
-                    return
-                text_stream = io.TextIOWrapper(
-                    file_info, encoding="utf-8", errors="replace", newline=""
-                )
-                batch = []
-                rows_in_batch = 0
-                try:
-                    text_iter = (line.replace("\x00", "") for line in text_stream)
-                    for point in self._stream_csv_rows(text_iter, start_dt, filename):
-                        batch.append(point)
-                        rows_in_batch += 1
-                        if len(batch) >= self.batch_size:
-                            # Wait for queue space if needed to prevent unlimited memory growth
-                            while queue.qsize() >= self.max_queue_size:
-                                await asyncio.sleep(0.01)
-                            await queue.put((batch.copy(), rows_in_batch))
-                            batch.clear()
-                            rows_in_batch = 0
-                finally:
-                    try:
-                        text_stream.detach()
-                    except Exception:
-                        pass
-
-                if batch:
-                    await queue.put((batch, rows_in_batch))
-
-    async def _producer_from_disk(
-        self,
-        csv_dir: str,
-        queue: asyncio.Queue,
-    ):
-        """Producer that processes CSV files from disk directory."""
-        semaphore = asyncio.Semaphore(2)  # Limit concurrent file processing
-        
-        csv_files = list(_iter_csv_files_under_dir(csv_dir))
-        print(f"📄 Found {len(csv_files)} CSV files to process")
-        for csv_path, _basename in csv_files:
-            await self.process_csv_file_from_disk(csv_path, queue, semaphore)
-    
-    async def _producer(
-        self,
-        file: IO[bytes],
-        queue: asyncio.Queue,
-        is_csv: bool = False,
-        csv_filename: Optional[str] = None,
-    ):
-        semaphore = asyncio.Semaphore(2)  # Limit to 2 files concurrently
-        if not is_csv:
-            with zipfile.ZipFile(file, "r") as z:
-                for file_info in z.infolist():  # Process sequentially to save memory
-                    if file_info.filename.endswith(".csv"):
-                        await self.process_file(file_info, z, queue, semaphore)
-        else:
-            task = asyncio.create_task(
-                self.process_file(
-                    file,
-                    z=None,
-                    queue=queue,
-                    semaphore=semaphore,
-                    provided_filename=csv_filename,
-                )
-            )
-            await asyncio.gather(task)
-
-    async def stream_zip_from_disk(
-        self,
-        file: IO[bytes],
-        on_progress: Optional[Callable[[int, int], None]] = None,
-        estimate_count: bool = False,
-    ):
-        """Stream zip file data to InfluxDB using disk-based processing to avoid memory issues."""
-        zip_path = None
-        csv_dir = None
-        
-        try:
-            print("💾 Saving uploaded zip file to disk...")
-            zip_path = self._save_upload_to_disk(file, suffix=".zip")
-            
-            print("📦 Extracting zip file...")
-            csv_dir = self._extract_zip_to_temp_dir(zip_path)
-            
-            # Count total rows if enabled
-            total_rows = 0
-            if self.enable_progress_counting:
-                print("🔢 Counting total messages...")
-                total_rows = self.count_total_messages_from_disk(csv_dir, estimate=estimate_count)
-                if on_progress and total_rows > 0:
-                    on_progress(0, total_rows)
-            
-            progress = ProgressStats(total_rows=total_rows, start_time=time.time())
-            queue = asyncio.Queue(maxsize=self.max_queue_size)
-            
-            # Start producer and consumers
-            producer = asyncio.create_task(self._producer_from_disk(csv_dir, queue))
-            consumers = [
-                asyncio.create_task(self._uploader(queue, progress, on_progress))
-                for _ in range(self.max_concurrent_uploads * 2)
-            ]
-            
-            # Wait for producer to finish
-            await producer
-            
-            # Wait for all queued work to complete
-            await queue.join()
-            
-            # Signal consumers to exit
-            for _ in consumers:
-                await queue.put(None)
-            await asyncio.gather(*consumers)
-            
-            # Wait for all pending async writes
-            await self._wait_for_pending_writes(progress)
-            
-            elapsed = time.time() - progress.start_time
-            rate = (progress.processed_rows/elapsed) if elapsed else 0
-            if progress.total_rows > 0:
-                print(
-                    f"\n✅ Finished streaming {progress.processed_rows:,}/{progress.total_rows:,} rows in {elapsed:.2f}s ({rate:.1f} rows/s)"
-                )
-            else:
-                print(
-                    f"\n✅ Finished streaming {progress.processed_rows:,} rows in {elapsed:.2f}s ({rate:.1f} rows/s)"
-                )
-                
-        except Exception as e:
-            print(f"❌ Error in disk-based zip processing: {e}")
-            raise
-        finally:
-            # Always clean up temporary files
-            if zip_path or csv_dir:
-                print("🧹 Cleaning up temporary files...")
-                if zip_path:
-                    self._cleanup_temp_files(zip_path)
-                if csv_dir:
-                    self._cleanup_temp_files(csv_dir)
-    
-    async def stream_to_influx(
-        self,
-        file: IO[bytes],
-        is_csv: bool = False,
-        on_progress: Optional[Callable[[int, int], None]] = None,
-        csv_filename: Optional[str] = None,
-        estimate_count: bool = False,
-    ):
-        if not is_csv:
-            total_rows = self.count_total_messages(file, estimate=estimate_count) if self.enable_progress_counting else 0
-            if on_progress and total_rows > 0:
-                on_progress(0, total_rows)
-            try:
-                file.seek(0)
-            except Exception:
-                pass
-            progress = ProgressStats(total_rows=total_rows, start_time=time.time())
-
-            queue = asyncio.Queue(maxsize=self.max_queue_size)
-
-            producer = asyncio.create_task(self._producer(file, queue))
-            consumers = [
-                asyncio.create_task(self._uploader(queue, progress, on_progress))
-                for _ in range(self.max_concurrent_uploads * 2)
-            ]
-
-            await producer
-            # Wait until all queued work items have been processed
-            await queue.join()
-            # Now signal consumers to exit
-            for _ in consumers:
-                await queue.put(None)
-            await asyncio.gather(*consumers)
-        else:
-            total_rows = self.count_total_messages(file, is_csv, estimate=estimate_count) if self.enable_progress_counting else 0
-            if on_progress and total_rows > 0:
-                on_progress(0, total_rows)
-            progress = ProgressStats(total_rows=total_rows, start_time=time.time())
-
-            queue = asyncio.Queue(maxsize=self.max_queue_size)
-
-            producer = asyncio.create_task(
-                self._producer(file, queue, is_csv, csv_filename)
-            )
-            consumers = [
-                asyncio.create_task(self._uploader(queue, progress, on_progress))
-                for _ in range(self.max_concurrent_uploads * 2)
-            ]
-
-            await producer
-            # Wait until all queued work items have been processed
-            await queue.join()
-            # Now signal consumers to exit
-            for _ in consumers:
-                await queue.put(None)
-            await asyncio.gather(*consumers)
-            
-        # Wait for all pending async writes to complete
-        await self._wait_for_pending_writes(progress)
-
-        elapsed = time.time() - progress.start_time
-        rate = (progress.processed_rows/elapsed) if elapsed else 0
-        if progress.total_rows > 0:
-            print(
-                f"\n✅ Finished streaming {progress.processed_rows:,}/{progress.total_rows:,} rows in {elapsed:.2f}s ({rate:.1f} rows/s)"
-            )
-        else:
-            print(
-                f"\n✅ Finished streaming {progress.processed_rows:,} rows in {elapsed:.2f}s ({rate:.1f} rows/s)"
-            )
-
-    async def stream_large_file(
-        self,
-        file: IO[bytes],
-        is_csv: bool = False,
-        csv_filename: Optional[str] = None,
-        on_progress: Optional[Callable[[int, int], None]] = None,
-        use_disk: bool = True,
-    ):
-        """
-        Optimized method for very large files that skips row counting and uses minimal memory.
-        Progress will be reported as processed count only (total unknown).
-        
-        Args:
-            use_disk: If True, uses disk-based processing to avoid memory issues with large zips
-        """
-        # Temporarily disable progress counting for maximum performance
-        original_counting = self.enable_progress_counting
-        self.enable_progress_counting = False
-        
-        try:
-            if use_disk and not is_csv:
-                # Use disk-based processing for zip files
-                await self.stream_zip_from_disk(
-                    file=file,
-                    on_progress=lambda processed, _: on_progress(processed, 0) if on_progress else None,
-                    estimate_count=False
-                )
-            else:
-                # Use original memory-based processing
-                await self.stream_to_influx(
-                    file=file,
-                    is_csv=is_csv,
-                    csv_filename=csv_filename,
-                    on_progress=lambda processed, _: on_progress(processed, 0) if on_progress else None,
-                    estimate_count=False
-                )
-        finally:
-            self.enable_progress_counting = original_counting
-
-    async def _uploader(
-        self,
-        queue: asyncio.Queue,
-        stats: ProgressStats,
-        on_progress: Optional[Callable[[int, int], None]] = None,
-    ):
-        while True:
-            item = await queue.get()
-            if item is None:
-                # acknowledge the sentinel so join() isn't blocked
-                queue.task_done()
-                break
-            batch_points, rows_in_batch = item
-            
-            # Rate limiting with adaptive backoff
-            delay = self._calculate_adaptive_delay()
-            if delay > 0:
-                await asyncio.sleep(delay)
-            
-            try:
-                # Create unique callback ID for tracking
-                callback_id = f"{id(batch_points)}_{time.time()}"
-                
-                # Store callback info for tracking
-                async with self._callback_lock:
-                    self._write_callbacks[callback_id] = {
-                        'rows_in_batch': rows_in_batch,
-                        'stats': stats,
-                        'on_progress': on_progress,
-                        'failed': False,
-                        'timestamp': time.time()
-                    }
-                
-                # Submit async write (non-blocking)
-                self.write_api.write(
-                    bucket=self.database, 
-                    org=self.org, 
-                    record=batch_points,
-                    _callback_id=callback_id  # Custom attribute for tracking
-                )
-                
-                # Update stats optimistically (will be corrected in error callback if needed)
-                stats.processed_rows += rows_in_batch
-                stats.pending_writes += 1
-                if on_progress:
-                    on_progress(stats.processed_rows, stats.total_rows)
-                    
-            except Exception as e:
-                # Immediate synchronous error (before async operation)
-                stats.failed_rows += rows_in_batch
-                self._consecutive_failures += 1
-                print(f"❌ Failed to submit async write: {e}")
-                
-            # mark this work item as done
-            queue.task_done()
-
-    def configure_for_file_size(self, estimated_size_mb: float):
-        """
-        Automatically configure settings based on estimated file size for optimal performance.
-        Includes InfluxDB-safe rate limiting to prevent overwhelming the database.
-        
-        Args:
-            estimated_size_mb: Estimated file size in megabytes
-        """
-        if estimated_size_mb < 10:  # Small files
-            self.batch_size = 500
-            self.max_concurrent_uploads = 3  # Reduced from 5
-            self.max_queue_size = 50
-            self.rate_limit_delay = 0.005  # 5ms delay
-            self.enable_progress_counting = True
-        elif estimated_size_mb < 100:  # Medium files  
-            self.batch_size = 1000
-            self.max_concurrent_uploads = 5  # Reduced from 8
-            self.max_queue_size = 100
-            self.rate_limit_delay = 0.01  # 10ms delay
-            self.enable_progress_counting = True
-        elif estimated_size_mb < 1000:  # Large files
-            self.batch_size = 2000
-            self.max_concurrent_uploads = 6  # Reduced from 10
-            self.max_queue_size = 50
-            self.rate_limit_delay = 0.02  # 20ms delay
-            self.enable_progress_counting = True  # Use estimation
-        else:  # Very large files (1GB+)
-            self.batch_size = 3000  # Reduced from 5000
-            self.max_concurrent_uploads = 8  # Reduced from 15
-            self.max_queue_size = 20
-            self.rate_limit_delay = 0.05  # 50ms delay for safety
-            self.enable_progress_counting = False  # Skip counting entirely
-            
-            print(f"📊 Configured for {estimated_size_mb:.1f}MB file: batch_size={self.batch_size}, "
-              f"concurrent_uploads={self.max_concurrent_uploads}, queue_size={self.max_queue_size}, "
-              f"rate_limit_delay={self.rate_limit_delay}s, "
-              f"progress_counting={'enabled' if self.enable_progress_counting else 'disabled'}")
-
-    async def stream_file_auto(
-        self,
-        file: IO[bytes],
-        is_csv: bool = False,
-        csv_filename: Optional[str] = None,
-        on_progress: Optional[Callable[[int, int], None]] = None,
-        file_size_mb: Optional[float] = None,
-    ):
-        """
-        Automatically choose the best processing method based on file type and size.
-        
-        Args:
-            file_size_mb: File size in MB. If not provided, will attempt to estimate.
-            Other args same as stream_to_influx.
-        """
-        # Try to determine file size if not provided
-        if file_size_mb is None and hasattr(file, 'seek') and hasattr(file, 'tell'):
-            try:
-                current_pos = file.tell()
-                file.seek(0, 2)  # Seek to end
-                size_bytes = file.tell()
-                file.seek(current_pos)  # Restore position
-                file_size_mb = size_bytes / (1024 * 1024)
-            except Exception:
-                file_size_mb = 100  # Default to medium size if can't determine
-        
-        # Configure based on file size
-        if file_size_mb:
-            self.configure_for_file_size(file_size_mb)
-        
-        # Since we now only support CSV files, always use memory-based processing
-        await self.stream_to_influx(
-            file=file,
-            is_csv=is_csv,
-            csv_filename=csv_filename,
-            on_progress=on_progress,
-            estimate_count=file_size_mb < 1000 if file_size_mb else True
+            update_sql = '"can_id" = EXCLUDED."can_id"'
+        insert_sql = (
+            f'INSERT INTO {self.table} ({col_sql}) VALUES %s '
+            f'ON CONFLICT (time, message_name) DO UPDATE SET {update_sql}'
         )
 
-    def _calculate_adaptive_delay(self) -> float:
-        """Calculate adaptive delay based on recent failures to prevent overwhelming InfluxDB."""
-        if not self.adaptive_backoff or self._consecutive_failures == 0:
-            return self.rate_limit_delay
-            
-        # Exponential backoff: base_delay * 2^failures (capped at 5 seconds)
-        adaptive_delay = self.rate_limit_delay * (2 ** min(self._consecutive_failures, 10))
-        return min(adaptive_delay, 5.0)
+        # Deduplicate within the batch: if two rows share (time, message_name),
+        # keep the last one. ON CONFLICT DO UPDATE can't handle intra-batch dupes.
+        seen: dict = {}
+        for ts, msg_name, can_id, signals in rows:
+            seen[(ts, msg_name)] = (ts, msg_name, can_id, signals)
+        deduped = list(seen.values())
 
-    def _on_write_success(self, conf, data):
-        """Callback for successful async writes"""
-        # Reset failure counter on success
-        self._consecutive_failures = 0
-        
-        # Remove from pending callbacks and update progress
-        callback_id = getattr(conf, '_callback_id', None)
-        if callback_id and callback_id in self._write_callbacks:
-            callback_info = self._write_callbacks.pop(callback_id)
-            # Progress was already updated optimistically, no need to update again
-    
-    def _on_write_error(self, conf, data, error):
-        """Callback for failed async writes"""
-        self._consecutive_failures += 1
-        self._last_error_time = time.time()
-        print(f"❌ Async write failed: {error}")
-        
-        # Handle failed callback - correct optimistic progress
-        callback_id = getattr(conf, '_callback_id', None)
-        if callback_id and callback_id in self._write_callbacks:
-            callback_info = self._write_callbacks.pop(callback_id)
-            rows_in_batch = callback_info['rows_in_batch']
-            stats = callback_info['stats']
-            
-            # Correct the optimistic progress update
-            stats.processed_rows -= rows_in_batch
-            stats.failed_rows += rows_in_batch
-    
-    def _on_write_retry(self, conf, data, error):
-        """Callback for retried async writes"""
-        print(f"🔄 Retrying async write: {error}")
+        # Build value tuples — None for signals absent in a given row
+        values = []
+        for ts, msg_name, can_id, signals in deduped:
+            row_tuple = (ts, msg_name, can_id) + tuple(
+                signals.get(s) for s in sig_cols
+            )
+            values.append(row_tuple)
 
-    async def _wait_for_pending_writes(self, stats: ProgressStats, timeout: float = 30.0):
-        """Wait for all pending async writes to complete"""
-        start_time = time.time()
-        print(f"⏳ Waiting for {len(self._write_callbacks)} pending writes to complete...")
-        
-        while len(self._write_callbacks) > 0 and (time.time() - start_time) < timeout:
-            await asyncio.sleep(0.1)
-            
-            # Clean up completed callbacks
-            async with self._callback_lock:
-                completed_callbacks = []
-                for callback_id, info in self._write_callbacks.items():
-                    # Check if callback is old (likely completed but not cleaned up)
-                    if time.time() - info['timestamp'] > 10.0:
-                        completed_callbacks.append(callback_id)
-                
-                for callback_id in completed_callbacks:
-                    self._write_callbacks.pop(callback_id, None)
-                    stats.pending_writes = max(0, stats.pending_writes - 1)
-        
-        if len(self._write_callbacks) > 0:
-            print(f"⚠️ {len(self._write_callbacks)} writes still pending after timeout")
-        else:
-            print("✅ All async writes completed")
+        with self._get_conn() as conn:
+            with conn.cursor() as cur:
+                psycopg2.extras.execute_values(cur, insert_sql, values, page_size=self.batch_size)
+            conn.commit()
+
+        n = len(rows)
+        if stats is not None:
+            with self._progress_lock:
+                stats["processed"] += n
+                if on_progress:
+                    on_progress(stats["processed"], stats["total"])
+        return n
+
+    # ------------------------------------------------------------------
+    # CSV file processing
+    # ------------------------------------------------------------------
+
+    def _process_csv_file(
+        self,
+        csv_path: str,
+        stats: dict,
+        on_progress: Optional[Callable[[int, int], None]],
+    ) -> None:
+        """Process one CSV file synchronously."""
+        filename = os.path.basename(csv_path)
+        try:
+            start_dt = datetime.strptime(
+                filename[:-4], "%Y-%m-%d-%H-%M-%S"
+            ).replace(tzinfo=self.TZ_TORONTO)
+        except ValueError:
+            print(f"⏭️  Skipping (bad filename format): {filename}")
+            return
+
+        batch: List[Tuple] = []
+        try:
+            with open(csv_path, "r", encoding="utf-8", errors="replace", newline="") as f:
+                reader = csv.reader(f)
+                for row in reader:
+                    parsed = self._parse_row(row, start_dt)
+                    if parsed is None:
+                        continue
+                    batch.append(parsed)
+                    if len(batch) >= self.batch_size:
+                        self._write_batch(batch, on_progress, stats)
+                        batch.clear()
+            if batch:
+                self._write_batch(batch, on_progress, stats)
+        except Exception as e:
+            print(f"❌ Error processing {filename}: {e}")
+
+    # ------------------------------------------------------------------
+    # Count helpers (for progress reporting)
+    # ------------------------------------------------------------------
+
+    def count_valid_rows_from_dir(self, csv_dir: str) -> int:
+        """
+        Count decodable CAN rows across all CSV files in a directory.
+        Used to initialise the progress denominator.
+        """
+        total = 0
+        for csv_path, filename in _iter_csv_files_under_dir(csv_dir):
+            try:
+                datetime.strptime(filename[:-4], "%Y-%m-%d-%H-%M-%S")
+            except ValueError:
+                continue
+            try:
+                with open(csv_path, "r", encoding="utf-8", errors="replace") as f:
+                    for row in csv.reader(f):
+                        if len(row) < 11 or not row[0]:
+                            continue
+                        try:
+                            bvs = [int(b) for b in row[3:11] if b]
+                            if len(bvs) == 8:
+                                int(row[2])
+                                total += 1
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+        return total
+
+    # ------------------------------------------------------------------
+    # Public async entry point
+    # ------------------------------------------------------------------
 
     async def stream_multiple_csvs(
         self,
-        file_data: List[tuple[str, bytes]],
+        file_data: List[Tuple[str, bytes]],
         on_progress: Optional[Callable[[int, int], None]] = None,
         total_size_mb: Optional[float] = None,
-    ):
+    ) -> None:
         """
-        Stream multiple CSV files to InfluxDB by saving them to a temp directory first.
-        
-        Args:
-            file_data: List of tuples containing (filename, file_bytes)
-            on_progress: Progress callback function
-            total_size_mb: Total size of all files in MB
+        Write a list of (filename, bytes) CSV files to TimescaleDB.
+
+        Saves files to a temp dir, counts rows for progress, then
+        processes each file synchronously (Postgres writes block).
+        The method is declared async so it integrates with the existing
+        asyncio.run() call in app.py.
         """
-        temp_dir = None
-        
-        # Create temporary directory first, before any async operations
         temp_dir = tempfile.mkdtemp(prefix="csv_upload_")
-        print(f"📁 Created temp directory: {temp_dir}")
-        
-        # Track for cleanup (rolling 6-hour purge will handle failures)
         _temp_directories.append(temp_dir)
-        
+        print(f"📁 Created temp directory: {temp_dir}")
+
         try:
-            
-            # Save all CSV files to temp directory (relative paths may include subdirs per archive)
+            # Save all CSV bytes to disk
             for filename, data in file_data:
                 if not filename:
                     continue
-
+                # Skip macOS resource forks (._filename) — binary, not real CSVs
+                leaf = os.path.basename(filename)
+                if leaf.startswith("._"):
+                    print(f"⏭️  Skipping macOS resource fork: {filename}")
+                    continue
                 if not filename.lower().endswith(".csv"):
                     filename += ".csv"
-
                 temp_path = _safe_csv_temp_path(temp_dir, filename)
                 with open(temp_path, "wb") as f:
                     f.write(data)
-                print(f"💾 Saved {filename} ({len(data)} bytes)")
-            
-            # Configure for file size
-            if total_size_mb:
-                self.configure_for_file_size(total_size_mb)
-            
-            # Count total rows if enabled
+                print(f"💾 Saved {filename} ({len(data):,} bytes)")
+
+            # Count rows for progress (yields control briefly between files)
+            print("🔢 Counting rows for progress tracking…")
             total_rows = 0
-            if self.enable_progress_counting:
-                print("🔢 Counting total messages...")
-                total_rows = self.count_total_messages_from_disk(temp_dir, estimate=total_size_mb > 100 if total_size_mb else False)
-                if on_progress and total_rows > 0:
-                    on_progress(0, total_rows)
+            for csv_path, filename in _iter_csv_files_under_dir(temp_dir):
+                try:
+                    datetime.strptime(filename[:-4], "%Y-%m-%d-%H-%M-%S")
+                except ValueError:
+                    continue
+                try:
+                    with open(csv_path, "r", encoding="utf-8", errors="replace") as f:
+                        for row in csv.reader(f):
+                            if len(row) < 11 or not row[0]:
+                                continue
+                            try:
+                                bvs = [int(b) for b in row[3:11] if b]
+                                if len(bvs) == 8:
+                                    int(row[2])
+                                    total_rows += 1
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+                await asyncio.sleep(0)  # yield to event loop
+
+            print(f"📊 Total decodable rows: {total_rows:,}")
+            stats = {"processed": 0, "total": total_rows}
+            if on_progress and total_rows > 0:
+                on_progress(0, total_rows)
+
+            start = time.time()
+            loop = asyncio.get_running_loop()
+            futures = []
             
-            progress = ProgressStats(total_rows=total_rows, start_time=time.time())
-            queue = asyncio.Queue(maxsize=self.max_queue_size)
-            
-            # Start producer and consumers
-            producer = asyncio.create_task(self._producer_from_disk(temp_dir, queue))
-            consumers = [
-                asyncio.create_task(self._uploader(queue, progress, on_progress))
-                for _ in range(self.max_concurrent_uploads * 2)
-            ]
-            
-            # Wait for producer to finish
-            await producer
-            
-            # Wait for all queued work to complete
-            await queue.join()
-            
-            # Signal consumers to exit
-            for _ in consumers:
-                await queue.put(None)
-            await asyncio.gather(*consumers)
-            
-            # Wait for all pending async writes
-            await self._wait_for_pending_writes(progress)
-            
-            elapsed = time.time() - progress.start_time
-            rate = (progress.processed_rows/elapsed) if elapsed else 0
-            if progress.total_rows > 0:
-                print(
-                    f"\n✅ Finished streaming {progress.processed_rows:,}/{progress.total_rows:,} rows in {elapsed:.2f}s ({rate:.1f} rows/s)"
-                )
-            else:
-                print(
-                    f"\n✅ Finished streaming {progress.processed_rows:,} rows in {elapsed:.2f}s ({rate:.1f} rows/s)"
-                )
-                
+            # Run synchronous DB writes in a threadpool so we can upload fast utilizing multiple postgres connections
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+                for csv_path, filename in _iter_csv_files_under_dir(temp_dir):
+                    print(f"⚙️  Queueing {filename}…")
+                    futures.append(
+                        loop.run_in_executor(
+                            pool,
+                            self._process_csv_file,
+                            csv_path, stats, on_progress,
+                        )
+                    )
+                if futures:
+                    await asyncio.gather(*futures)
+
+            elapsed = time.time() - start
+            rate = stats["processed"] / elapsed if elapsed else 0
+            print(
+                f"\n✅ Finished: {stats['processed']:,}/{stats['total']:,} rows "
+                f"in {elapsed:.1f}s ({rate:.0f} rows/s)"
+            )
+            # Always fire a final progress event at 100% so the SSE stream
+            # marks the task done, even when the last batch < batch_size
+            if on_progress and stats["total"] > 0:
+                on_progress(stats["total"], stats["total"])
+
         except Exception as e:
-            print(f"❌ Error in multiple CSV processing: {e}")
+            print(f"❌ Upload error: {e}")
             raise
         finally:
-            # Simple cleanup - if it fails, rolling cleanup will get it in 6 hours
-            if temp_dir:
-                self._cleanup_temp_files(temp_dir)
-                # Remove from tracking list regardless of cleanup success
-                try:
-                    _temp_directories.remove(temp_dir)
-                except ValueError:
-                    pass
-
-    def close(self):
-        try:
-            self.write_api.flush()
-        except Exception as e:
-            print(f"⚠️ Error during flush: {e}")
-        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
             try:
-                self.write_api.close()
-            except Exception as e:
-                print(f"⚠️ Error closing write_api: {e}")
-            try:
-                self.client.close()
-            except Exception as e:
-                print(f"⚠️ Error closing client: {e}")
+                _temp_directories.remove(temp_dir)
+            except ValueError:
+                pass

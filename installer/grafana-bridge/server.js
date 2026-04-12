@@ -22,41 +22,22 @@ app.use((_req, res, next) => {
   next();
 });
 
-// Internal URL for API calls (same Docker network, bypasses Cloudflare)
+// Internal Grafana URL (same Docker network)
 const GRAFANA_INTERNAL_URL =
   process.env.GRAFANA_INTERNAL_URL || "http://grafana:3000";
-// External URL for user-facing redirect links
 const GRAFANA_EXTERNAL_URL =
   process.env.GRAFANA_EXTERNAL_URL ||
   "https://grafana.westernformularacing.org";
 const GRAFANA_API_TOKEN = process.env.GRAFANA_API_TOKEN;
 const GRAFANA_FOLDER_UID = process.env.GRAFANA_FOLDER_UID || "";
 
+// Default season table (lowercase Postgres table name)
+// e.g. "wfr26"
+const DEFAULT_SEASON_TABLE =
+  (process.env.DEFAULT_SEASON_TABLE || "wfr26").toLowerCase();
+
 // Only allow CAN signal name characters (alphanumeric, underscore, hyphen, dot)
 const SIGNAL_NAME_RE = /^[A-Za-z0-9_.\-]+$/;
-
-// Regex to extract season name from InfluxDB datasource database field (e.g., "WFR26" from "WFR26@iox")
-const SEASON_RE = /^(WFR\d+)/;
-
-// Fetch all InfluxDB datasources from Grafana and find the one matching the given season
-async function findDatasourceUidForSeason(season) {
-  const response = await fetch(`${GRAFANA_INTERNAL_URL}/api/datasources`, {
-    headers: { Authorization: `Bearer ${GRAFANA_API_TOKEN}` },
-  });
-  if (!response.ok) {
-    throw new Error(`Grafana datasources API error: ${response.status}`);
-  }
-  const datasources = await response.json();
-  for (const ds of datasources) {
-    if (ds.type === "influxdb" && ds.name) {
-      const match = SEASON_RE.exec(ds.name);
-      if (match && match[1] === season) {
-        return ds.uid;
-      }
-    }
-  }
-  throw new Error(`No InfluxDB datasource found for season: ${season}`);
-}
 
 function validateSignalName(name) {
   if (typeof name !== "string" || name.length === 0 || name.length > 128) {
@@ -65,37 +46,66 @@ function validateSignalName(name) {
   return SIGNAL_NAME_RE.test(name);
 }
 
-function buildQuery(signalName, season) {
+// ---------------------------------------------------------------------------
+// Find the TimescaleDB (PostgreSQL) Grafana datasource UID
+// ---------------------------------------------------------------------------
+async function findPostgresDatasourceUid() {
+  const response = await fetch(`${GRAFANA_INTERNAL_URL}/api/datasources`, {
+    headers: { Authorization: `Bearer ${GRAFANA_API_TOKEN}` },
+  });
+  if (!response.ok) {
+    throw new Error(`Grafana datasources API error: ${response.status}`);
+  }
+  const datasources = await response.json();
+
+  // Prefer datasource named "TimescaleDB-WFR"; fall back to first postgres type
+  const named = datasources.find(
+    (ds) => ds.type === "postgres" && ds.name === "TimescaleDB-WFR"
+  );
+  if (named) return named.uid;
+
+  const fallback = datasources.find((ds) => ds.type === "postgres");
+  if (fallback) return fallback.uid;
+
+  throw new Error("No PostgreSQL datasource found in Grafana");
+}
+
+// ---------------------------------------------------------------------------
+// Query and panel builders
+// ---------------------------------------------------------------------------
+
+/**
+ * TimescaleDB SQL for a single signal.
+ * Uses time_bucket() for downsampling and Grafana's $__timeFrom()/$__timeTo()
+ * macros for time-range injection.
+ *
+ * @param {string} signalName  - CAN signal / column name
+ * @param {string} table       - lowercase Postgres table name, e.g. "wfr26"
+ */
+function buildQuery(signalName, table) {
   return [
     "SELECT",
-    '  DATE_BIN(INTERVAL \'100 milliseconds\', "time", TIMESTAMP \'1970-01-01 00:00:00\') AS "time",',
+    `  time_bucket('100 milliseconds', "time") AS "time",`,
     `  AVG("${signalName}") AS "${signalName}"`,
     "FROM",
-    `  "iox"."${season}"`,
+    `  ${table}`,
     "WHERE",
-    '  "time" >= $__timeFrom()',
-    '  AND "time" <= $__timeTo()',
-    "GROUP BY",
-    '  DATE_BIN(INTERVAL \'100 milliseconds\', "time", TIMESTAMP \'1970-01-01 00:00:00\')',
-    "ORDER BY",
-    '  "time" ASC',
+    '  $__timeFilter("time")',
+    `  AND "${signalName}" IS NOT NULL`,
+    "GROUP BY 1",
+    "ORDER BY 1 ASC",
   ].join("\n");
 }
 
-function buildPanel(signalName, index, dsUid, season) {
+function buildPanel(signalName, index, dsUid, table) {
   return {
     type: "timeseries",
     title: signalName,
     targets: [
       {
         refId: "A",
-        dataset: "iox",
-        datasource: {
-          type: "influxdb",
-          uid: dsUid,
-        },
-        rawQuery: true,
-        rawSql: buildQuery(signalName, season),
+        datasource: { type: "postgres", uid: dsUid },
+        rawSql: buildQuery(signalName, table),
         format: "time_series",
       },
     ],
@@ -124,56 +134,54 @@ function buildPanel(signalName, index, dsUid, season) {
   };
 }
 
-// Routes are mounted at both /api/grafana (direct) and /grafana-bridge/api/grafana
-// (path-based via grafana.westernformularacing.org tunnel to avoid WAF challenges).
+// ---------------------------------------------------------------------------
+// Routes
+// ---------------------------------------------------------------------------
 const router = express.Router();
 
 router.post("/api/grafana/create-dashboard", async (req, res) => {
-  const { signals } = req.body;
+  const { signals, season_table } = req.body;
 
   if (!signals || !Array.isArray(signals) || signals.length === 0) {
     return res.status(400).json({ error: "signals array is required" });
   }
-
   if (signals.length > 50) {
-    return res
-      .status(400)
-      .json({ error: "Maximum 50 signals per dashboard" });
+    return res.status(400).json({ error: "Maximum 50 signals per dashboard" });
   }
-
   if (!GRAFANA_API_TOKEN) {
-    return res
-      .status(500)
-      .json({ error: "GRAFANA_API_TOKEN not configured on server" });
+    return res.status(500).json({ error: "GRAFANA_API_TOKEN not configured on server" });
   }
 
-  // Validate and extract signal names
+  // Validate signal names
   const signalNames = [];
   for (const signal of signals) {
     const name = typeof signal === "string" ? signal : signal.signalName;
     if (!validateSignalName(name)) {
-      return res
-        .status(400)
-        .json({ error: `Invalid signal name: ${name}` });
+      return res.status(400).json({ error: `Invalid signal name: ${name}` });
     }
     signalNames.push(name);
   }
 
+  // Use caller-supplied table or fall back to env default
+  const table = (
+    (typeof season_table === "string" ? season_table : "") ||
+    DEFAULT_SEASON_TABLE
+  ).toLowerCase();
+
   const uid = "pecan_" + crypto.randomBytes(4).toString("hex");
   const now = new Date();
-  const currentSeason = `WFR${now.getFullYear() % 100}`;
   const title = `PECAN Analysis - ${now.toISOString().replace("T", " ").substring(0, 16)}`;
 
-  // Fetch the real datasource UID for the current season
+  // Fetch Postgres datasource UID
   let dsUid;
   try {
-    dsUid = await findDatasourceUidForSeason(currentSeason);
+    dsUid = await findPostgresDatasourceUid();
   } catch (err) {
     console.error("Failed to find datasource UID:", err.message);
-    return res.status(500).json({ error: `Failed to resolve datasource for ${currentSeason}: ${err.message}` });
+    return res.status(500).json({ error: `Failed to resolve datasource: ${err.message}` });
   }
 
-  const panels = signalNames.map((name, i) => buildPanel(name, i, dsUid, currentSeason));
+  const panels = signalNames.map((name, i) => buildPanel(name, i, dsUid, table));
 
   const payload = {
     dashboard: {
@@ -186,25 +194,6 @@ router.post("/api/grafana/create-dashboard", async (req, res) => {
       version: 0,
       panels,
       time: { from: "now-24h", to: "now" },
-      variables: {
-        list: [
-          {
-            kind: "DatasourceVariable",
-            spec: {
-              name: "year",
-              label: "Year",
-              current: { text: currentSeason, value: dsUid },
-              hide: "",
-              multi: false,
-              includeAll: false,
-              pluginId: "influxdb",
-              regex: "WFR2[0-9]+",
-              skipUrlSync: false,
-              refresh: 1,
-            },
-          },
-        ],
-      },
     },
     overwrite: false,
   };
@@ -214,17 +203,14 @@ router.post("/api/grafana/create-dashboard", async (req, res) => {
   }
 
   try {
-    const response = await fetch(
-      `${GRAFANA_INTERNAL_URL}/api/dashboards/db`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${GRAFANA_API_TOKEN}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      }
-    );
+    const response = await fetch(`${GRAFANA_INTERNAL_URL}/api/dashboards/db`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${GRAFANA_API_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
 
     const result = await response.json();
 
@@ -252,10 +238,11 @@ router.get("/api/grafana/health", (_req, res) => {
     status: "ok",
     grafana: GRAFANA_EXTERNAL_URL,
     tokenConfigured: !!GRAFANA_API_TOKEN,
+    defaultSeasonTable: DEFAULT_SEASON_TABLE,
   });
 });
 
-// Mount at root (direct port 3001 access) and under /grafana-bridge (via grafana subdomain tunnel)
+// Mount at root (direct port 3001) and under /grafana-bridge (via tunnel)
 app.use("/", router);
 app.use("/grafana-bridge", router);
 
@@ -264,4 +251,5 @@ app.listen(PORT, () => {
   console.log(`Grafana bridge listening on port ${PORT}`);
   console.log(`  Grafana internal: ${GRAFANA_INTERNAL_URL}`);
   console.log(`  Grafana external: ${GRAFANA_EXTERNAL_URL}`);
+  console.log(`  Default season table: ${DEFAULT_SEASON_TABLE}`);
 });

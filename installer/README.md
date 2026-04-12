@@ -6,8 +6,8 @@ This directory contains the Docker Compose deployment used to run the full telem
 
 - `docker-compose.yml` – Orchestrates all runtime containers.
 - `.env.example` – Template for environment variables required by the stack.
-- `influxdb3-admin-token.json` – Development token consumed by the InfluxDB 3 server on first start.
-- `influxdb3-explorer-config/` – Configuration for the optional InfluxDB web explorer container.
+- `postgresdb3-admin-token.json` – Development token consumed by the TimescaleDB server on first start.
+- `postgresdb3-explorer-config/` – Configuration for the optional TimescaleDB web explorer container.
 - Service folders (for example `file-uploader/`, `startup-data-loader/`, `slackbot/`) – Each contains the Docker context and service-specific source code.
 
 ## Prerequisites
@@ -30,14 +30,14 @@ This directory contains the Docker Compose deployment used to run the full telem
 3. Verify the services:
    ```bash
    docker compose ps
-   docker compose logs influxdb3 | tail
+   docker compose logs postgresdb3 | tail
    ```
 4. Tear the stack down when you are finished:
    ```bash
    docker compose down -v
    ```
 
-The first boot seeds InfluxDB 3 with the sample CAN data in `startup-data-loader/data/`. Subsequent restarts skip the import unless you remove the volumes.
+The first boot seeds TimescaleDB with the sample CAN data in `startup-data-loader/data/`. Subsequent restarts skip the import unless you remove the volumes.
 
 ## Environment variables
 
@@ -46,11 +46,11 @@ All secrets and tokens are defined in `.env`. The defaults provided in `.env.exa
 | Variable | Purpose | Default |
 | --- | --- | --- |
 | `DBC_FILE_PATH` | Path to the CAN DBC file used by startup-data-loader and file-uploader and other services | `example.dbc` |
-| `INFLUXDB_URL` | Internal URL used by services to talk to InfluxDB 3 | `http://influxdb3:8181` |
-| `INFLUXDB_INIT_USERNAME` / `INFLUXDB_INIT_PASSWORD` | Bootstraps the initial admin user | `admin` / `dev-influxdb-password` |
-| `INFLUXDB_ADMIN_TOKEN` | API token shared by all services | `dev-influxdb-admin-token` |
+| `INFLUXDB_URL` | Internal URL used by services to talk to TimescaleDB | `http://postgresdb3:8181` |
+| `INFLUXDB_INIT_USERNAME` / `INFLUXDB_INIT_PASSWORD` | Bootstraps the initial admin user | `admin` / `dev-postgresdb-password` |
+| `INFLUXDB_ADMIN_TOKEN` | API token shared by all services | `dev-postgresdb-admin-token` |
 | `GRAFANA_ADMIN_PASSWORD` | Grafana administrator password | `dev-grafana-password` |
-| `EXPLORER_SESSION_SECRET` | Secret for the InfluxDB 3 Explorer UI | `dev-explorer-session-key` |
+| `EXPLORER_SESSION_SECRET` | Secret for the TimescaleDB Explorer UI | `dev-explorer-session-key` |
 | `ENABLE_SLACK` | Gate to disable Slack-specific services | `false` |
 | `SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN` | Credentials for the Slack bot (optional) | empty |
 | `SLACK_WEBHOOK_URL` | Incoming webhook for notifications (optional) | empty |
@@ -68,15 +68,15 @@ All secrets and tokens are defined in `.env`. The defaults provided in `.env.exa
 
 | Service | Ports | Description |
 | --- | --- | --- |
-| `influxdb3` | `9000` (mapped to `8181` internally) | Core time-series database. Initialised with the admin token from `.env`. |
-| `influxdb3-explorer` | `8888` | Lightweight UI for browsing data in InfluxDB 3. |
+| `postgresdb3` | `9000` (mapped to `8181` internally) | Core time-series database. Initialised with the admin token from `.env`. |
+| `postgresdb3-explorer` | `8888` | Lightweight UI for browsing data in TimescaleDB. |
 | `data-downloader` | `3000` | Periodically downloads CAN CSV archives from the DAQ server. Visual SQL query builder included. |
 | `grafana` | `8087` | Visualises telemetry with pre-provisioned dashboards. |
 | `slackbot` | n/a | Socket-mode Slack bot for notifications and automation (optional). Integrates with code-generator for AI queries. |
 | `lap-detector` | `8050` | Dash-based lap analysis web application. |
-| `startup-data-loader` | n/a | Seeds InfluxDB with sample CAN frames on first boot. |
-| `file-uploader` | `8084` | Web UI for uploading CAN CSV archives and streaming them into InfluxDB. |
-| `sandbox` | n/a | Custom Python execution environment with internet access for running AI-generated code and InfluxDB queries. |
+| `startup-data-loader` | n/a | Seeds TimescaleDB with sample CAN frames on first boot. |
+| `file-uploader` | `8084` | Web UI for uploading CAN CSV archives and streaming them into TimescaleDB. |
+| `sandbox` | n/a | Custom Python execution environment with internet access for running AI-generated code and TimescaleDB queries. |
 | `code-generator` | `3030` (internal) | AI-powered code generation service using Cohere. Generates Python code from natural language. |
 
 ## Data and DBC files
@@ -90,7 +90,7 @@ All secrets and tokens are defined in `.env`. The defaults provided in `.env.exa
 
 ## Troubleshooting tips
 
-- **Service fails to connect to InfluxDB** – Confirm the token in `.env` matches `influxdb3-admin-token.json`. Regenerate the volumes with `docker compose down -v` if you rotate credentials.
+- **Service fails to connect to TimescaleDB** – Confirm the token in `.env` matches `postgresdb3-admin-token.json`. Regenerate the volumes with `docker compose down -v` if you rotate credentials.
 - **Re-import sample data** – Run `docker compose down -v` and restart the stack to re-trigger the data loader.
 - **Slack services are optional** – Leave Slack variables empty or set `ENABLE_SLACK=false` to skip starting the bot during development.
 - **AI code generation not working** – Ensure `COHERE_API_KEY` is set in `.env`. Check logs with `docker compose logs code-generator`.
@@ -112,7 +112,7 @@ The stack includes an AI-powered code generation service that allows natural lan
 - Self-correcting retry mechanism (up to 2 retries on failure)
 - Secure sandboxed execution environment
 - Auto-generation of plots and visualizations
-- Direct InfluxDB access for telemetry queries
+- Direct TimescaleDB access for telemetry queries
 
 **Setup:**
 1. Add `COHERE_API_KEY` to your `.env` file

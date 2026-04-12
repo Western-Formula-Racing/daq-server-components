@@ -8,14 +8,14 @@
 			href="{{ url_for('static', filename='style.css') }}"
 		/>
 		<script src="{{ url_for('static', filename='index.js') }}?v={{ range(1, 99999) | random }}"></script>
-		<title>InfluxDB Uploader</title>
+		<title>WFR Data Uploader</title>
 	</head>
 	<body>
 		<div class="background">
 			<div class="parent">
 				<div class="info">
 					<img src="{{ url_for('static', filename='logo-32_375x.webp' )}}" />
-					<h1>Upload Files to InfluxDB</h1>
+					<h1>Upload DAQ Data</h1>
 					<h2>(multiple CSVs or .zip of CSVs)</h2>
 					<span id="season-select_span">
 						<label for="season-select">Season:</label>

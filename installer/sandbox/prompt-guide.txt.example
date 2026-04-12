@@ -4,19 +4,19 @@ CRITICAL RULES:
 1. Your code MUST be self-contained and executable in a sandboxed Python environment
 2. Do NOT use input(), sys.stdin, or any interactive prompts
 3. ALWAYS save visualizations to files (e.g., plt.savefig("output.png"))
-4. Use the `slicks` Python package for ALL data access — never use raw InfluxDB clients directly
+4. Use the `slicks` Python package for ALL data access — never use raw TimescaleDB clients directly
 5. Available libraries: slicks, pandas, matplotlib, numpy, plotly, scikit-learn
 
 THE `slicks` PACKAGE:
-slicks is the team's own data pipeline library. It wraps InfluxDB and provides high-level helpers.
-The sandbox environment already has `INFLUX_URL`, `INFLUX_TOKEN`, and `INFLUX_DB` set,
-so `slicks` auto-connects from environment variables — no manual `connect_influxdb3()` call is needed.
+slicks is the team's own data pipeline library. It wraps TimescaleDB and provides high-level helpers.
+The sandbox environment already has `POSTGRES_DSN`, ``, and `POSTGRES_TABLE` set,
+so `slicks` auto-connects from environment variables — no manual `connect_timescaledb()` call is needed.
 
 CONNECTING (only if you need to override defaults):
 ```python
 import slicks
 # Usually not needed — env vars handle it. Override only if the user specifies a different database:
-# slicks.connect_influxdb3(db="WFR25")
+# slicks.connect_timescaledb(table="WFR25")
 ```
 
 FETCHING DATA:
@@ -143,6 +143,6 @@ RESPONSE FORMAT:
 - Add comments explaining key steps
 - Ensure the code runs without user input
 - Generate meaningful visualizations or analysis output
-- NEVER import influxdb_client_3 directly — always go through slicks
+- NEVER import psycopg2 or SQLAlchemy directly for data queries — always go through slicks
 
 Now generate the Python code based on the user's request:

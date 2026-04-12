@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
 Health monitor: collects Docker container and application metrics,
-writes them to an InfluxDB 3 bucket every 60 seconds.
+writes them to the TimescaleDB 'monitoring' table every N seconds.
 """
-
 from __future__ import annotations
 
 import os
@@ -14,20 +13,22 @@ from datetime import datetime, timezone
 
 import docker
 import requests
-from influxdb_client_3 import InfluxDBClient3, Point
+import psycopg2
+import psycopg2.extras
 
 # Config from environment
 INTERVAL_SECONDS = int(os.getenv("HEALTH_MONITOR_INTERVAL_SECONDS", "60"))
-INFLUXDB_URL = os.getenv("INFLUXDB_URL", "http://influxdb3:8181")
-INFLUXDB_TOKEN = os.getenv("INFLUXDB_ADMIN_TOKEN", os.getenv("INFLUXDB_TOKEN", ""))
-INFLUXDB_DATABASE = os.getenv("INFLUXDB_HEALTH_DATABASE", "monitoring")
-CONTAINER_INFLUXDB = os.getenv("HEALTH_MONITOR_INFLUXDB_CONTAINER", "influxdb3")
+POSTGRES_DSN = os.getenv(
+    "POSTGRES_DSN",
+    "postgresql://wfr:wfr_password@timescaledb:5432/wfr",
+)
+CONTAINER_TIMESCALEDB = os.getenv("HEALTH_MONITOR_TIMESCALEDB_CONTAINER", "timescaledb")
 CONTAINER_SCANNER = os.getenv("HEALTH_MONITOR_SCANNER_CONTAINER", "data-downloader-scanner")
 SCANNER_API_URL = os.getenv(
     "HEALTH_MONITOR_SCANNER_API_URL",
     "http://data-downloader-api:8000",
 )
-INFLUXDB_VOLUME_NAME_SUFFIX = os.getenv("HEALTH_MONITOR_INFLUXDB_VOLUME_SUFFIX", "influxdb3-data")
+TIMESCALEDB_VOLUME_SUFFIX = os.getenv("HEALTH_MONITOR_TSDB_VOLUME_SUFFIX", "timescaledb-data")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,23 +38,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def _now_ns() -> int:
-    return int(datetime.now(timezone.utc).timestamp() * 1_000_000_000)
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
-def _influx_client_kwargs() -> dict:
-    """Connection kwargs for InfluxDBClient3 (host may be URL or host:port)."""
-    url = (INFLUXDB_URL or "").strip().rstrip("/")
-    return {
-        "host": url,
-        "token": INFLUXDB_TOKEN,
-        "database": INFLUXDB_DATABASE,
-        "org": "",
-    }
+# ---------------------------------------------------------------------------
+# Metric collection
+# ---------------------------------------------------------------------------
 
-
-def collect_influxdb_metrics(client: docker.DockerClient) -> dict:
-    """Collect metrics for the InfluxDB container: status, restart count, disk usage, write latency."""
+def collect_timescaledb_metrics(client: docker.DockerClient) -> dict:
     out = {
         "up": False,
         "restart_count": None,
@@ -62,23 +55,23 @@ def collect_influxdb_metrics(client: docker.DockerClient) -> dict:
         "write_error": None,
     }
     try:
-        container = client.containers.get(CONTAINER_INFLUXDB)
+        container = client.containers.get(CONTAINER_TIMESCALEDB)
         out["up"] = container.attrs["State"]["Running"]
         out["restart_count"] = container.attrs.get("RestartCount", 0)
     except docker.errors.NotFound:
-        logger.warning("Container %s not found", CONTAINER_INFLUXDB)
+        logger.warning("Container %s not found", CONTAINER_TIMESCALEDB)
         return out
     except Exception as e:
-        logger.exception("Error inspecting %s: %s", CONTAINER_INFLUXDB, e)
+        logger.exception("Error inspecting %s: %s", CONTAINER_TIMESCALEDB, e)
         out["write_error"] = str(e)
         return out
 
-    # Disk usage: find volume matching suffix in Docker system df
+    # Disk usage: find the TimescaleDB volume
     try:
         df = client.api.df()
         for vol in df.get("Volumes") or []:
             name = vol.get("Name") or ""
-            if INFLUXDB_VOLUME_NAME_SUFFIX in name or name.endswith("_" + INFLUXDB_VOLUME_NAME_SUFFIX):
+            if TIMESCALEDB_VOLUME_SUFFIX in name:
                 usage = (vol.get("UsageData") or {}).get("Size")
                 if usage is not None:
                     out["disk_usage_bytes"] = usage
@@ -86,23 +79,27 @@ def collect_influxdb_metrics(client: docker.DockerClient) -> dict:
     except Exception as e:
         logger.debug("Could not get volume disk usage: %s", e)
 
-    # Write latency: time a single point write
-    if out["up"] and INFLUXDB_TOKEN:
+    # Write latency: time a single INSERT + SELECT
+    if out["up"] and POSTGRES_DSN:
         try:
             start = time.perf_counter()
-            with InfluxDBClient3(**(_influx_client_kwargs())) as influx:
-                ping = Point("monitor.ping").field("check", 1).time(_now_ns(), write_precision="ns")
-                influx.write(ping)
+            with psycopg2.connect(POSTGRES_DSN) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO monitoring (time, measurement, field, value_float) "
+                        "VALUES (%s, %s, %s, %s)",
+                        (_now(), "monitor.ping", "check", 1.0),
+                    )
+                conn.commit()
             out["write_latency_seconds"] = round(time.perf_counter() - start, 4)
         except Exception as e:
             out["write_error"] = str(e)[:500]
-            logger.debug("InfluxDB latency check failed: %s", e)
+            logger.debug("TimescaleDB latency check failed: %s", e)
 
     return out
 
 
 def collect_scanner_metrics(client: docker.DockerClient) -> dict:
-    """Collect metrics for the scanner container: status and app metrics from API."""
     out = {
         "up": False,
         "last_scan_duration_seconds": None,
@@ -121,7 +118,6 @@ def collect_scanner_metrics(client: docker.DockerClient) -> dict:
         out["api_error"] = str(e)
         return out
 
-    # Application metrics from data-downloader API (reads shared scanner_status.json)
     try:
         r = requests.get(
             f"{SCANNER_API_URL.rstrip('/')}/api/scanner-status",
@@ -141,92 +137,94 @@ def collect_scanner_metrics(client: docker.DockerClient) -> dict:
     return out
 
 
-def write_health_to_influx(influx_metrics: dict, scanner_metrics: dict) -> None:
-    """Write collected metrics to InfluxDB 3 as points."""
-    if not INFLUXDB_TOKEN:
-        logger.warning("INFLUXDB_ADMIN_TOKEN/INFLUXDB_TOKEN not set; skipping write")
-        return
+# ---------------------------------------------------------------------------
+# Metric writing
+# ---------------------------------------------------------------------------
+
+def _write_points(rows: list[tuple]) -> None:
+    """
+    Write a list of (time, measurement, container, service, field, value_float, value_text)
+    tuples to monitoring table.
+    """
+    sql = """
+        INSERT INTO monitoring
+            (time, measurement, container, service, field, value_float, value_text)
+        VALUES %s
+    """
+    with psycopg2.connect(POSTGRES_DSN) as conn:
+        psycopg2.extras.execute_values(conn.cursor(), sql, rows)
+        conn.commit()
+
+
+def write_health_to_db(tsdb_metrics: dict, scanner_metrics: dict) -> None:
+    now = _now()
+    rows = []
+
+    # TimescaleDB container metrics
+    rows.append((now, "monitor.container", CONTAINER_TIMESCALEDB, None, "up",
+                 float(tsdb_metrics["up"]), None))
+    if tsdb_metrics["restart_count"] is not None:
+        rows.append((now, "monitor.container", CONTAINER_TIMESCALEDB, None,
+                     "restart_count", float(tsdb_metrics["restart_count"]), None))
+    if tsdb_metrics["disk_usage_bytes"] is not None:
+        rows.append((now, "monitor.container", CONTAINER_TIMESCALEDB, None,
+                     "disk_usage_bytes", float(tsdb_metrics["disk_usage_bytes"]), None))
+    if tsdb_metrics["write_latency_seconds"] is not None:
+        rows.append((now, "monitor.container", CONTAINER_TIMESCALEDB, None,
+                     "write_latency_seconds", tsdb_metrics["write_latency_seconds"], None))
+    if tsdb_metrics.get("write_error"):
+        rows.append((now, "monitor.container", CONTAINER_TIMESCALEDB, None,
+                     "write_error", None, tsdb_metrics["write_error"][:500]))
+
+    # Scanner container metrics
+    rows.append((now, "monitor.container", CONTAINER_SCANNER, None, "up",
+                 float(scanner_metrics["up"]), None))
+    if scanner_metrics.get("api_error"):
+        rows.append((now, "monitor.container", CONTAINER_SCANNER, None,
+                     "api_error", None, scanner_metrics["api_error"]))
+
+    # Scanner service metrics
+    rows.append((now, "monitor.service", None, CONTAINER_SCANNER, "up",
+                 float(scanner_metrics["up"]), None))
+    if scanner_metrics.get("last_scan_duration_seconds") is not None:
+        rows.append((now, "monitor.service", None, CONTAINER_SCANNER,
+                     "last_scan_duration_seconds",
+                     scanner_metrics["last_scan_duration_seconds"], None))
+    if scanner_metrics.get("last_successful_job_timestamp"):
+        rows.append((now, "monitor.service", None, CONTAINER_SCANNER,
+                     "last_successful_job_timestamp", None,
+                     scanner_metrics["last_successful_job_timestamp"]))
+    if scanner_metrics.get("error_count") is not None:
+        rows.append((now, "monitor.service", None, CONTAINER_SCANNER,
+                     "error_count", float(scanner_metrics["error_count"]), None))
+
     try:
-        with InfluxDBClient3(**_influx_client_kwargs()) as client:
-            ts_ns = _now_ns()
-
-            # monitor.container.* — Docker/container-level metrics
-            p_influx = (
-                Point("monitor.container")
-                .tag("container", CONTAINER_INFLUXDB)
-                .field("up", influx_metrics["up"])
-                .time(ts_ns, write_precision="ns")
-            )
-            if influx_metrics["restart_count"] is not None:
-                p_influx = p_influx.field("restart_count", influx_metrics["restart_count"])
-            if influx_metrics["disk_usage_bytes"] is not None:
-                p_influx = p_influx.field("disk_usage_bytes", influx_metrics["disk_usage_bytes"])
-            if influx_metrics["write_latency_seconds"] is not None:
-                p_influx = p_influx.field(
-                    "write_latency_seconds", influx_metrics["write_latency_seconds"]
-                )
-            if influx_metrics.get("write_error"):
-                p_influx = p_influx.field("write_error", influx_metrics["write_error"])
-            client.write(p_influx)
-
-            p_scanner_container = (
-                Point("monitor.container")
-                .tag("container", CONTAINER_SCANNER)
-                .field("up", scanner_metrics["up"])
-                .time(ts_ns, write_precision="ns")
-            )
-            if scanner_metrics.get("api_error"):
-                p_scanner_container = p_scanner_container.field(
-                    "api_error", scanner_metrics["api_error"]
-                )
-            client.write(p_scanner_container)
-
-            # monitor.service.* — Application/service-level metrics (scanner)
-            p_scanner_service = (
-                Point("monitor.service")
-                .tag("service", CONTAINER_SCANNER)
-                .field("up", scanner_metrics["up"])
-                .time(ts_ns, write_precision="ns")
-            )
-            if scanner_metrics.get("last_scan_duration_seconds") is not None:
-                p_scanner_service = p_scanner_service.field(
-                    "last_scan_duration_seconds",
-                    scanner_metrics["last_scan_duration_seconds"],
-                )
-            if scanner_metrics.get("last_successful_job_timestamp"):
-                p_scanner_service = p_scanner_service.field(
-                    "last_successful_job_timestamp",
-                    scanner_metrics["last_successful_job_timestamp"],
-                )
-            if scanner_metrics.get("error_count") is not None:
-                p_scanner_service = p_scanner_service.field(
-                    "error_count", scanner_metrics["error_count"]
-                )
-            if scanner_metrics.get("api_error"):
-                p_scanner_service = p_scanner_service.field(
-                    "api_error", scanner_metrics["api_error"]
-                )
-            client.write(p_scanner_service)
-
-        logger.info("Wrote health points for %s and %s", CONTAINER_INFLUXDB, CONTAINER_SCANNER)
+        _write_points(rows)
+        logger.info(
+            "Wrote %d health points for %s and %s",
+            len(rows), CONTAINER_TIMESCALEDB, CONTAINER_SCANNER,
+        )
     except Exception as e:
-        logger.exception("Failed to write health to InfluxDB: %s", e)
+        logger.exception("Failed to write health metrics: %s", e)
 
+
+# ---------------------------------------------------------------------------
+# Main loop
+# ---------------------------------------------------------------------------
 
 def main() -> None:
     logger.info(
-        "Health monitor started (interval=%ss, influx=%s, database=%s)",
+        "Health monitor started (interval=%ss, dsn=%s)",
         INTERVAL_SECONDS,
-        INFLUXDB_URL,
-        INFLUXDB_DATABASE,
+        POSTGRES_DSN,
     )
     docker_client = docker.from_env()
 
     while True:
         try:
-            influx_metrics = collect_influxdb_metrics(docker_client)
+            tsdb_metrics = collect_timescaledb_metrics(docker_client)
             scanner_metrics = collect_scanner_metrics(docker_client)
-            write_health_to_influx(influx_metrics, scanner_metrics)
+            write_health_to_db(tsdb_metrics, scanner_metrics)
         except Exception:
             logger.exception("Health collection cycle failed")
         time.sleep(INTERVAL_SECONDS)

@@ -1,5 +1,0 @@
-{
-  "token": "apiv3_dev-influxdb-admin-token",
-  "name": "_admin",
-  "_comment": "Make sure the token matches the DEFAULT_API_TOKEN in influxdb3-explorer-config/config.json"
-}

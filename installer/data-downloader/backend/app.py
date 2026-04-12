@@ -65,7 +65,7 @@ def health_status() -> dict:
         scanner_status = service.get_scanner_status()
         now = datetime.now(timezone.utc).isoformat()
         return {
-            "influxdb3": _docker_container_running("influxdb3"),
+            "timescaledb": _docker_container_running("timescaledb"),
             "scanner": _docker_container_running("data-downloader-scanner"),
             "last_updated": now,
             "last_scan_duration_seconds": scanner_status.get("last_scan_duration_seconds"),
@@ -126,10 +126,10 @@ def query_signal(payload: DataQueryPayload, season: str | None = None) -> dict:
 @app.get("/", response_class=HTMLResponse)
 def index():
     """Simple status page for debugging."""
-    influx_status = "Unknown"
+    influx_status = "N/A (TimescaleDB)"
     influx_color = "gray"
     try:
-        service._log_influx_connectivity()
+        service._log_db_connectivity()
         influx_status = "Connected"
         influx_color = "green"
     except Exception as e:

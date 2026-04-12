@@ -9,8 +9,10 @@ from flask import (
 import uuid, time, threading, json, logging, requests, os, asyncio, io, zipfile
 from typing import Optional, Tuple, List
 from urllib.parse import quote
-from helper import CANInfluxStreamer
+from helper import CANTimescaleStreamer
 import traceback
+import psycopg2
+import psycopg2.extras
 
 if os.getenv("DEBUG") is None:
     from dotenv import load_dotenv
@@ -19,50 +21,35 @@ if os.getenv("DEBUG") is None:
 error_logger = logging.getLogger(__name__)
 
 ALLOWED_EXTENSIONS = {"csv", "zip"}
-# Zip expansion limits (team-only upload; still guard accidents / bad archives)
 UPLOAD_ZIP_MAX_ARCHIVE_BYTES = int(os.getenv("UPLOAD_ZIP_MAX_ARCHIVE_BYTES", str(2 * 1024**3)))
 UPLOAD_ZIP_MAX_MEMBER_BYTES = int(os.getenv("UPLOAD_ZIP_MAX_MEMBER_BYTES", str(4 * 1024**3)))
 UPLOAD_ZIP_MAX_TOTAL_UNCOMPRESSED_BYTES = int(
     os.getenv("UPLOAD_ZIP_MAX_TOTAL_UNCOMPRESSED_BYTES", str(24 * 1024**3))
 )
 UPLOAD_ZIP_MAX_CSV_IN_ZIP = int(os.getenv("UPLOAD_ZIP_MAX_CSV_IN_ZIP", "5000"))
-ALLOWED_DBC_EXTENSIONS = {"dbc"}
 PROGRESS = {}
 CURRENT_FILE = {"name": "", "task_id": "", "season": ""}
+
 WEBHOOK_URL = (
     os.getenv("FILE_UPLOADER_WEBHOOK_URL")
     or os.getenv("SLACK_WEBHOOK_URL")
     or ""
 )
+SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "").strip()
+SLACK_CHANNEL   = os.getenv("SLACK_DEFAULT_CHANNEL", "").strip()
+SLACK_API       = "https://slack.com/api"
+
 DEBUG: bool = bool(int(os.getenv("DEBUG") or 0))
-INFLUXDB_TOKEN = os.getenv("INFLUXDB_TOKEN")
-INFLUXDB_URL = os.getenv("INFLUXDB_URL", "http://influxdb3:8181")
-INFLUXDB_DATABASE = os.getenv("INFLUXDB_DATABASE", "WFR")
-# information_schema / catalog tables — not user telemetry seasons
-_INFLUX_SYSTEM_TABLE_NAMES = frozenset(
-    {
-        "views",
-        "tables",
-        "schemata",
-        "routines",
-        "queries",
-        "processing_engine_triggers",
-        "processing_engine_trigger_arguments",
-        "processing_engine_logs",
-        "parquet_files",
-        "parameters",
-        "last_caches",
-        "influxdb_schema",
-        "distinct_caches",
-        "df_settings",
-        "columns",
-    }
-)
+POSTGRES_DSN = os.getenv("POSTGRES_DSN", "postgresql://wfr:wfr_password@timescaledb:5432/wfr")
 GITHUB_DBC_TOKEN = os.getenv("GITHUB_DBC_TOKEN", "").strip()
 GITHUB_DBC_REPO = os.getenv("GITHUB_DBC_REPO", "Western-Formula-Racing/DBC").strip()
 GITHUB_DBC_BRANCH = os.getenv("GITHUB_DBC_BRANCH", "main").strip()
 app = Flask(__name__)
 
+
+# ---------------------------------------------------------------------------
+# GitHub DBC helpers
+# ---------------------------------------------------------------------------
 
 def _github_repo_parts() -> Tuple[str, str]:
     owner, slash, repo = GITHUB_DBC_REPO.partition("/")
@@ -82,10 +69,6 @@ def _github_headers() -> dict:
 
 
 def list_github_dbc_paths() -> Tuple[List[str], Optional[str]]:
-    """
-    List .dbc blob paths under GITHUB_DBC_REPO at GITHUB_DBC_BRANCH (recursive tree).
-    Returns (paths_sorted, error_message_or_none).
-    """
     if not GITHUB_DBC_TOKEN:
         return [], None
     try:
@@ -109,7 +92,6 @@ def list_github_dbc_paths() -> Tuple[List[str], Optional[str]]:
 
 
 def download_github_dbc_to_temp(repo_path: str) -> str:
-    """Download a repo-relative .dbc path to a temp file; return filesystem path."""
     owner, repo = _github_repo_parts()
     enc = quote(repo_path, safe="")
     url = f"https://api.github.com/repos/{owner}/{repo}/contents/{enc}?ref={GITHUB_DBC_BRANCH}"
@@ -121,7 +103,6 @@ def download_github_dbc_to_temp(repo_path: str) -> str:
     if r.status_code != 200:
         raise RuntimeError(f"GitHub download {r.status_code}: {r.text[:400]}")
     import tempfile
-
     fd, tmp = tempfile.mkstemp(suffix=".dbc")
     try:
         os.write(fd, r.content)
@@ -134,53 +115,38 @@ def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
-def _seasons_from_env() -> list[str]:
-    """Fallback: parse SEASONS env var (format: 'WFR25:2025,WFR26:2026')."""
-    raw = os.getenv("SEASONS", "")
-    seasons = [part.split(":")[0].strip() for part in raw.split(",") if part.strip()]
-    return sorted(seasons, reverse=True) if seasons else ["WFR26", "WFR25"]
+# ---------------------------------------------------------------------------
+# TimescaleDB helpers
+# ---------------------------------------------------------------------------
 
-
-def _table_create_conflict(response: requests.Response) -> bool:
-    """True if Influx rejected create because the table already exists (idempotent Add Season)."""
-    if response.status_code not in (400, 409):
-        return False
-    lowered = response.text.lower()
-    if any(s in lowered for s in ("already exists", "already exist", "duplicate")):
-        return True
-    try:
-        data = response.json()
-        err = str(data.get("error", "")).lower()
-        if any(s in err for s in ("already exists", "already exist", "duplicate")):
-            return True
-    except Exception:
-        pass
-    return False
+def _get_db_conn():
+    return psycopg2.connect(POSTGRES_DSN)
 
 
 def getSeasons() -> list[str]:
-    """Return list of season/table names from the WFR database, falling back to env var."""
-    api_url = f"{INFLUXDB_URL.rstrip('/')}/api/v3/query_sql"
     try:
-        res = requests.post(
-            api_url,
-            headers={"Authorization": f"Token {INFLUXDB_TOKEN}", "Content-Type": "application/json"},
-            json={"db": INFLUXDB_DATABASE, "q": "SELECT DISTINCT table_name FROM information_schema.tables", "format": "json"},
-            timeout=10,
-        )
-        res.raise_for_status()
-        seasons = []
-        for row in res.json():
-            name = row.get("table_name") or ""
-            if not name or name.startswith("_"):
-                continue
-            if name.lower() in _INFLUX_SYSTEM_TABLE_NAMES:
-                continue
-            seasons.append(name)
-        return sorted(seasons, reverse=True) if seasons else _seasons_from_env()
-    except Exception:
-        return _seasons_from_env()
+        with _get_db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT table_name
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public'
+                      AND table_type = 'BASE TABLE'
+                      AND table_name ~ '^wfr[0-9]'
+                    ORDER BY table_name DESC
+                """)
+                rows = cur.fetchall()
+                if rows:
+                    return [r[0].upper() for r in rows]
+    except Exception as e:
+        error_logger.warning("getSeasons DB error: %s", e)
+    raw = os.getenv("SEASONS", "WFR26:2026,WFR25:2025")
+    return [part.split(":")[0].strip().upper() for part in raw.split(",") if part.strip()]
 
+
+# ---------------------------------------------------------------------------
+# Zip expansion
+# ---------------------------------------------------------------------------
 
 def _zip_entry_path_safe(arcname: str) -> bool:
     if not arcname or arcname.startswith(("/", "\\")):
@@ -190,10 +156,6 @@ def _zip_entry_path_safe(arcname: str) -> bool:
 
 
 def expand_upload_files_to_csv_payloads(files) -> Tuple[List[Tuple[str, bytes]], Optional[str]]:
-    """
-    Normalize multipart uploads to (relative_path, bytes) for stream_multiple_csvs.
-    Plain .csv are stored at basename; each .zip expands to _zN/<basename>.csv under the temp tree.
-    """
     out: List[Tuple[str, bytes]] = []
     zip_idx = 0
     seen_in_zip: set[tuple[int, str]] = set()
@@ -208,20 +170,19 @@ def expand_upload_files_to_csv_payloads(files) -> Tuple[List[Tuple[str, bytes]],
             out.append((leaf, data))
         elif ext == "zip":
             if len(data) > UPLOAD_ZIP_MAX_ARCHIVE_BYTES:
-                return [], (
-                    f"Zip too large: {name} "
-                    f"(max {UPLOAD_ZIP_MAX_ARCHIVE_BYTES // (1024 ** 3)} GiB compressed)"
-                )
+                return [], f"Zip too large: {name}"
             zip_idx += 1
             zlabel = zip_idx
             try:
                 with zipfile.ZipFile(io.BytesIO(data), "r") as z:
                     infos = [
-                        i
-                        for i in z.infolist()
+                        i for i in z.infolist()
                         if not i.is_dir()
                         and i.filename.lower().endswith(".csv")
                         and _zip_entry_path_safe(i.filename)
+                        # exclude macOS resource forks (__MACOSX/ and ._filename)
+                        and not i.filename.startswith("__MACOSX/")
+                        and not os.path.basename(i.filename).startswith("._")
                     ]
                     if not infos:
                         return [], f"No CSV files found in zip: {name}"
@@ -229,25 +190,17 @@ def expand_upload_files_to_csv_payloads(files) -> Tuple[List[Tuple[str, bytes]],
                         return [], f"Too many CSV entries in {name} (max {UPLOAD_ZIP_MAX_CSV_IN_ZIP})"
                     total_uc = sum(i.file_size for i in infos)
                     if total_uc > UPLOAD_ZIP_MAX_TOTAL_UNCOMPRESSED_BYTES:
-                        return [], (
-                            f"Zip {name} uncompressed total too large "
-                            f"(max {UPLOAD_ZIP_MAX_TOTAL_UNCOMPRESSED_BYTES // (1024 ** 3)} GiB)"
-                        )
+                        return [], f"Zip {name} uncompressed total too large"
                     for i in infos:
                         if i.file_size > UPLOAD_ZIP_MAX_MEMBER_BYTES:
                             return [], f"CSV inside zip too large: {i.filename} in {name}"
                         leaf = os.path.basename(i.filename) or "data.csv"
                         key = (zlabel, leaf.lower())
                         if key in seen_in_zip:
-                            return [], (
-                                f'Duplicate CSV filename "{leaf}" inside zip {name} '
-                                "(rename one of the files)."
-                            )
+                            return [], f'Duplicate CSV filename "{leaf}" inside zip {name}'
                         seen_in_zip.add(key)
                         with z.open(i, "r") as fp:
                             body = fp.read()
-                        if len(body) != i.file_size:
-                            return [], f"Size mismatch for {i.filename} in {name}"
                         out.append((f"_z{zlabel}/{leaf}", body))
             except zipfile.BadZipFile:
                 return [], f"Invalid or corrupt zip: {name}"
@@ -260,18 +213,147 @@ def expand_upload_files_to_csv_payloads(files) -> Tuple[List[Tuple[str, bytes]],
     return out, None
 
 
-# This function can send Slack messages to a channel
-def send_webhook_notification(payload_text=None):
-    if not WEBHOOK_URL:
-        return
-    try:
-        payload = {"text": payload_text}
-        response = requests.post(WEBHOOK_URL, json=payload, timeout=10)
-        response.raise_for_status()
-        error_logger.info("Webhook notification sent successfully.")
-    except requests.exceptions.RequestException as e:
-        error_logger.error(f"Webhook notification failed: {e}")
+# ---------------------------------------------------------------------------
+# Slack — live in-place progress updates
+# ---------------------------------------------------------------------------
 
+def _slack_headers() -> dict:
+    return {"Authorization": f"Bearer {SLACK_BOT_TOKEN}", "Content-Type": "application/json"}
+
+
+def _progress_bar(pct: int, width: int = 20) -> str:
+    filled = int(width * pct / 100)
+    return "▓" * filled + "░" * (width - filled)
+
+
+def _eta_str(sent: int, total: int, elapsed: float) -> str:
+    if sent <= 0 or elapsed <= 0 or total <= 0:
+        return ""
+    rate = sent / elapsed
+    secs = (total - sent) / rate
+    return f"~{int(secs)}s left" if secs < 60 else f"~{int(secs / 60)}m left"
+
+
+class SlackProgressNotifier:
+    """
+    Posts one Slack message when an upload starts, then edits it in-place
+    with a live ASCII progress bar every UPDATE_EVERY percent.
+
+    Falls back gracefully to a plain incoming webhook if no bot token is set.
+    """
+    UPDATE_EVERY = 10  # update every N percent
+
+    def __init__(self, file_name: str, season: str, total_rows: int):
+        self.file_name = file_name
+        self.season    = season
+        self.total     = total_rows
+        self._ts: Optional[str] = None   # Slack message ts — used for chat.update
+        self._start    = time.time()
+        self._last_pct = -1
+        self._lock     = threading.Lock()
+        self._post_initial()
+
+    def _build_text(self, pct: int, sent: int, done: bool = False, error: str = "") -> str:
+        if error:
+            return (f"❌ *Upload failed* — `{self.file_name}` → *{self.season}*\n"
+                    f"```{error[:300]}```")
+        bar     = _progress_bar(pct)
+        elapsed = time.time() - self._start
+        if done:
+            t = f"{elapsed:.0f}s" if elapsed < 60 else f"{elapsed / 60:.1f}m"
+            return (f"✅ *Upload complete* — `{self.file_name}` → *{self.season}*\n"
+                    f"`{bar}` 100%  ·  {sent:,} rows written  ·  took {t}")
+        eta = ("  " + _eta_str(sent, self.total, elapsed)) if sent > 0 else ""
+        tot = f" / {self.total:,}" if self.total else ""
+        return (f"📤 *Uploading* — `{self.file_name}` → *{self.season}*\n"
+                f"`{bar}` {pct}%  ·  {sent:,}{tot} rows{eta}")
+
+    def _post_initial(self) -> None:
+        if SLACK_BOT_TOKEN and SLACK_CHANNEL:
+            try:
+                resp = requests.post(
+                    f"{SLACK_API}/chat.postMessage",
+                    headers=_slack_headers(),
+                    json={"channel": SLACK_CHANNEL, "text": self._build_text(0, 0), "mrkdwn": True},
+                    timeout=10,
+                )
+                data = resp.json()
+                if data.get("ok"):
+                    self._ts = data["ts"]
+                    print(f"📨 Slack message posted ts={self._ts}")
+                else:
+                    error_logger.warning("Slack postMessage failed: %s", data.get("error"))
+            except Exception as e:
+                error_logger.warning("Slack initial post failed: %s", e)
+        elif WEBHOOK_URL:
+            try:
+                requests.post(WEBHOOK_URL,
+                              json={"text": f"📤 Upload started: `{self.file_name}` → *{self.season}*"},
+                              timeout=10)
+            except Exception as e:
+                error_logger.warning("Webhook start post failed: %s", e)
+
+    def _edit(self, text: str) -> None:
+        if not (SLACK_BOT_TOKEN and SLACK_CHANNEL and self._ts):
+            return
+        try:
+            requests.post(
+                f"{SLACK_API}/chat.update",
+                headers=_slack_headers(),
+                json={"channel": SLACK_CHANNEL, "ts": self._ts, "text": text, "mrkdwn": True},
+                timeout=10,
+            )
+        except Exception as e:
+            error_logger.warning("Slack update failed: %s", e)
+
+    def update(self, sent: int, total: int) -> None:
+        pct = int(sent * 100 / total) if total else 0
+        with self._lock:
+            if pct - self._last_pct < self.UPDATE_EVERY:
+                return
+            self._last_pct = pct
+        self._edit(self._build_text(pct, sent))
+
+    def finish(self, sent: int) -> None:
+        self._edit(self._build_text(100, sent, done=True))
+        if not (SLACK_BOT_TOKEN and SLACK_CHANNEL) and WEBHOOK_URL:
+            try:
+                requests.post(WEBHOOK_URL,
+                              json={"text": f"✅ Done: `{self.file_name}` → *{self.season}* ({sent:,} rows)"},
+                              timeout=10)
+            except Exception as e:
+                error_logger.warning("Webhook finish failed: %s", e)
+
+    def fail(self, error: str) -> None:
+        text = self._build_text(0, 0, error=error)
+        if self._ts:
+            self._edit(text)
+        elif WEBHOOK_URL:
+            try:
+                requests.post(WEBHOOK_URL, json={"text": text}, timeout=10)
+            except Exception:
+                pass
+
+
+def send_webhook_notification(payload_text: str = "") -> None:
+    """One-off Slack notification (season creation, errors, etc.)."""
+    if SLACK_BOT_TOKEN and SLACK_CHANNEL:
+        try:
+            requests.post(f"{SLACK_API}/chat.postMessage", headers=_slack_headers(),
+                          json={"channel": SLACK_CHANNEL, "text": payload_text, "mrkdwn": True},
+                          timeout=10)
+        except Exception as e:
+            error_logger.warning("Slack notify failed: %s", e)
+    elif WEBHOOK_URL:
+        try:
+            requests.post(WEBHOOK_URL, json={"text": payload_text}, timeout=10)
+        except Exception as e:
+            error_logger.warning("Webhook notify failed: %s", e)
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
 
 @app.route("/")
 def index():
@@ -286,15 +368,12 @@ def index():
 
 @app.route("/dbc/list", methods=["GET"])
 def dbc_list():
-    """List .dbc files from the configured GitHub repo (token never exposed to the client)."""
     if not GITHUB_DBC_TOKEN:
-        return jsonify(
-            {
-                "token_configured": False,
-                "items": [],
-                "message": "GITHUB_DBC_TOKEN is not set; using optional custom upload or container default DBC.",
-            }
-        )
+        return jsonify({
+            "token_configured": False,
+            "items": [],
+            "message": "GITHUB_DBC_TOKEN is not set; using container default DBC.",
+        })
     paths, err = list_github_dbc_paths()
     if err:
         error_logger.warning("dbc_list GitHub error: %s", err)
@@ -302,50 +381,37 @@ def dbc_list():
     return jsonify({"token_configured": True, "items": paths, "error": None})
 
 
-@app.route("/create-bucket", methods=["POST"])
-def create_bucket():
-    """Create a new table (season) inside INFLUXDB_DATABASE, not a new InfluxDB database."""
+@app.route("/create-season", methods=["POST"])
+def create_season():
     name = (request.json or {}).get("name", "").strip()
     if not name:
         return jsonify({"error": "No season name provided"}), 400
-    if len(name) > 256:
-        return jsonify({"error": "Name too long (max 256 characters)"}), 400
+    if len(name) > 64:
+        return jsonify({"error": "Name too long (max 64 characters)"}), 400
+    table_name = name.lower()
+    try:
+        streamer = CANTimescaleStreamer(postgres_dsn=POSTGRES_DSN, table=table_name)
+        streamer.ensure_season_table()
+        streamer.close()
+        return jsonify({"name": name.upper()})
+    except Exception as e:
+        error_logger.exception("create_season failed")
+        return jsonify({"error": str(e)}), 500
 
-    api_url = f"{INFLUXDB_URL.rstrip('/')}/api/v3/configure/table"
-    # Tags must match CANInfluxStreamer line protocol (helper._parse_row_generator).
-    payload = {
-        "db": INFLUXDB_DATABASE,
-        "table": name,
-        "tags": ["messageName", "canId"],
-        "fields": [],
-    }
-    res = requests.post(
-        api_url,
-        headers={"Authorization": f"Token {INFLUXDB_TOKEN}", "Content-Type": "application/json"},
-        json=payload,
-        timeout=10,
-    )
-    if res.status_code in (200, 201, 204):
-        return jsonify({"name": name})
-    if _table_create_conflict(res):
-        return jsonify({"name": name})
-    return jsonify({"error": res.text}), res.status_code
+
+@app.route("/create-bucket", methods=["POST"])
+def create_bucket():
+    return create_season()
 
 
 @app.route("/upload", methods=["POST"])
 def upload_file():
     if request.method == "POST":
         if CURRENT_FILE["task_id"]:
-            return (
-                jsonify(
-                    {
-                        "error": "A File Is Already Being Uploaded, Please Wait For The Upload To Finish"
-                    }
-                ),
-                400,
-            )
+            return jsonify({"error": "A file is already being uploaded. Please wait."}), 400
+
         season = request.form.get("season")
-        if not season or season == "":
+        if not season:
             return jsonify({"error": "No season selected"}), 400
 
         dbc_github_path = (request.form.get("dbc_github_path") or "").strip()
@@ -357,60 +423,38 @@ def upload_file():
         if token_on:
             if dbc_github_path:
                 if dbc_github_path not in team_paths:
-                    return jsonify({"error": "Invalid or unknown team DBC path; refresh the page and pick again."}), 400
+                    return jsonify({"error": "Invalid or unknown team DBC path."}), 400
                 try:
                     dbc_temp_path = download_github_dbc_to_temp(dbc_github_path)
                 except Exception as e:
-                    error_logger.error(e)
                     return jsonify({"error": f"Could not download DBC from GitHub: {e}"}), 400
-                error_logger.info("DBC from GitHub: %s -> %s", dbc_github_path, dbc_temp_path)
             elif dbc_file and dbc_file.filename:
                 if not dbc_file.filename.lower().endswith(".dbc"):
-                    return jsonify({"error": "Invalid DBC file type. Only .dbc files allowed."}), 400
+                    return jsonify({"error": "Invalid DBC file type."}), 400
                 import tempfile
-
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".dbc") as tmp:
                     dbc_file.save(tmp)
                     dbc_temp_path = tmp.name
-                error_logger.info("Custom DBC uploaded: %s -> %s", dbc_file.filename, dbc_temp_path)
             else:
                 if len(team_paths) >= 1:
-                    return (
-                        jsonify(
-                            {
-                                "error": "Select a team DBC from the list or upload a custom .dbc file.",
-                            }
-                        ),
-                        400,
-                    )
-                return (
-                    jsonify(
-                        {
-                            "error": "No .dbc files found in the team repo; upload a custom .dbc file.",
-                        }
-                    ),
-                    400,
-                )
+                    return jsonify({"error": "Select a team DBC or upload a custom .dbc file."}), 400
+                return jsonify({"error": "No .dbc files found in the team repo."}), 400
         else:
             if dbc_github_path:
                 return jsonify({"error": "GitHub DBC is not configured on this server."}), 400
             if dbc_file and dbc_file.filename:
                 if not dbc_file.filename.lower().endswith(".dbc"):
-                    return "Invalid DBC file type. Only .dbc files allowed.", 400
+                    return "Invalid DBC file type.", 400
                 import tempfile
-
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".dbc") as tmp:
                     dbc_file.save(tmp)
                     dbc_temp_path = tmp.name
-                error_logger.info(f"Custom DBC uploaded: {dbc_file.filename} -> {dbc_temp_path}")
 
-        # Handle multiple CSV files and/or zip archives (expanded server-side)
         files = request.files.getlist("file")
-        if not files or len(files) == 0:
+        if not files:
             return "No Files Provided", 400
-
         for f in files:
-            if not f or not f.filename or f.filename == "":
+            if not f or not f.filename:
                 return "Empty file provided", 400
 
         file_data, expand_err = expand_upload_files_to_csv_payloads(files)
@@ -421,67 +465,73 @@ def upload_file():
         task_id = str(uuid.uuid4())
         PROGRESS[task_id] = {"pct": 0, "msg": "Starting...", "done": False}
         display_names = [os.path.basename(p) for p, _ in file_data[:12]]
-        CURRENT_FILE["name"] = (
+        display_name = (
             f"{len(file_data)} CSV file(s): {', '.join(display_names[:3])}"
             f"{'...' if len(file_data) > 3 else ''}"
         )
-        CURRENT_FILE["task_id"] = str(task_id)
-        CURRENT_FILE["season"] = season
-        send_webhook_notification(
-            f"Uploading {len(file_data)} CSV file(s) -> season {season}: {', '.join(display_names[:3])}"
-            f"{'...' if len(file_data) > 3 else ''}"
+        CURRENT_FILE["name"]    = display_name
+        CURRENT_FILE["task_id"] = task_id
+        CURRENT_FILE["season"]  = season
+
+        # One Slack notifier per upload — posts once, edits in-place
+        slack = SlackProgressNotifier(
+            file_name=display_names[0] if len(display_names) == 1 else display_name,
+            season=season,
+            total_rows=0,   # will be updated once pre-scan count is known
         )
 
-        def on_progress(sent: int, total: int):
+        def on_progress(sent: int, total: int) -> None:
             try:
                 pct = int((sent * 100) / total) if total else 0
-                PROGRESS[task_id]["pct"] = pct
-                PROGRESS[task_id]["sent"] = sent
-                PROGRESS[task_id]["total"] = total
-                PROGRESS[task_id]["name"] = CURRENT_FILE["name"]
+                PROGRESS[task_id]["pct"]    = pct
+                PROGRESS[task_id]["sent"]   = sent
+                PROGRESS[task_id]["total"]  = total
+                PROGRESS[task_id]["name"]   = CURRENT_FILE["name"]
                 PROGRESS[task_id]["season"] = season
-                PROGRESS[task_id]["msg"] = f"Processing... {pct}% ({sent}/{total} rows)"
+                PROGRESS[task_id]["msg"]    = f"Processing... {pct}% ({sent}/{total} rows)"
+                # Update total on first real call so ETA is accurate
+                if slack.total == 0 and total > 0:
+                    slack.total = total
+                # Update Slack every UPDATE_EVERY %
+                slack.update(sent, total)
                 if sent >= total and not PROGRESS[task_id].get("done"):
                     PROGRESS[task_id]["done"] = True
-                    send_webhook_notification(
-                        f"File Done Uploading: {CURRENT_FILE['name']} -> {CURRENT_FILE['season']}"
-                    )
-            except:
+                    slack.finish(sent)
+            except Exception:
                 pass
 
         def worker():
-            # Auto-configure streamer for file size with InfluxDB-safe settings
-            file_size_mb = total_size / (1024 * 1024)
-            streamer = CANInfluxStreamer(
-                database=INFLUXDB_DATABASE, table=season, dbc_path=dbc_temp_path
+            streamer = CANTimescaleStreamer(
+                postgres_dsn=POSTGRES_DSN,
+                table=season.lower(),
+                dbc_path=dbc_temp_path,
             )
-
             try:
-                # Process multiple CSV files using the new method
                 asyncio.run(
                     streamer.stream_multiple_csvs(
                         file_data=file_data,
                         on_progress=on_progress,
-                        total_size_mb=file_size_mb
+                        total_size_mb=total_size / (1024 * 1024),
                     )
                 )
-
             except Exception as e:
-                error_logger.error(e)
                 error_logger.error(traceback.format_exc())
-                PROGRESS[task_id]["msg"] = f"Error: {e}"
+                PROGRESS[task_id]["msg"]  = f"Error: {e}"
                 PROGRESS[task_id]["done"] = True
+                slack.fail(str(e))
             finally:
                 try:
                     streamer.close()
                 except Exception as e:
                     print("error closing streamer", e)
-                    pass
                 if dbc_temp_path and os.path.exists(dbc_temp_path):
                     try:
                         os.unlink(dbc_temp_path)
                     except Exception:
                         pass
+                CURRENT_FILE["name"]    = ""
+                CURRENT_FILE["task_id"] = ""
+                CURRENT_FILE["season"]  = ""
 
         threading.Thread(target=worker, daemon=True).start()
         return jsonify({"task_id": task_id})
@@ -496,28 +546,20 @@ def progress_stream(task_id):
         last_pct = -1
         while True:
             state: dict = PROGRESS.get(task_id) or {}
-            if state is None:
-                payload = json.dumps(
-                    {
-                        "error": "Unknown task / unable to find task_id",
-                    }
-                )
-                yield f"event: error \ndata: {payload}\n\n"
+            if not state:
+                payload = json.dumps({"error": "Unknown task_id"})
+                yield f"event: error\ndata: {payload}\n\n"
                 break
             if "pct" in state and state["pct"] != last_pct:
                 last_pct = state["pct"]
-                payload = json.dumps(state)
-                yield f"data: {payload}\n\n"
+                yield f"data: {json.dumps(state)}\n\n"
             if state.get("done"):
-                CURRENT_FILE["name"] = ""
-                CURRENT_FILE["task_id"] = ""
-                CURRENT_FILE["season"] = ""
                 yield f"data: {json.dumps(state)}\n\n"
                 break
             time.sleep(0.3)
 
     return Response(
-        response=gen(),  # type: ignore
+        response=gen(),
         status=200,
         headers={"Cache-Control": "no-cache"},
         content_type="text/event-stream",
@@ -533,6 +575,6 @@ def health_check():
 
 if __name__ == "__main__":
     if DEBUG:
-        app.run(host="0.0.0.0", port=5001, debug=True)  # Comment out for prod
+        app.run(host="0.0.0.0", port=5001, debug=True)
     else:
-        app.run(host="0.0.0.0", port=8084, debug=False, use_reloader=False)  # Comment out for prod
+        app.run(host="0.0.0.0", port=8084, debug=False, use_reloader=False)

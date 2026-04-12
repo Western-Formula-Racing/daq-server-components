@@ -39,7 +39,7 @@ jobs:
 
     strategy:
       matrix:
-        service: [slackbot, lap-detector, startup-data-loader, file-uploader]
+        service: [slackbot, lap-detector, file-uploader]
 
     steps:
     - name: Checkout code
@@ -96,8 +96,7 @@ jobs:
 
     - name: Pull pre-built images
       run: |
-        docker pull influxdb:3.5.0-core
-        docker pull influxdata/influxdb3-ui:1.3.0
+        docker pull timescale/timescaledb:latest-pg16
         docker pull grafana/grafana
         docker pull telegraf:1.30
         docker pull nginx:alpine
@@ -116,7 +115,7 @@ jobs:
       run: |
         cd installer
         # Start core monitoring stack to ensure compose wiring is valid
-        timeout 60s docker compose up influxdb3 influxdb3-explorer grafana frontend || true
+        timeout 60s docker compose up timescaledb file-uploader grafana frontend || true
         # Check if containers started (even if they exit quickly)
         docker compose ps
 

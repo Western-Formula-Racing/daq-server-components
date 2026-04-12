@@ -226,3 +226,5 @@ node_modules/
 
 # Superpowers (AI agent specs/plans - not for version control)
 docs/superpowers/
+
+wfr-data
