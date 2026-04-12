@@ -107,10 +107,10 @@ async function parseUploadResponse(res) {
 
 function submitCsvUpload(files) {
 	const name_label = document.getElementById("file-name-label");
-	const selected_bucket = document.getElementById("bucket-select").value;
+	const selected_season = document.getElementById("season-select").value;
 
-	if (!selected_bucket || selected_bucket == "") {
-		alert("Please Select A Season/Table From The Dropdown Menu");
+	if (!selected_season || selected_season == "") {
+		alert("Please select a season from the dropdown");
 		return;
 	}
 
@@ -123,10 +123,19 @@ function submitCsvUpload(files) {
 
 	for (let i = 0; i < files.length; i++) {
 		const file = files[i];
-		if (file.type !== "text/csv" && !file.name.toLowerCase().endsWith(".csv")) {
-			name_label.innerText = `File ${file.name} is not a CSV file`;
+		const n = file.name.toLowerCase();
+		const okCsv =
+			file.type === "text/csv" ||
+			n.endsWith(".csv") ||
+			file.type === "application/csv";
+		const okZip =
+			n.endsWith(".zip") ||
+			file.type === "application/zip" ||
+			file.type === "application/x-zip-compressed";
+		if (!okCsv && !okZip) {
+			name_label.innerText = `File ${file.name} is not CSV or zip`;
 			name_label.style = "color: red;";
-			alert(`File ${file.name} is not a CSV file. Only CSV files are allowed.`);
+			alert(`File ${file.name} must be .csv or .zip (of CSVs).`);
 			return;
 		}
 	}
@@ -160,7 +169,7 @@ function submitCsvUpload(files) {
 	for (let i = 0; i < files.length; i++) {
 		form.append("file", files[i]);
 	}
-	form.append("bucket", selected_bucket);
+	form.append("season", selected_season);
 	appendDbcToForm(form);
 
 	fetch("/upload", {
@@ -264,7 +273,7 @@ function createBucket() {
 				btn.disabled = false;
 				return;
 			}
-			const select = document.getElementById("bucket-select");
+			const select = document.getElementById("season-select");
 			const opt = document.createElement("option");
 			opt.value = data.name;
 			opt.innerText = data.name;
@@ -311,7 +320,7 @@ function handleProgress(task_id) {
 		document.getElementById("progress-bar_count").innerText = `${data.sent} / ${data.total} rows`;
 
 		document.getElementById("drop_zone-input").disabled = true;
-		document.getElementById("bucket-select").disabled = true;
+		document.getElementById("season-select").disabled = true;
 		const dbcSel = document.getElementById("dbc-select");
 		if (dbcSel) dbcSel.disabled = true;
 		const dbcIn = document.getElementById("dbc-input");
@@ -321,7 +330,7 @@ function handleProgress(task_id) {
 			eventSource.close();
 			document.getElementById("progress-bar_pct").innerText = "Done";
 			document.getElementById("drop_zone-input").disabled = false;
-			document.getElementById("bucket-select").disabled = false;
+			document.getElementById("season-select").disabled = false;
 			if (dbcSel) dbcSel.disabled = false;
 			if (dbcIn) dbcIn.disabled = false;
 			applyDbcSelectMode();
@@ -342,7 +351,7 @@ function handleProgress(task_id) {
 								d="M13 13h3a3 3 0 0 0 0-6h-.025A5.56 5.56 0 0 0 16 6.5 5.5 5.5 0 0 0 5.207 5.021C5.137 5.017 5.071 5 5 5a4 4 0 0 0 0 8h2.167M10 15V6m0 0L8 8m2-2 2 2"
 							/>
 						</svg>
-						<h3>Click to upload CSV files or drag and drop</h3>`;
+						<h3>Click to upload CSV or zip, or drag and drop</h3>`;
 			document.getElementById("drop_zone").addEventListener("drop", dropHandler);
 			document.getElementById("drop_zone").addEventListener("dragover", dragOverHandler);
 		}

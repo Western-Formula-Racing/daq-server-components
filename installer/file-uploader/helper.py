@@ -41,6 +41,33 @@ atexit.register(_rolling_cleanup)
 _rolling_cleanup()  # Clean up any old temp files from previous runs
 
 
+def _safe_csv_temp_path(temp_dir: str, relative_csv_path: str) -> str:
+    """Resolve temp_dir + relative path for a CSV; reject zip-slip / traversal."""
+    base = os.path.abspath(temp_dir)
+    rel = relative_csv_path.replace("\\", "/").lstrip("/")
+    if not rel or rel.startswith("/"):
+        raise ValueError("invalid relative path")
+    for part in rel.split("/"):
+        if part == "..":
+            raise ValueError("path traversal in relative path")
+    joined = os.path.normpath(os.path.join(base, rel))
+    if joined != base and not joined.startswith(base + os.sep):
+        raise ValueError("path escapes upload temp directory")
+    parent = os.path.dirname(joined)
+    if parent != base:
+        os.makedirs(parent, exist_ok=True)
+    return joined
+
+
+def _iter_csv_files_under_dir(csv_dir: str):
+    """Yield (full_path, basename) for every .csv under csv_dir (recursive)."""
+    base = os.path.abspath(csv_dir)
+    for root, _dirs, files in os.walk(base):
+        for name in files:
+            if not name.lower().endswith(".csv"):
+                continue
+            yield os.path.join(root, name), name
+
 
 if os.getenv("DEBUG") is None:
     from dotenv import load_dotenv
@@ -59,7 +86,7 @@ class ProgressStats:
 class CANInfluxStreamer:
 
     def __init__(
-        self, bucket: str, table: str, batch_size: int = 500, max_concurrent_uploads: int = 5,
+        self, database: str, table: str, batch_size: int = 500, max_concurrent_uploads: int = 5,
         enable_progress_counting: bool = True, max_queue_size: int = 100,
         rate_limit_delay: float = 0.01, max_retries: int = 3,
         adaptive_backoff: bool = True, dbc_path: Optional[str] = None
@@ -67,8 +94,9 @@ class CANInfluxStreamer:
 
         self.batch_size = batch_size
         self.max_concurrent_uploads = max_concurrent_uploads
-        self.bucket = bucket   # InfluxDB database name (e.g. "WFR")
-        self.table = table     # Measurement/table name (e.g. "WFR26")
+        # InfluxDB 3 database; the Python client still names this parameter `bucket` on write_api.write().
+        self.database = database
+        self.table = table  # Table / measurement (e.g. season WFR26)
         self.enable_progress_counting = enable_progress_counting
         self.max_queue_size = max_queue_size
         self.rate_limit_delay = rate_limit_delay
@@ -168,16 +196,12 @@ class CANInfluxStreamer:
             return 0
             
         total = 0
-        csv_files = [f for f in os.listdir(csv_dir) if f.endswith('.csv')]
-        
-        for filename in csv_files:
+        for file_path, filename in _iter_csv_files_under_dir(csv_dir):
             # Filename must be a timestamp we can parse
             try:
                 datetime.strptime(filename[:-4], "%Y-%m-%d-%H-%M-%S")
             except ValueError:
                 continue  # Skip files that don't match expected format
-                
-            file_path = os.path.join(csv_dir, filename)
             sample_count = 0
             valid_rows = 0
             
@@ -502,12 +526,9 @@ class CANInfluxStreamer:
         """Producer that processes CSV files from disk directory."""
         semaphore = asyncio.Semaphore(2)  # Limit concurrent file processing
         
-        csv_files = [f for f in os.listdir(csv_dir) if f.endswith('.csv')]
+        csv_files = list(_iter_csv_files_under_dir(csv_dir))
         print(f"📄 Found {len(csv_files)} CSV files to process")
-        
-        # Process CSV files sequentially to control memory usage
-        for filename in csv_files:
-            csv_path = os.path.join(csv_dir, filename)
+        for csv_path, _basename in csv_files:
             await self.process_csv_file_from_disk(csv_path, queue, semaphore)
     
     async def _producer(
@@ -752,7 +773,7 @@ class CANInfluxStreamer:
                 
                 # Submit async write (non-blocking)
                 self.write_api.write(
-                    bucket=self.bucket, 
+                    bucket=self.database, 
                     org=self.org, 
                     record=batch_points,
                     _callback_id=callback_id  # Custom attribute for tracking
@@ -941,17 +962,16 @@ class CANInfluxStreamer:
         
         try:
             
-            # Save all CSV files to temp directory
+            # Save all CSV files to temp directory (relative paths may include subdirs per archive)
             for filename, data in file_data:
                 if not filename:
                     continue
-                    
-                # Ensure filename ends with .csv
-                if not filename.lower().endswith('.csv'):
-                    filename += '.csv'
-                    
-                temp_path = os.path.join(temp_dir, filename)
-                with open(temp_path, 'wb') as f:
+
+                if not filename.lower().endswith(".csv"):
+                    filename += ".csv"
+
+                temp_path = _safe_csv_temp_path(temp_dir, filename)
+                with open(temp_path, "wb") as f:
                     f.write(data)
                 print(f"💾 Saved {filename} ({len(data)} bytes)")
             

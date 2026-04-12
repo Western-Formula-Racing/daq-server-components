@@ -16,12 +16,12 @@
 				<div class="info">
 					<img src="{{ url_for('static', filename='logo-32_375x.webp' )}}" />
 					<h1>Upload Files to InfluxDB</h1>
-					<h2>(multiple csv files supported)</h2>
-					<span id="bucket-select_span">
-						<label for="bucket-select">Season:</label>
-						<select name="bucket" id="bucket-select">
+					<h2>(multiple CSVs or .zip of CSVs)</h2>
+					<span id="season-select_span">
+						<label for="season-select">Season:</label>
+						<select name="season" id="season-select">
 							<option value="">Select A Season</option>
-							{% for name in bucket_names %} {% if current_bucket == name %}
+							{% for name in season_names %} {% if current_season == name %}
 							<option value="{{name}}" selected>{{name}}</option>
 							{% else %}
 							<option value="{{name}}">{{name}}</option>
@@ -65,11 +65,11 @@
 								d="M13 13h3a3 3 0 0 0 0-6h-.025A5.56 5.56 0 0 0 16 6.5 5.5 5.5 0 0 0 5.207 5.021C5.137 5.017 5.071 5 5 5a4 4 0 0 0 0 8h2.167M10 15V6m0 0L8 8m2-2 2 2"
 							/>
 						</svg>
-						<h3>Click to upload CSV files or drag and drop</h3>
+						<h3>Click to upload CSV or zip, or drag and drop</h3>
 					</label>
 					<input
 						type="file"
-						accept="text/csv"
+						accept=".csv,text/csv,.zip,application/zip,application/x-zip-compressed"
 						id="drop_zone-input"
 						multiple
 						style="display: none"

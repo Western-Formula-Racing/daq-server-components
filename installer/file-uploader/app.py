@@ -6,7 +6,7 @@ from flask import (
     stream_with_context,
     Response,
 )
-import uuid, time, threading, json, logging, requests, os, asyncio
+import uuid, time, threading, json, logging, requests, os, asyncio, io, zipfile
 from typing import Optional, Tuple, List
 from urllib.parse import quote
 from helper import CANInfluxStreamer
@@ -18,10 +18,17 @@ if os.getenv("DEBUG") is None:
 
 error_logger = logging.getLogger(__name__)
 
-ALLOWED_EXTENSIONS = {"csv"}
+ALLOWED_EXTENSIONS = {"csv", "zip"}
+# Zip expansion limits (team-only upload; still guard accidents / bad archives)
+UPLOAD_ZIP_MAX_ARCHIVE_BYTES = int(os.getenv("UPLOAD_ZIP_MAX_ARCHIVE_BYTES", str(2 * 1024**3)))
+UPLOAD_ZIP_MAX_MEMBER_BYTES = int(os.getenv("UPLOAD_ZIP_MAX_MEMBER_BYTES", str(4 * 1024**3)))
+UPLOAD_ZIP_MAX_TOTAL_UNCOMPRESSED_BYTES = int(
+    os.getenv("UPLOAD_ZIP_MAX_TOTAL_UNCOMPRESSED_BYTES", str(24 * 1024**3))
+)
+UPLOAD_ZIP_MAX_CSV_IN_ZIP = int(os.getenv("UPLOAD_ZIP_MAX_CSV_IN_ZIP", "5000"))
 ALLOWED_DBC_EXTENSIONS = {"dbc"}
 PROGRESS = {}
-CURRENT_FILE = {"name": "", "task_id": "", "bucket": ""}
+CURRENT_FILE = {"name": "", "task_id": "", "season": ""}
 WEBHOOK_URL = (
     os.getenv("FILE_UPLOADER_WEBHOOK_URL")
     or os.getenv("SLACK_WEBHOOK_URL")
@@ -175,6 +182,84 @@ def getSeasons() -> list[str]:
         return _seasons_from_env()
 
 
+def _zip_entry_path_safe(arcname: str) -> bool:
+    if not arcname or arcname.startswith(("/", "\\")):
+        return False
+    n = arcname.replace("\\", "/").lstrip("/")
+    return ".." not in n.split("/")
+
+
+def expand_upload_files_to_csv_payloads(files) -> Tuple[List[Tuple[str, bytes]], Optional[str]]:
+    """
+    Normalize multipart uploads to (relative_path, bytes) for stream_multiple_csvs.
+    Plain .csv are stored at basename; each .zip expands to _zN/<basename>.csv under the temp tree.
+    """
+    out: List[Tuple[str, bytes]] = []
+    zip_idx = 0
+    seen_in_zip: set[tuple[int, str]] = set()
+    for f in files:
+        if not f or not f.filename:
+            return [], "Empty file provided"
+        name = f.filename.strip()
+        ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+        data = f.read()
+        if ext == "csv":
+            leaf = os.path.basename(name) or "unknown.csv"
+            out.append((leaf, data))
+        elif ext == "zip":
+            if len(data) > UPLOAD_ZIP_MAX_ARCHIVE_BYTES:
+                return [], (
+                    f"Zip too large: {name} "
+                    f"(max {UPLOAD_ZIP_MAX_ARCHIVE_BYTES // (1024 ** 3)} GiB compressed)"
+                )
+            zip_idx += 1
+            zlabel = zip_idx
+            try:
+                with zipfile.ZipFile(io.BytesIO(data), "r") as z:
+                    infos = [
+                        i
+                        for i in z.infolist()
+                        if not i.is_dir()
+                        and i.filename.lower().endswith(".csv")
+                        and _zip_entry_path_safe(i.filename)
+                    ]
+                    if not infos:
+                        return [], f"No CSV files found in zip: {name}"
+                    if len(infos) > UPLOAD_ZIP_MAX_CSV_IN_ZIP:
+                        return [], f"Too many CSV entries in {name} (max {UPLOAD_ZIP_MAX_CSV_IN_ZIP})"
+                    total_uc = sum(i.file_size for i in infos)
+                    if total_uc > UPLOAD_ZIP_MAX_TOTAL_UNCOMPRESSED_BYTES:
+                        return [], (
+                            f"Zip {name} uncompressed total too large "
+                            f"(max {UPLOAD_ZIP_MAX_TOTAL_UNCOMPRESSED_BYTES // (1024 ** 3)} GiB)"
+                        )
+                    for i in infos:
+                        if i.file_size > UPLOAD_ZIP_MAX_MEMBER_BYTES:
+                            return [], f"CSV inside zip too large: {i.filename} in {name}"
+                        leaf = os.path.basename(i.filename) or "data.csv"
+                        key = (zlabel, leaf.lower())
+                        if key in seen_in_zip:
+                            return [], (
+                                f'Duplicate CSV filename "{leaf}" inside zip {name} '
+                                "(rename one of the files)."
+                            )
+                        seen_in_zip.add(key)
+                        with z.open(i, "r") as fp:
+                            body = fp.read()
+                        if len(body) != i.file_size:
+                            return [], f"Size mismatch for {i.filename} in {name}"
+                        out.append((f"_z{zlabel}/{leaf}", body))
+            except zipfile.BadZipFile:
+                return [], f"Invalid or corrupt zip: {name}"
+            except RuntimeError as e:
+                return [], f"Could not read zip {name}: {e}"
+        else:
+            return [], f"Invalid file type (only .csv and .zip): {name}"
+    if not out:
+        return [], "No CSV data to process"
+    return out, None
+
+
 # This function can send Slack messages to a channel
 def send_webhook_notification(payload_text=None):
     if not WEBHOOK_URL:
@@ -194,8 +279,8 @@ def index():
         "index.html",
         file_name=CURRENT_FILE["name"],
         task_id=CURRENT_FILE["task_id"],
-        current_bucket=CURRENT_FILE["bucket"],
-        bucket_names=getSeasons(),
+        current_season=CURRENT_FILE["season"],
+        season_names=getSeasons(),
     )
 
 
@@ -222,7 +307,7 @@ def create_bucket():
     """Create a new table (season) inside INFLUXDB_DATABASE, not a new InfluxDB database."""
     name = (request.json or {}).get("name", "").strip()
     if not name:
-        return jsonify({"error": "No bucket name provided"}), 400
+        return jsonify({"error": "No season name provided"}), 400
     if len(name) > 256:
         return jsonify({"error": "Name too long (max 256 characters)"}), 400
 
@@ -259,9 +344,9 @@ def upload_file():
                 ),
                 400,
             )
-        bucket = request.form.get("bucket")
-        if not bucket or bucket == "":
-            return "No Bucket Provided", 400
+        season = request.form.get("season")
+        if not season or season == "":
+            return jsonify({"error": "No season selected"}), 400
 
         dbc_github_path = (request.form.get("dbc_github_path") or "").strip()
         dbc_temp_path = None
@@ -319,36 +404,33 @@ def upload_file():
                     dbc_temp_path = tmp.name
                 error_logger.info(f"Custom DBC uploaded: {dbc_file.filename} -> {dbc_temp_path}")
 
-        # Handle multiple CSV files
+        # Handle multiple CSV files and/or zip archives (expanded server-side)
         files = request.files.getlist("file")
         if not files or len(files) == 0:
             return "No Files Provided", 400
 
-        # Validate all files are CSV
         for f in files:
             if not f or not f.filename or f.filename == "":
                 return "Empty file provided", 400
-            content_type = f.mimetype or ""
-            filename = f.filename or ""
-            if content_type != "text/csv" and not filename.lower().endswith('.csv'):
-                return f"Invalid File Type: {filename}. Only CSV files allowed.", 400
 
-        # Calculate total size of all files
-        total_size = 0
-        file_data = []
-        for f in files:
-            data = f.read()
-            total_size += len(data)
-            file_data.append((f.filename or "unknown.csv", data))
-            f.seek(0)  # Reset for potential re-read
+        file_data, expand_err = expand_upload_files_to_csv_payloads(files)
+        if expand_err:
+            return jsonify({"error": expand_err}), 400
 
+        total_size = sum(len(b) for _, b in file_data)
         task_id = str(uuid.uuid4())
         PROGRESS[task_id] = {"pct": 0, "msg": "Starting...", "done": False}
-        file_names = [f.filename or "unknown.csv" for f in files]
-        CURRENT_FILE["name"] = f"{len(files)} CSV files: {', '.join(file_names[:3])}{'...' if len(files) > 3 else ''}"
+        display_names = [os.path.basename(p) for p, _ in file_data[:12]]
+        CURRENT_FILE["name"] = (
+            f"{len(file_data)} CSV file(s): {', '.join(display_names[:3])}"
+            f"{'...' if len(file_data) > 3 else ''}"
+        )
         CURRENT_FILE["task_id"] = str(task_id)
-        CURRENT_FILE["bucket"] = bucket
-        send_webhook_notification(f"Uploading {len(files)} CSV files -> {bucket}: {', '.join(file_names[:3])}{'...' if len(files) > 3 else ''}")
+        CURRENT_FILE["season"] = season
+        send_webhook_notification(
+            f"Uploading {len(file_data)} CSV file(s) -> season {season}: {', '.join(display_names[:3])}"
+            f"{'...' if len(file_data) > 3 else ''}"
+        )
 
         def on_progress(sent: int, total: int):
             try:
@@ -357,12 +439,12 @@ def upload_file():
                 PROGRESS[task_id]["sent"] = sent
                 PROGRESS[task_id]["total"] = total
                 PROGRESS[task_id]["name"] = CURRENT_FILE["name"]
-                PROGRESS[task_id]["bucket"] = bucket
+                PROGRESS[task_id]["season"] = season
                 PROGRESS[task_id]["msg"] = f"Processing... {pct}% ({sent}/{total} rows)"
                 if sent >= total and not PROGRESS[task_id].get("done"):
                     PROGRESS[task_id]["done"] = True
                     send_webhook_notification(
-                        f"File Done Uploading: {CURRENT_FILE['name']} -> {CURRENT_FILE['bucket']}"
+                        f"File Done Uploading: {CURRENT_FILE['name']} -> {CURRENT_FILE['season']}"
                     )
             except:
                 pass
@@ -370,7 +452,9 @@ def upload_file():
         def worker():
             # Auto-configure streamer for file size with InfluxDB-safe settings
             file_size_mb = total_size / (1024 * 1024)
-            streamer = CANInfluxStreamer(bucket=INFLUXDB_DATABASE, table=bucket, dbc_path=dbc_temp_path)
+            streamer = CANInfluxStreamer(
+                database=INFLUXDB_DATABASE, table=season, dbc_path=dbc_temp_path
+            )
 
             try:
                 # Process multiple CSV files using the new method
@@ -427,7 +511,7 @@ def progress_stream(task_id):
             if state.get("done"):
                 CURRENT_FILE["name"] = ""
                 CURRENT_FILE["task_id"] = ""
-                CURRENT_FILE["bucket"] = ""
+                CURRENT_FILE["season"] = ""
                 yield f"data: {json.dumps(state)}\n\n"
                 break
             time.sleep(0.3)
