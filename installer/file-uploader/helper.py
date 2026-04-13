@@ -338,6 +338,41 @@ class CANTimescaleStreamer:
         return n
 
     # ------------------------------------------------------------------
+    # Performance Monitoring
+    # ------------------------------------------------------------------
+
+    def _record_performance_metric(self, rows_count: int, elapsed_seconds: float) -> None:
+        """Record the upload rate (rows/s) to the monitoring table."""
+        if rows_count <= 0 or elapsed_seconds <= 0:
+            return
+
+        rate = rows_count / elapsed_seconds
+        now = datetime.now(timezone.utc)
+        sql = """
+            INSERT INTO monitoring
+                (time, measurement, service, field, value_float, value_text)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """
+        try:
+            with self._get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        sql,
+                        (
+                            now,
+                            "uploader.performance",
+                            "file-uploader",
+                            "rows_per_second",
+                            float(rate),
+                            f"{rows_count:,} rows in {elapsed_seconds:.1f}s",
+                        ),
+                    )
+                conn.commit()
+            print(f"📊 Recorded performance metric: {rate:.0f} rows/s")
+        except Exception as e:
+            print(f"⚠️ Failed to record performance metric: {e}")
+
+    # ------------------------------------------------------------------
     # CSV file processing
     # ------------------------------------------------------------------
 
@@ -501,6 +536,10 @@ class CANTimescaleStreamer:
             # marks the task done, even when the last batch < batch_size
             if on_progress and stats["total"] > 0:
                 on_progress(stats["total"], stats["total"])
+
+            # Record internal performance metric
+            self._record_performance_metric(stats["processed"], elapsed)
+
 
         except Exception as e:
             print(f"❌ Upload error: {e}")
